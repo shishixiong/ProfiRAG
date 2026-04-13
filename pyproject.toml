@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Advanced RAG with LlamaIndex - Pluggable vector storage abstraction"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = { text = "MIT" }
 authors = [
-    {name = "ProfiRAG Team"}
+    { name = "ProfiRAG Team" }
 ]
 keywords = ["rag", "llama-index", "vector-store", "qdrant", "postgres"]
 
@@ -38,6 +38,9 @@ yaml = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+profirag-ingest = "scripts.ingest_documents:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -58,7 +61,15 @@ python_version = "3.10"
 strict = true
 ignore_missing_imports = true
 
-[tool pytest.ini_options]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
