@@ -16,7 +16,6 @@ dependencies = [
     "llama-index-llms-openai>=0.1.0",
     "llama-index-vector-stores-qdrant>=0.1.0",
     "llama-index-vector-stores-postgres>=0.1.0",
-    "llama-index-postprocessor-node>=0.1.0",
     "qdrant-client>=1.7.0",
     "psycopg2-binary>=2.9.0",
     "pgvector>=0.2.0",
@@ -25,6 +24,7 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "jieba>=0.42.1",
     "sentence-transformers>=2.2.0",
+    "torch>=2.0.0,<2.10.0",  # Limit torch version for macOS x86_64 compatibility
 ]
 
 [project.optional-dependencies]
@@ -73,3 +73,17 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+
+[[tool.uv.index]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+fallback = true
+
+# Require torch wheels compatible with macOS x86_64
+[tool.uv]
+required-environments = ["sys_platform == 'darwin' and platform_machine == 'x86_64'"]

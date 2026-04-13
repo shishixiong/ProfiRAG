@@ -1,0 +1,62 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "uv: Sync Dependencies",
+            "type": "shell",
+            "command": "uv sync",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "uv: Run Ingestion",
+            "type": "shell",
+            "command": "uv run python scripts/ingest_documents.py --documents ${workspaceFolder}/documents",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Run Tests",
+            "type": "shell",
+            "command": "uv run pytest tests -v",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Ruff: Format",
+            "type": "shell",
+            "command": "uv run ruff format src scripts tests",
+            "problemMatcher": []
+        },
+        {
+            "label": "Ruff: Lint",
+            "type": "shell",
+            "command": "uv run ruff check src scripts tests --fix",
+            "problemMatcher": []
+        },
+        {
+            "label": "Mypy: Type Check",
+            "type": "shell",
+            "command": "uv run mypy src --ignore-missing-imports",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean: Cache",
+            "type": "shell",
+            "command": "find . -type d -name '__pycache__' -exec rm -rf {} +; find . -type d -name '.pytest_cache' -exec rm -rf {} +; find . -type d -name '.ruff_cache' -exec rm -rf {} +; find . -type d -name '.mypy_cache' -exec rm -rf {} +",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent"
+            }
+        }
+    ]
+}
