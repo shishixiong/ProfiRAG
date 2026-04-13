@@ -1,6 +1,5 @@
 """Configuration management using Pydantic with .env support"""
 
-import os
 from pathlib import Path
 from typing import Dict, Any, Literal, Optional
 
