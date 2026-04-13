@@ -18,7 +18,9 @@ class EnvSettings(BaseSettings):
 
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
+    openai_base_url: Optional[str] = None  # Custom API endpoint for LLM
     openai_embedding_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
+    openai_embedding_base_url: Optional[str] = None  # Custom API endpoint for Embedding, fallback to openai_base_url
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimension: int = 1536
     openai_llm_model: str = "gpt-4-turbo"
@@ -75,6 +77,7 @@ class EmbeddingConfig(BaseModel):
     model: str = "text-embedding-3-small"
     dimension: int = 1536
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 class LLMConfig(BaseModel):
@@ -82,6 +85,7 @@ class LLMConfig(BaseModel):
     provider: Literal["openai"] = "openai"
     model: str = "gpt-4-turbo"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
     temperature: float = 0.0
     max_tokens: Optional[int] = None
 
@@ -168,11 +172,13 @@ class RAGConfig(BaseModel):
                 model=env_settings.openai_embedding_model,
                 dimension=env_settings.openai_embedding_dimension,
                 api_key=env_settings.openai_embedding_api_key or env_settings.openai_api_key,
+                base_url=env_settings.openai_embedding_base_url or env_settings.openai_base_url,
             ),
             llm=LLMConfig(
                 provider="openai",
                 model=env_settings.openai_llm_model,
                 api_key=env_settings.openai_api_key,
+                base_url=env_settings.openai_base_url,
                 temperature=env_settings.openai_llm_temperature,
                 max_tokens=env_settings.openai_llm_max_tokens,
             ),

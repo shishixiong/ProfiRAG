@@ -89,20 +89,27 @@ class RAGPipeline:
 
     def _create_embed_model(self) -> OpenAIEmbedding:
         """Create embedding model."""
-        return OpenAIEmbedding(
-            model=self.config.embedding.model,
-            dimension=self.config.embedding.dimension,
-            api_key=self.config.embedding.api_key,
-        )
+        embed_kwargs = {
+            "model": self.config.embedding.model,
+            "dimension": self.config.embedding.dimension,
+            "api_key": self.config.embedding.api_key,
+        }
+        if self.config.embedding.base_url:
+            embed_kwargs["api_base"] = self.config.embedding.base_url
+        return OpenAIEmbedding(**embed_kwargs)
 
     def _create_llm(self) -> OpenAI:
         """Create LLM instance."""
-        return OpenAI(
-            model=self.config.llm.model,
-            api_key=self.config.llm.api_key,
-            temperature=self.config.llm.temperature,
-            max_tokens=self.config.llm.max_tokens,
-        )
+        llm_kwargs = {
+            "model": self.config.llm.model,
+            "api_key": self.config.llm.api_key,
+            "temperature": self.config.llm.temperature,
+        }
+        if self.config.llm.max_tokens:
+            llm_kwargs["max_tokens"] = self.config.llm.max_tokens
+        if self.config.llm.base_url:
+            llm_kwargs["api_base"] = self.config.llm.base_url
+        return OpenAI(**llm_kwargs)
 
     def _create_vector_store(self) -> BaseVectorStore:
         """Create vector store based on configuration."""
