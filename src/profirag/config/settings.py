@@ -19,6 +19,7 @@ class EnvSettings(BaseSettings):
 
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
+    openai_embedding_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimension: int = 1536
     openai_llm_model: str = "gpt-4-turbo"
@@ -167,7 +168,7 @@ class RAGConfig(BaseModel):
                 provider="openai",
                 model=env_settings.openai_embedding_model,
                 dimension=env_settings.openai_embedding_dimension,
-                api_key=env_settings.openai_api_key,
+                api_key=env_settings.openai_embedding_api_key or env_settings.openai_api_key,
             ),
             llm=LLMConfig(
                 provider="openai",
