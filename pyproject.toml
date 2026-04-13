@@ -1,0 +1,64 @@
+[project]
+name = "profirag"
+version = "0.1.0"
+description = "Advanced RAG with LlamaIndex - Pluggable vector storage abstraction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "ProfiRAG Team"}
+]
+keywords = ["rag", "llama-index", "vector-store", "qdrant", "postgres"]
+
+dependencies = [
+    "llama-index-core>=0.10.0",
+    "llama-index-embeddings-openai>=0.1.0",
+    "llama-index-llms-openai>=0.1.0",
+    "llama-index-vector-stores-qdrant>=0.1.0",
+    "llama-index-vector-stores-postgres>=0.1.0",
+    "llama-index-postprocessor-node>=0.1.0",
+    "qdrant-client>=1.7.0",
+    "psycopg2-binary>=2.9.0",
+    "pgvector>=0.2.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "rank-bm25>=0.2.2",
+    "jieba>=0.42.1",
+    "sentence-transformers>=2.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+yaml = [
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/profirag"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
