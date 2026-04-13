@@ -334,11 +334,14 @@ class RAGPipeline:
         return cls(config)
 
     @classmethod
-    def from_env(cls) -> "RAGPipeline":
-        """Create pipeline from environment variables.
+    def from_env(cls, env_file: Optional[str] = None) -> "RAGPipeline":
+        """Create pipeline from .env file and environment variables.
+
+        Args:
+            env_file: Path to .env file (default: ".env" in current directory)
 
         Returns:
             RAGPipeline instance
         """
-        config = RAGConfig.from_env()
+        config = RAGConfig.from_env(env_file)
         return cls(config)
