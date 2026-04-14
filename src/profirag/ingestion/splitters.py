@@ -209,7 +209,25 @@ class ChineseTextSplitter:
             List of TextNode objects
         """
         nodes = self.split_text(document.text)
+        # Update metadata without setting ref_doc_id directly
         for node in nodes:
-            node.metadata = document.metadata.copy()
-            node.ref_doc_id = document.doc_id
+            node.metadata.update(document.metadata)
+            # Store document ID in metadata instead
+            if document.doc_id:
+                node.metadata["source_doc_id"] = document.doc_id
         return nodes
+
+    def split_documents(self, documents: List[Document]) -> List[TextNode]:
+        """Split multiple Chinese Documents into nodes.
+
+        Args:
+            documents: List of Documents with Chinese text
+
+        Returns:
+            List of TextNode objects
+        """
+        all_nodes = []
+        for doc in documents:
+            nodes = self.split_document(doc)
+            all_nodes.extend(nodes)
+        return all_nodes

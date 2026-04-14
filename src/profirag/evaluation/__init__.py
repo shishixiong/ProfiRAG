@@ -3,6 +3,7 @@
 Provides evaluation capabilities for RAG systems:
 - Retrieval evaluation: hit_rate, mrr, precision, recall, ndcg, ap
 - Response evaluation: faithfulness, relevancy, correctness, answer_relevancy, context_relevancy
+- Chunking evaluation: statistics, quality, retrieval impact comparison
 
 Usage:
     from profirag.evaluation import (
@@ -11,6 +12,7 @@ Usage:
         RAGEvalRunner,
         EvalDataset,
         EvalItem,
+        ChunkingEvaluator,
     )
 
     # Create evaluation dataset
@@ -30,6 +32,12 @@ Usage:
     # Generate dataset from existing pipeline
     from profirag.evaluation import create_dataset_from_pipeline
     dataset = create_dataset_from_pipeline(pipeline, "./eval_data.json")
+
+    # Evaluate chunking strategies
+    from profirag.evaluation import ChunkingEvaluator, parse_config_string
+    evaluator = ChunkingEvaluator()
+    configs = ["sentence:512:50", "chinese:512:50", "sentence:1024:100"]
+    results = evaluator.compare_configs(documents, [parse_config_string(c) for c in configs])
 """
 
 from .dataset import (
@@ -59,6 +67,14 @@ from .runner import (
     RAGEvalResults,
     EvalResultItem,
 )
+from .chunking import (
+    ChunkingEvaluator,
+    ChunkingEvalResult,
+    ChunkingCompareResults,
+    ChunkStatistics,
+    ChunkQualityResult,
+    parse_config_string,
+)
 
 
 __all__ = [
@@ -85,4 +101,11 @@ __all__ = [
     "RAGEvalRunner",
     "RAGEvalResults",
     "EvalResultItem",
+    # Chunking
+    "ChunkingEvaluator",
+    "ChunkingEvalResult",
+    "ChunkingCompareResults",
+    "ChunkStatistics",
+    "ChunkQualityResult",
+    "parse_config_string",
 ]
