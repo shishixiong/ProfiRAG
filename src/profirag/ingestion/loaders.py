@@ -28,11 +28,17 @@ def detect_header_footer_patterns(
     Returns:
         Set of detected header/footer patterns
     """
+    # Pattern for markdown table separator rows (e.g., |---|---|)
+    # Matches lines containing only |, -, :, and whitespace
+    TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+
     lines = text.split("\n")
     # Filter lines by length and clean whitespace
+    # Exclude table separator rows (critical for markdown table formatting)
     candidate_lines = [
         line.strip() for line in lines
         if min_line_length <= len(line.strip()) <= max_line_length
+        and not TABLE_SEPARATOR_PATTERN.match(line.strip())  # Skip table separators
     ]
 
     # Count occurrences
@@ -66,6 +72,10 @@ def filter_header_footer(
     Returns:
         Filtered text without headers/footers
     """
+    # Pattern for markdown table separator rows (e.g., |---|---|)
+    # Matches lines containing only |, -, :, and whitespace
+    TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+
     all_patterns: Set[str] = patterns or set()
 
     # Auto-detect patterns
@@ -87,6 +97,12 @@ def filter_header_footer(
 
     for line in lines:
         stripped = line.strip()
+
+        # Always preserve table separator rows (essential for markdown tables)
+        if TABLE_SEPARATOR_PATTERN.match(stripped):
+            filtered_lines.append(line)
+            continue
+
         # Skip if line matches any header/footer pattern
         if stripped in all_patterns:
             continue
