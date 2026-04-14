@@ -81,3 +81,7 @@ documents/
 # Output directories (build artifacts)
 chunks/
 markdown/
+
+# Evaluation results
+*_results.json
+chunking_results.json
