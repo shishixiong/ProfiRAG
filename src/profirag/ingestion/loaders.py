@@ -1,12 +1,109 @@
 """Document loaders for various file types with pymupdf4llm PDF support"""
 
 import os
+import re
 import tempfile
 import shutil
-from typing import List, Optional, Dict, Any, Union
+from collections import Counter
+from typing import List, Optional, Dict, Any, Union, Set
 from pathlib import Path
 from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
+
+
+def detect_header_footer_patterns(
+    text: str,
+    min_occurrences: int = 3,
+    min_line_length: int = 5,
+    max_line_length: int = 100,
+) -> Set[str]:
+    """Auto-detect header/footer patterns from repeating lines.
+
+    Args:
+        text: Full document text
+        min_occurrences: Minimum occurrences to consider as header/footer
+        min_line_length: Minimum line length to consider
+        max_line_length: Maximum line length to consider (headers are usually short)
+
+    Returns:
+        Set of detected header/footer patterns
+    """
+    lines = text.split("\n")
+    # Filter lines by length and clean whitespace
+    candidate_lines = [
+        line.strip() for line in lines
+        if min_line_length <= len(line.strip()) <= max_line_length
+    ]
+
+    # Count occurrences
+    line_counts = Counter(candidate_lines)
+
+    # Find lines that repeat frequently (likely headers/footers)
+    patterns = {
+        line for line, count in line_counts.items()
+        if count >= min_occurrences
+    }
+
+    return patterns
+
+
+def filter_header_footer(
+    text: str,
+    patterns: Optional[Set[str]] = None,
+    auto_detect: bool = True,
+    min_occurrences: int = 3,
+    custom_patterns: Optional[List[str]] = None,
+) -> str:
+    """Remove header/footer content from text.
+
+    Args:
+        text: Original text
+        patterns: Pre-detected patterns to remove
+        auto_detect: Auto-detect repeating lines as headers/footers
+        min_occurrences: Minimum occurrences for auto-detection
+        custom_patterns: Additional custom regex patterns to remove
+
+    Returns:
+        Filtered text without headers/footers
+    """
+    all_patterns: Set[str] = patterns or set()
+
+    # Auto-detect patterns
+    if auto_detect:
+        detected = detect_header_footer_patterns(
+            text, min_occurrences=min_occurrences
+        )
+        all_patterns.update(detected)
+
+    # Add custom patterns
+    if custom_patterns:
+        all_patterns.update(custom_patterns)
+
+    if not all_patterns:
+        return text
+
+    lines = text.split("\n")
+    filtered_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        # Skip if line matches any header/footer pattern
+        if stripped in all_patterns:
+            continue
+        # Also check if line starts/ends with common header/footer markers
+        skip = False
+        for pattern in all_patterns:
+            if stripped.startswith(pattern) or stripped.endswith(pattern):
+                skip = True
+                break
+        if not skip:
+            filtered_lines.append(line)
+
+    # Join and clean up excessive newlines
+    result = "\n".join(filtered_lines)
+    result = re.sub(r"\n{3,}", "\n\n", result)  # Max 2 consecutive newlines
+
+    return result.strip()
 
 
 class PDFLoader:
@@ -17,12 +114,18 @@ class PDFLoader:
     - Document hierarchy
     - Images (optional)
 
+    Optionally filters out repeating header/footer content.
+
     Args:
         use_pymupdf4llm: Use pymupdf4llm for PDF processing (default True)
         write_images: Extract and save images from PDF
         image_path: Directory to save extracted images (default: temp dir)
         pages: Specific pages to extract (None = all pages)
         as_llama_index_docs: Directly return LlamaIndex Documents
+        exclude_header_footer: Filter out repeating header/footer content
+        header_footer_patterns: Custom regex patterns for header/footer removal
+        header_footer_auto_detect: Auto-detect header/footer patterns
+        header_footer_min_occurrences: Min occurrences for auto-detection
     """
 
     def __init__(
@@ -32,6 +135,10 @@ class PDFLoader:
         image_path: Optional[str] = None,
         pages: Optional[List[int]] = None,
         as_llama_index_docs: bool = True,
+        exclude_header_footer: bool = False,
+        header_footer_patterns: Optional[List[str]] = None,
+        header_footer_auto_detect: bool = True,
+        header_footer_min_occurrences: int = 3,
         **kwargs
     ):
         """Initialize PDF loader.
@@ -42,6 +149,10 @@ class PDFLoader:
             image_path: Path to save images (creates temp dir if None)
             pages: Page numbers to extract (None = all)
             as_llama_index_docs: Return LlamaIndex Documents directly
+            exclude_header_footer: Filter header/footer content
+            header_footer_patterns: Custom patterns for removal
+            header_footer_auto_detect: Auto-detect patterns
+            header_footer_min_occurrences: Min occurrences for detection
             **kwargs: Additional arguments
         """
         self.use_pymupdf4llm = use_pymupdf4llm
@@ -49,6 +160,10 @@ class PDFLoader:
         self.image_path = image_path
         self.pages = pages
         self.as_llama_index_docs = as_llama_index_docs
+        self.exclude_header_footer = exclude_header_footer
+        self.header_footer_patterns = header_footer_patterns
+        self.header_footer_auto_detect = header_footer_auto_detect
+        self.header_footer_min_occurrences = header_footer_min_occurrences
         self.kwargs = kwargs
 
         # Check if pymupdf4llm is available
@@ -109,11 +224,23 @@ class PDFLoader:
                     as_llama_index_docs=True,
                 )
 
-                # Add metadata
+                # Add metadata and apply header/footer filtering
+                if self.exclude_header_footer:
+                    for doc in docs:
+                        original_text = doc.text
+                        filtered_text = filter_header_footer(
+                            original_text,
+                            auto_detect=self.header_footer_auto_detect,
+                            min_occurrences=self.header_footer_min_occurrences,
+                            custom_patterns=self.header_footer_patterns,
+                        )
+                        doc.text = filtered_text
+
                 for doc in docs:
                     doc.metadata["source_file"] = str(path.name)
                     doc.metadata["source_path"] = str(path)
                     doc.metadata["loader"] = "pymupdf4llm"
+                    doc.metadata["header_footer_filtered"] = self.exclude_header_footer
                     if image_dir:
                         doc.metadata["image_path"] = str(image_dir)
 
@@ -127,6 +254,15 @@ class PDFLoader:
                     image_path=str(image_dir) if image_dir else None,
                 )
 
+                # Apply header/footer filtering if enabled
+                if self.exclude_header_footer:
+                    md_text = filter_header_footer(
+                        md_text,
+                        auto_detect=self.header_footer_auto_detect,
+                        min_occurrences=self.header_footer_min_occurrences,
+                        custom_patterns=self.header_footer_patterns,
+                    )
+
                 # Create single Document
                 doc = Document(
                     text=md_text,
@@ -134,6 +270,7 @@ class PDFLoader:
                         "source_file": str(path.name),
                         "source_path": str(path),
                         "loader": "pymupdf4llm",
+                        "header_footer_filtered": self.exclude_header_footer,
                         "image_path": str(image_dir) if image_dir else None,
                     },
                 )
@@ -208,6 +345,10 @@ class DocumentLoader:
         pdf_write_images: Extract images from PDFs
         pdf_image_path: Directory to save extracted PDF images
         pdf_pages: Specific PDF pages to extract
+        exclude_header_footer: Filter out repeating header/footer content
+        header_footer_patterns: Custom patterns for header/footer removal
+        header_footer_auto_detect: Auto-detect header/footer patterns
+        header_footer_min_occurrences: Min occurrences for auto-detection
     """
 
     SUPPORTED_EXTENSIONS = [
@@ -223,6 +364,10 @@ class DocumentLoader:
         pdf_write_images: bool = False,
         pdf_image_path: Optional[str] = None,
         pdf_pages: Optional[List[int]] = None,
+        exclude_header_footer: bool = False,
+        header_footer_patterns: Optional[List[str]] = None,
+        header_footer_auto_detect: bool = True,
+        header_footer_min_occurrences: int = 3,
         **kwargs
     ):
         """Initialize document loader.
@@ -234,6 +379,10 @@ class DocumentLoader:
             pdf_write_images: Extract and save images from PDFs
             pdf_image_path: Directory for PDF images
             pdf_pages: Specific PDF pages to extract
+            exclude_header_footer: Filter header/footer content
+            header_footer_patterns: Custom patterns for removal
+            header_footer_auto_detect: Auto-detect patterns
+            header_footer_min_occurrences: Min occurrences for detection
             **kwargs: Additional arguments
         """
         self.encoding = encoding
@@ -242,6 +391,10 @@ class DocumentLoader:
         self.pdf_write_images = pdf_write_images
         self.pdf_image_path = pdf_image_path
         self.pdf_pages = pdf_pages
+        self.exclude_header_footer = exclude_header_footer
+        self.header_footer_patterns = header_footer_patterns
+        self.header_footer_auto_detect = header_footer_auto_detect
+        self.header_footer_min_occurrences = header_footer_min_occurrences
         self.kwargs = kwargs
 
         # Initialize PDF loader
@@ -250,6 +403,10 @@ class DocumentLoader:
             write_images=pdf_write_images,
             image_path=pdf_image_path,
             pages=pdf_pages,
+            exclude_header_footer=exclude_header_footer,
+            header_footer_patterns=header_footer_patterns,
+            header_footer_auto_detect=header_footer_auto_detect,
+            header_footer_min_occurrences=header_footer_min_occurrences,
         )
 
     def load_directory(
@@ -454,6 +611,7 @@ class DocumentLoader:
         self,
         pdf_path: str,
         output_md_path: str,
+        exclude_header_footer: Optional[bool] = None,
         **kwargs
     ) -> str:
         """Convert PDF to Markdown file and save it.
@@ -461,6 +619,7 @@ class DocumentLoader:
         Args:
             pdf_path: Path to PDF file
             output_md_path: Path to save Markdown file
+            exclude_header_footer: Filter header/footer (uses instance default if None)
             **kwargs: Additional arguments for pymupdf4llm
 
         Returns:
@@ -472,6 +631,9 @@ class DocumentLoader:
         if not path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
+        # Use instance default if not specified
+        do_filter = exclude_header_footer if exclude_header_footer is not None else self.exclude_header_footer
+
         # Convert to Markdown
         md_text = pymupdf4llm.to_markdown(
             doc=pdf_path,
@@ -479,6 +641,15 @@ class DocumentLoader:
             write_images=self.pdf_write_images,
             image_path=self.pdf_image_path,
         )
+
+        # Apply header/footer filtering if enabled
+        if do_filter:
+            md_text = filter_header_footer(
+                md_text,
+                auto_detect=self.header_footer_auto_detect,
+                min_occurrences=self.header_footer_min_occurrences,
+                custom_patterns=self.header_footer_patterns,
+            )
 
         # Save to file
         output_path = Path(output_md_path)
@@ -494,6 +665,10 @@ def convert_pdf_to_markdown(
     write_images: bool = False,
     image_path: Optional[str] = None,
     pages: Optional[List[int]] = None,
+    exclude_header_footer: bool = False,
+    header_footer_patterns: Optional[List[str]] = None,
+    header_footer_auto_detect: bool = True,
+    header_footer_min_occurrences: int = 3,
 ) -> Union[str, List[Document]]:
     """Convenience function to convert PDF to Markdown.
 
@@ -503,6 +678,10 @@ def convert_pdf_to_markdown(
         write_images: Extract images
         image_path: Directory for images
         pages: Specific pages to extract
+        exclude_header_footer: Filter header/footer content
+        header_footer_patterns: Custom patterns for removal
+        header_footer_auto_detect: Auto-detect patterns
+        header_footer_min_occurrences: Min occurrences for detection
 
     Returns:
         Markdown text or path to saved file
@@ -512,6 +691,10 @@ def convert_pdf_to_markdown(
         image_path=image_path,
         pages=pages,
         as_llama_index_docs=False,
+        exclude_header_footer=exclude_header_footer,
+        header_footer_patterns=header_footer_patterns,
+        header_footer_auto_detect=header_footer_auto_detect,
+        header_footer_min_occurrences=header_footer_min_occurrences,
     )
 
     docs = loader.load_pdf(pdf_path)

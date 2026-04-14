@@ -34,6 +34,24 @@ def main():
         default=None,
         help="Specific pages to extract (e.g., '1-5,10,15-20')"
     )
+    parser.add_argument(
+        "--exclude-header-footer",
+        action="store_true",
+        help="Filter out repeating header/footer content (e.g., copyright notices, page numbers)"
+    )
+    parser.add_argument(
+        "--header-footer-min-occurrences",
+        type=int,
+        default=3,
+        help="Minimum occurrences for auto-detecting header/footer (default: 3)"
+    )
+    parser.add_argument(
+        "--header-footer-pattern",
+        type=str,
+        action="append",
+        default=None,
+        help="Custom pattern to filter (can be used multiple times)"
+    )
 
     args = parser.parse_args()
 
@@ -41,6 +59,9 @@ def main():
     pages = None
     if args.pages:
         pages = parse_pages(args.pages)
+
+    # Parse header footer patterns
+    header_footer_patterns = args.header_footer_pattern if args.header_footer_pattern else None
 
     # Create output directory
     output_dir = Path(args.output)
@@ -52,6 +73,10 @@ def main():
         pdf_write_images=args.write_images,
         pdf_image_path=str(output_dir / "images") if args.write_images else None,
         pdf_pages=pages,
+        exclude_header_footer=args.exclude_header_footer,
+        header_footer_patterns=header_footer_patterns,
+        header_footer_auto_detect=True,
+        header_footer_min_occurrences=args.header_footer_min_occurrences,
     )
 
     # Find PDF files
