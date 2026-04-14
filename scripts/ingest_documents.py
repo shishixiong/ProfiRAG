@@ -6,9 +6,23 @@ This script ingests documents from a directory into the vector store
 using the configuration from .env file.
 
 Usage:
+    # Basic usage (uses splitter config from .env)
     python scripts/ingest_documents.py --documents ./documents
-    python scripts/ingest_documents.py --documents ./documents --recursive
+
+    # Use Chinese splitter for Chinese documents
+    python scripts/ingest_documents.py --documents ./documents --splitter chinese
+
+    # Override chunk size and overlap
+    python scripts/ingest_documents.py --documents ./documents --splitter sentence --chunk-size 1024 --chunk-overlap 100
+
+    # Ingest a single file
     python scripts/ingest_documents.py --file ./documents/example.pdf
+
+Splitter types:
+    - sentence: Split by sentences (default)
+    - token: Split by token count
+    - semantic: Split by semantic similarity (requires embedding)
+    - chinese: Optimized for Chinese text
 """
 
 import argparse
@@ -22,15 +36,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from profirag.ingestion.loaders import DocumentLoader
+from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
 
 
 def ingest_directory(
     documents_dir: str,
     env_file: str = ".env",
     recursive: bool = True,
-    chunk_size: int = 512,
-    chunk_overlap: int = 50,
     show_progress: bool = True,
+    splitter_type: str = None,
+    chunk_size: int = None,
+    chunk_overlap: int = None,
 ) -> dict:
     """Ingest documents from a directory into the RAG pipeline.
 
@@ -38,9 +54,10 @@ def ingest_directory(
         documents_dir: Path to documents directory
         env_file: Path to .env configuration file
         recursive: Whether to search subdirectories
-        chunk_size: Chunk size for text splitting
-        chunk_overlap: Overlap between chunks
         show_progress: Show progress information
+        splitter_type: Override splitter type (sentence, token, semantic, chinese)
+        chunk_size: Override chunk size
+        chunk_overlap: Override chunk overlap
 
     Returns:
         Dictionary with ingestion statistics
@@ -50,12 +67,23 @@ def ingest_directory(
         print(f"Loading configuration from {env_file}...")
     config = load_config(env_file)
 
+    # Override chunking settings if provided
+    if splitter_type:
+        config.chunking.splitter_type = splitter_type
+    if chunk_size:
+        config.chunking.chunk_size = chunk_size
+    if chunk_overlap:
+        config.chunking.chunk_overlap = chunk_overlap
+
     # Initialize pipeline
     if show_progress:
         print(f"Initializing RAG pipeline...")
         print(f"  - Embedding model: {config.embedding.model}")
         print(f"  - LLM model: {config.llm.model}")
         print(f"  - Storage type: {config.storage.type}")
+        print(f"  - Splitter: {config.chunking.splitter_type}")
+        print(f"  - Chunk size: {config.chunking.chunk_size}")
+        print(f"  - Chunk overlap: {config.chunking.chunk_overlap}")
 
     pipeline = RAGPipeline(config)
 
@@ -209,16 +237,24 @@ def main():
         help="Do not search subdirectories",
     )
     parser.add_argument(
+        "--splitter",
+        "-s",
+        type=str,
+        choices=["sentence", "token", "semantic", "chinese"],
+        default=None,
+        help="Splitter type (default: from .env or 'sentence')",
+    )
+    parser.add_argument(
         "--chunk-size",
         type=int,
-        default=512,
-        help="Chunk size for text splitting (default: 512)",
+        default=None,
+        help="Chunk size (default: from .env or 512)",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=50,
-        help="Chunk overlap (default: 50)",
+        default=None,
+        help="Chunk overlap (default: from .env or 50)",
     )
     parser.add_argument(
         "--quiet",
@@ -245,6 +281,7 @@ def main():
                 documents_dir=args.documents,
                 env_file=args.env,
                 recursive=args.recursive,
+                splitter_type=args.splitter,
                 chunk_size=args.chunk_size,
                 chunk_overlap=args.chunk_overlap,
                 show_progress=show_progress,

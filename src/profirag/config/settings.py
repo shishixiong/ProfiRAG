@@ -48,6 +48,12 @@ class EnvSettings(BaseSettings):
     local_storage_path: str = "./storage"
     local_collection_name: str = "default"
 
+    # Chunking Configuration
+    profirag_splitter_type: Literal["sentence", "token", "semantic", "chinese"] = "sentence"
+    profirag_chunk_size: int = 512
+    profirag_chunk_overlap: int = 50
+    profirag_language: Literal["en", "zh"] = "en"
+
     # Retrieval Configuration
     profirag_top_k: int = 10
     profirag_alpha: float = 0.5
@@ -98,6 +104,14 @@ class PreRetrievalConfig(BaseModel):
     hyde_prompt: Optional[str] = None
 
 
+class ChunkingConfig(BaseModel):
+    """Chunking configuration"""
+    splitter_type: Literal["sentence", "token", "semantic", "chinese"] = "sentence"
+    chunk_size: int = 512
+    chunk_overlap: int = 50
+    language: Literal["en", "zh"] = "en"
+
+
 class RetrievalConfig(BaseModel):
     """Retrieval configuration"""
     top_k: int = 10
@@ -124,6 +138,7 @@ class RAGConfig(BaseModel):
     storage: StorageConfig
     embedding: EmbeddingConfig = EmbeddingConfig()
     llm: LLMConfig = LLMConfig()
+    chunking: ChunkingConfig = ChunkingConfig()
     pre_retrieval: PreRetrievalConfig = PreRetrievalConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     reranking: RerankingConfig = RerankingConfig()
@@ -181,6 +196,12 @@ class RAGConfig(BaseModel):
                 base_url=env_settings.openai_base_url,
                 temperature=env_settings.openai_llm_temperature,
                 max_tokens=env_settings.openai_llm_max_tokens,
+            ),
+            chunking=ChunkingConfig(
+                splitter_type=env_settings.profirag_splitter_type,
+                chunk_size=env_settings.profirag_chunk_size,
+                chunk_overlap=env_settings.profirag_chunk_overlap,
+                language=env_settings.profirag_language,
             ),
             pre_retrieval=PreRetrievalConfig(
                 use_hyde=env_settings.profirag_use_hyde,

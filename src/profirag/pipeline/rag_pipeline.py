@@ -14,6 +14,7 @@ from ..retrieval.query_transform import PreRetrievalPipeline
 from ..retrieval.hybrid import HybridRetriever, BM25Index
 from ..retrieval.reranker import Reranker
 from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
+from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
 
 
 class RAGPipeline:
@@ -87,6 +88,25 @@ class RAGPipeline:
             streaming=config.generation.streaming,
         )
 
+        # Initialize splitter
+        self._splitter = self._create_splitter()
+
+    def _create_splitter(self):
+        """Create text splitter based on configuration."""
+        chunking = self.config.chunking
+        if chunking.splitter_type == "chinese" or chunking.language == "zh":
+            return ChineseTextSplitter(
+                chunk_size=chunking.chunk_size,
+                chunk_overlap=chunking.chunk_overlap,
+            )
+        else:
+            return TextSplitter(
+                splitter_type=chunking.splitter_type,
+                chunk_size=chunking.chunk_size,
+                chunk_overlap=chunking.chunk_overlap,
+                embed_model=self._embed_model if chunking.splitter_type == "semantic" else None,
+            )
+
     def _create_embed_model(self) -> CustomOpenAIEmbedding:
         """Create embedding model."""
         embed_kwargs = {
@@ -134,6 +154,7 @@ class RAGPipeline:
         self,
         documents: List[Document],
         update_bm25: bool = True,
+        use_custom_splitter: bool = True,
         **kwargs
     ) -> List[str]:
         """Ingest documents into the vector store.
@@ -141,25 +162,37 @@ class RAGPipeline:
         Args:
             documents: List of Document objects to ingest
             update_bm25: Update BM25 index with new nodes
+            use_custom_splitter: Use configured splitter (True) or llama_index default (False)
             **kwargs: Additional arguments for ingestion
 
         Returns:
             List of document IDs that were ingested
         """
-        # Add documents to index
-        for doc in documents:
-            self._index.insert(doc, **kwargs)
+        if use_custom_splitter:
+            # Split documents using configured splitter
+            nodes = self._splitter.split_documents(documents)
+            # Insert nodes directly
+            for node in nodes:
+                self._index.insert_nodes([node], **kwargs)
 
-        # Update BM25 index if enabled
-        if update_bm25 and self._bm25_index:
-            # Get nodes from ingested documents
+            # Update BM25 index if enabled
+            if update_bm25 and self._bm25_index:
+                self._bm25_index.add_nodes(nodes)
+        else:
+            # Add documents to index (uses llama_index default chunking)
             for doc in documents:
-                ref_doc_info = self._vector_store.get_ref_doc_info(doc.doc_id)
-                if ref_doc_info:
-                    for node_id in ref_doc_info.node_ids:
-                        node = self._vector_store.get_node(node_id)
-                        if node:
-                            self._bm25_index.add_nodes([node])
+                self._index.insert(doc, **kwargs)
+
+            # Update BM25 index if enabled
+            if update_bm25 and self._bm25_index:
+                # Get nodes from ingested documents
+                for doc in documents:
+                    ref_doc_info = self._vector_store.get_ref_doc_info(doc.doc_id)
+                    if ref_doc_info:
+                        for node_id in ref_doc_info.node_ids:
+                            node = self._vector_store.get_node(node_id)
+                            if node:
+                                self._bm25_index.add_nodes([node])
 
         return [doc.doc_id for doc in documents]
 
@@ -171,15 +204,19 @@ class RAGPipeline:
     ) -> List[str]:
         """Ingest nodes directly into the vector store.
 
+        Nodes will be automatically embedded using the configured embedding model.
+
         Args:
-            nodes: List of TextNode objects
+            nodes: List of TextNode objects (embedding will be generated if not set)
             update_bm25: Update BM25 index
             **kwargs: Additional arguments
 
         Returns:
             List of node IDs
         """
-        node_ids = self._vector_store.add(nodes, **kwargs)
+        # Use index to insert nodes (auto-generates embeddings)
+        self._index.insert_nodes(nodes, **kwargs)
+        node_ids = [node.node_id for node in nodes]
 
         if update_bm25 and self._bm25_index:
             self._bm25_index.add_nodes(nodes)
