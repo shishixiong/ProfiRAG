@@ -25,6 +25,7 @@ dependencies = [
     "jieba>=0.42.1",
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0,<2.10.0",  # Limit torch version for macOS x86_64 compatibility
+    "pymupdf4llm>=0.0.5",    # PDF to Markdown conversion preserving tables
 ]
 
 [project.optional-dependencies]
