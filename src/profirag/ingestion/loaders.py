@@ -122,6 +122,73 @@ def filter_header_footer(
     return result.strip()
 
 
+# Pattern for detecting numbered headings in markdown
+# Matches various formats:
+# - ## **1** heading text (number wrapped in **)
+# - ## **1.1 gsql** heading text (partial bold)
+# - ## 1 heading text (plain)
+# - ## 1.1.1 heading text (plain)
+HEADING_NUMBER_PATTERN = re.compile(
+    r'^(#+)\s*'  # Markdown heading prefix (##, ###, etc.)
+    r'(?:\*{2})?'  # Optional opening bold marker **
+    r'(\d+(?:\.\d+)*)'  # Section number: 1, 1.1, 1.1.1, etc.
+    r'(?:\*{2})?\s+'  # Optional closing bold ** followed by space
+)
+
+
+def fix_heading_levels(text: str) -> str:
+    """Fix markdown heading levels based on section number format.
+
+    When PDFs are converted to markdown, heading levels may be incorrect
+    because pymupdf4llm uses font size detection which can be unreliable
+    when headings are composed of multiple spans with different sizes.
+
+    This function corrects heading levels based on the section number:
+    - "1" → level 1 (h1)
+    - "1.1" → level 2 (h2)
+    - "1.1.1" → level 3 (h3)
+    - "1.1.1.1" → level 4 (h4)
+    - etc.
+
+    Args:
+        text: Markdown text with potentially incorrect heading levels
+
+    Returns:
+        Markdown text with corrected heading levels
+    """
+    lines = text.split("\n")
+    fixed_lines = []
+
+    for line in lines:
+        match = HEADING_NUMBER_PATTERN.match(line)
+        if match:
+            existing_prefix = match.group(1)  # e.g., ##
+            number = match.group(2)  # e.g., 1.1.1
+
+            # Calculate level from number format
+            # 1 → level 1, 1.1 → level 2, 1.1.1 → level 3
+            level = number.count(".") + 1
+
+            # Cap at maximum markdown heading level (6)
+            level = min(level, 6)
+
+            # Get the rest of the line after the matched portion
+            rest = line[match.end():]
+
+            # Clean up remaining bold markers in heading text
+            # Remove trailing ** that might be left from partial bold formatting
+            rest = re.sub(r'\*{2}(?:\s|$)', '', rest)  # Remove ** followed by space or end
+            rest = re.sub(r'^\*{2}\s*', '', rest)  # Remove leading ** at start of rest
+
+            # Build new line with correct heading level
+            new_line = "#" * level + " " + number + " " + rest.strip()
+            fixed_lines.append(new_line)
+        else:
+            fixed_lines.append(line)
+
+    return "\n".join(fixed_lines)
+
+
 class PDFLoader:
     """PDF document loader using pymupdf4llm for Markdown conversion.
 
@@ -130,7 +197,8 @@ class PDFLoader:
     - Document hierarchy
     - Images (optional)
 
-    Optionally filters out repeating header/footer content.
+    Optionally filters out repeating header/footer content and fixes
+    heading levels based on section number format.
 
     Args:
         use_pymupdf4llm: Use pymupdf4llm for PDF processing (default True)
@@ -142,6 +210,7 @@ class PDFLoader:
         header_footer_patterns: Custom regex patterns for header/footer removal
         header_footer_auto_detect: Auto-detect header/footer patterns
         header_footer_min_occurrences: Min occurrences for auto-detection
+        fix_heading_levels: Fix heading levels based on section numbers (e.g., 1.1.1)
     """
 
     def __init__(
@@ -155,6 +224,7 @@ class PDFLoader:
         header_footer_patterns: Optional[List[str]] = None,
         header_footer_auto_detect: bool = True,
         header_footer_min_occurrences: int = 3,
+        fix_heading_levels: bool = True,
         **kwargs
     ):
         """Initialize PDF loader.
@@ -169,6 +239,7 @@ class PDFLoader:
             header_footer_patterns: Custom patterns for removal
             header_footer_auto_detect: Auto-detect patterns
             header_footer_min_occurrences: Min occurrences for detection
+            fix_heading_levels: Fix heading levels based on section numbers
             **kwargs: Additional arguments
         """
         self.use_pymupdf4llm = use_pymupdf4llm
@@ -180,6 +251,7 @@ class PDFLoader:
         self.header_footer_patterns = header_footer_patterns
         self.header_footer_auto_detect = header_footer_auto_detect
         self.header_footer_min_occurrences = header_footer_min_occurrences
+        self.fix_heading_levels = fix_heading_levels
         self.kwargs = kwargs
 
         # Check if pymupdf4llm is available
@@ -252,11 +324,17 @@ class PDFLoader:
                         )
                         doc.text = filtered_text
 
+                # Fix heading levels based on section numbers
+                if self.fix_heading_levels:
+                    for doc in docs:
+                        doc.text = fix_heading_levels(doc.text)
+
                 for doc in docs:
                     doc.metadata["source_file"] = str(path.name)
                     doc.metadata["source_path"] = str(path)
                     doc.metadata["loader"] = "pymupdf4llm"
                     doc.metadata["header_footer_filtered"] = self.exclude_header_footer
+                    doc.metadata["heading_levels_fixed"] = self.fix_heading_levels
                     if image_dir:
                         doc.metadata["image_path"] = str(image_dir)
 
@@ -279,6 +357,10 @@ class PDFLoader:
                         custom_patterns=self.header_footer_patterns,
                     )
 
+                # Fix heading levels based on section numbers
+                if self.fix_heading_levels:
+                    md_text = fix_heading_levels(md_text)
+
                 # Create single Document
                 doc = Document(
                     text=md_text,
@@ -287,6 +369,7 @@ class PDFLoader:
                         "source_path": str(path),
                         "loader": "pymupdf4llm",
                         "header_footer_filtered": self.exclude_header_footer,
+                        "heading_levels_fixed": self.fix_heading_levels,
                         "image_path": str(image_dir) if image_dir else None,
                     },
                 )
@@ -365,6 +448,7 @@ class DocumentLoader:
         header_footer_patterns: Custom patterns for header/footer removal
         header_footer_auto_detect: Auto-detect header/footer patterns
         header_footer_min_occurrences: Min occurrences for auto-detection
+        fix_heading_levels: Fix heading levels based on section numbers (e.g., 1.1.1)
     """
 
     SUPPORTED_EXTENSIONS = [
@@ -384,6 +468,7 @@ class DocumentLoader:
         header_footer_patterns: Optional[List[str]] = None,
         header_footer_auto_detect: bool = True,
         header_footer_min_occurrences: int = 3,
+        fix_heading_levels: bool = True,
         **kwargs
     ):
         """Initialize document loader.
@@ -399,6 +484,7 @@ class DocumentLoader:
             header_footer_patterns: Custom patterns for removal
             header_footer_auto_detect: Auto-detect patterns
             header_footer_min_occurrences: Min occurrences for detection
+            fix_heading_levels: Fix heading levels based on section numbers
             **kwargs: Additional arguments
         """
         self.encoding = encoding
@@ -411,6 +497,7 @@ class DocumentLoader:
         self.header_footer_patterns = header_footer_patterns
         self.header_footer_auto_detect = header_footer_auto_detect
         self.header_footer_min_occurrences = header_footer_min_occurrences
+        self.fix_heading_levels = fix_heading_levels
         self.kwargs = kwargs
 
         # Initialize PDF loader
@@ -423,6 +510,7 @@ class DocumentLoader:
             header_footer_patterns=header_footer_patterns,
             header_footer_auto_detect=header_footer_auto_detect,
             header_footer_min_occurrences=header_footer_min_occurrences,
+            fix_heading_levels=fix_heading_levels,
         )
 
     def load_directory(
@@ -628,6 +716,7 @@ class DocumentLoader:
         pdf_path: str,
         output_md_path: str,
         exclude_header_footer: Optional[bool] = None,
+        fix_headings: Optional[bool] = None,
         **kwargs
     ) -> str:
         """Convert PDF to Markdown file and save it.
@@ -636,6 +725,7 @@ class DocumentLoader:
             pdf_path: Path to PDF file
             output_md_path: Path to save Markdown file
             exclude_header_footer: Filter header/footer (uses instance default if None)
+            fix_headings: Fix heading levels (uses instance default if None)
             **kwargs: Additional arguments for pymupdf4llm
 
         Returns:
@@ -647,8 +737,9 @@ class DocumentLoader:
         if not path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
-        # Use instance default if not specified
+        # Use instance defaults if not specified
         do_filter = exclude_header_footer if exclude_header_footer is not None else self.exclude_header_footer
+        do_fix_headings = fix_headings if fix_headings is not None else self.fix_heading_levels
 
         # Convert to Markdown
         md_text = pymupdf4llm.to_markdown(
@@ -666,6 +757,10 @@ class DocumentLoader:
                 min_occurrences=self.header_footer_min_occurrences,
                 custom_patterns=self.header_footer_patterns,
             )
+
+        # Fix heading levels based on section numbers
+        if do_fix_headings:
+            md_text = fix_heading_levels(md_text)
 
         # Save to file
         output_path = Path(output_md_path)
@@ -685,6 +780,7 @@ def convert_pdf_to_markdown(
     header_footer_patterns: Optional[List[str]] = None,
     header_footer_auto_detect: bool = True,
     header_footer_min_occurrences: int = 3,
+    fix_heading_levels: bool = True,
 ) -> Union[str, List[Document]]:
     """Convenience function to convert PDF to Markdown.
 
@@ -698,6 +794,7 @@ def convert_pdf_to_markdown(
         header_footer_patterns: Custom patterns for removal
         header_footer_auto_detect: Auto-detect patterns
         header_footer_min_occurrences: Min occurrences for detection
+        fix_heading_levels: Fix heading levels based on section numbers
 
     Returns:
         Markdown text or path to saved file
@@ -711,6 +808,7 @@ def convert_pdf_to_markdown(
         header_footer_patterns=header_footer_patterns,
         header_footer_auto_detect=header_footer_auto_detect,
         header_footer_min_occurrences=header_footer_min_occurrences,
+        fix_heading_levels=fix_heading_levels,
     )
 
     docs = loader.load_pdf(pdf_path)
