@@ -72,6 +72,12 @@ class BM25Index:
             return
 
         corpus = [self._tokenize(node.text) for node in self.nodes]
+        # Filter out empty tokenized texts to avoid ZeroDivisionError
+        corpus = [tokens for tokens in corpus if tokens]
+        if not corpus:
+            self._bm25 = None
+            return
+
         self._bm25 = BM25Okapi(corpus, **self.bm25_kwargs)
 
     def retrieve(

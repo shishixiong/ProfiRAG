@@ -4,10 +4,10 @@ from typing import List, Dict, Any, Optional
 from llama_index.core import VectorStoreIndex, Document
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
-from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 
 from ..config.settings import RAGConfig
+from ..embedding import CustomOpenAIEmbedding
 from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
 from ..retrieval.query_transform import PreRetrievalPipeline
@@ -87,16 +87,17 @@ class RAGPipeline:
             streaming=config.generation.streaming,
         )
 
-    def _create_embed_model(self) -> OpenAIEmbedding:
+    def _create_embed_model(self) -> CustomOpenAIEmbedding:
         """Create embedding model."""
         embed_kwargs = {
             "model": self.config.embedding.model,
-            "dimension": self.config.embedding.dimension,
             "api_key": self.config.embedding.api_key,
         }
+        if self.config.embedding.dimension:
+            embed_kwargs["dimensions"] = self.config.embedding.dimension
         if self.config.embedding.base_url:
             embed_kwargs["api_base"] = self.config.embedding.base_url
-        return OpenAIEmbedding(**embed_kwargs)
+        return CustomOpenAIEmbedding(**embed_kwargs)
 
     def _create_llm(self) -> OpenAI:
         """Create LLM instance."""

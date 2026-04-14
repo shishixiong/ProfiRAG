@@ -1,8 +1,9 @@
 """Re-ranking component for post-retrieval processing"""
 
 from typing import List, Optional, Any
-from llama_index.core.schema import NodeWithScore
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.bridge.pydantic import Field, PrivateAttr
 
 
 class CrossEncoderReranker(BaseNodePostprocessor):
@@ -11,6 +12,16 @@ class CrossEncoderReranker(BaseNodePostprocessor):
     Uses a cross-encoder model to compute relevance scores for
     query-document pairs and reorder results.
     """
+
+    model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="Cross-encoder model name or path"
+    )
+    top_n: int = Field(default=5, description="Number of results to return")
+    batch_size: int = Field(default=32, description="Batch size for encoding")
+    device: Optional[str] = Field(default=None, description="Device to use")
+
+    _model: Any = PrivateAttr(default=None)
 
     def __init__(
         self,
@@ -31,38 +42,39 @@ class CrossEncoderReranker(BaseNodePostprocessor):
             device: Device to use ("cuda", "cpu", None for auto)
             **kwargs: Additional arguments
         """
-        super().__init__(**kwargs)
-        self.model_name = model
-        self.top_n = top_n
-        self.batch_size = batch_size
-        self.device = device
+        super().__init__(
+            model=model,
+            top_n=top_n,
+            batch_size=batch_size,
+            device=device,
+            **kwargs
+        )
         self._model = None
 
     def _load_model(self) -> None:
         """Load cross-encoder model."""
         if self._model is None:
             from sentence_transformers import CrossEncoder
-            self._model = CrossEncoder(self.model_name, device=self.device)
+            self._model = CrossEncoder(self.model, device=self.device)
 
-    def postprocess_nodes(
+    def _postprocess_nodes(
         self,
         nodes: List[NodeWithScore],
-        query_str: Optional[str] = None,
-        **kwargs
+        query_bundle: Optional[QueryBundle] = None,
     ) -> List[NodeWithScore]:
         """Rerank nodes based on cross-encoder scores.
 
         Args:
             nodes: List of NodeWithScore objects to rerank
-            query_str: Query string for scoring
-            **kwargs: Additional arguments
+            query_bundle: QueryBundle containing the query string
 
         Returns:
             Reranked list of NodeWithScore objects
         """
-        if not nodes or not query_str:
+        if not nodes or not query_bundle:
             return nodes
 
+        query_str = query_bundle.query_str
         self._load_model()
 
         # Prepare query-document pairs

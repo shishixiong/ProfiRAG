@@ -3,7 +3,7 @@
 from typing import List, Optional, Dict, Any
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.response_synthesizers import (
-    ResponseSynthesizer as LlamaResponseSynthesizer,
+    BaseSynthesizer as LlamaResponseSynthesizer,
     get_response_synthesizer,
 )
 
