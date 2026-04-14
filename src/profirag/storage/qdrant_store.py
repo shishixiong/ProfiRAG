@@ -6,6 +6,7 @@ from llama_index.core.storage.docstore.types import RefDocInfo
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, CollectionStatus
+from qdrant_client.async_qdrant_client import AsyncQdrantClient
 
 from .base import BaseVectorStore
 from .registry import StorageRegistry
@@ -25,6 +26,7 @@ class QdrantStore(BaseVectorStore):
         dimension: int = 1536,
         distance: str = "Cosine",
         prefer_grpc: bool = False,
+        aclient: Optional[AsyncQdrantClient] = None,
         **kwargs
     ):
         """Initialize Qdrant vector store.
@@ -35,10 +37,12 @@ class QdrantStore(BaseVectorStore):
             dimension: Vector dimension (default 1536 for OpenAI embeddings)
             distance: Distance metric ("Cosine", "Euclidean", "Dot")
             prefer_grpc: Whether to use gRPC for communication
+            aclient: Optional AsyncQdrantClient for async operations
             **kwargs: Additional arguments
         """
         self.collection_name = collection_name
         self._client = client
+        self._aclient = aclient
         self.dimension = dimension
         self.distance = Distance[distance.upper()]
 
@@ -50,6 +54,7 @@ class QdrantStore(BaseVectorStore):
             client=client,
             collection_name=collection_name,
             prefer_grpc=prefer_grpc,
+            aclient=aclient,  # Pass async client for async operations
             **kwargs
         )
 
@@ -235,9 +240,19 @@ class QdrantStore(BaseVectorStore):
                 url=config.get("url"),
                 api_key=config.get("api_key"),
             )
+            aclient = AsyncQdrantClient(
+                url=config.get("url"),
+                api_key=config.get("api_key"),
+            )
         else:
             # Local deployment
             client = QdrantClient(
+                host=config.get("host", "localhost"),
+                port=config.get("port", 6333),
+                api_key=config.get("api_key"),
+                prefer_grpc=config.get("prefer_grpc", False),
+            )
+            aclient = AsyncQdrantClient(
                 host=config.get("host", "localhost"),
                 port=config.get("port", 6333),
                 api_key=config.get("api_key"),
@@ -247,6 +262,7 @@ class QdrantStore(BaseVectorStore):
         return cls(
             collection_name=config["collection_name"],
             client=client,
+            aclient=aclient,
             dimension=config.get("dimension", 1536),
             distance=config.get("distance", "Cosine"),
             prefer_grpc=config.get("prefer_grpc", False),

@@ -2,18 +2,20 @@
 """
 ProfiRAG Retrieval Evaluation Flow
 
-This script performs a complete retrieval evaluation:
-1. Load documents from markdown directory
-2. Chunk documents and ingest into vector store
-3. Generate evaluation dataset using real node IDs
-4. Run retrieval evaluation
+This script performs retrieval evaluation:
+1. (Optional) Load documents, chunk, and ingest into vector store
+2. Generate evaluation dataset using real node IDs
+3. Run retrieval evaluation
 
 Usage:
-    # Full evaluation pipeline
-    uv run python scripts/eval_retrieval_flow.py
+    # Full flow: ingest + evaluate
+    uv run python scripts/eval_retrieval_flow.py --num-samples 15 --splitter chinese
+
+    # Skip ingestion, use existing vector store
+    uv run python scripts/eval_retrieval_flow.py --skip-ingest --num-samples 15 --top-k 10
 
     # Specify options
-    uv run python scripts/eval_retrieval_flow.py --num-samples 20 --splitter chinese --top-k 5
+    uv run python scripts/eval_retrieval_flow.py --skip-ingest --num-samples 20 --top-k 5
 """
 
 import argparse
@@ -36,6 +38,7 @@ from profirag.ingestion.loaders import DocumentLoader
 from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
 from profirag.evaluation.dataset import EvalDataset, EvalItem
 from profirag.evaluation.retrieval import RetrievalEvaluator
+from llama_index.core.schema import TextNode
 
 
 def extract_keywords_from_text(text: str, max_keywords: int = 5) -> List[str]:
@@ -80,13 +83,14 @@ def run_retrieval_evaluation(
     documents_dir: str,
     num_samples: int = 15,
     splitter_type: str = "chinese",
-    chunk_size: int = 512,
-    chunk_overlap: int = 50,
+    chunk_size: int = 1024,
+    chunk_overlap: int = 100,
     top_k: int = 10,
     metrics: List[str] = ["hit_rate", "mrr", "precision", "recall"],
     env_file: str = ".env",
     output_path: str = None,
     show_progress: bool = True,
+    skip_ingest: bool = False,
 ) -> Dict[str, Any]:
     """Run complete retrieval evaluation flow.
 
@@ -101,6 +105,7 @@ def run_retrieval_evaluation(
         env_file: Path to .env file
         output_path: Path to save results
         show_progress: Show progress output
+        skip_ingest: Skip ingestion step, use existing vector store data
 
     Returns:
         Dictionary with evaluation results
@@ -114,65 +119,156 @@ def run_retrieval_evaluation(
 
     config = load_config(env_file)
 
-    # Override chunking config
-    config.chunking.splitter_type = splitter_type
-    config.chunking.chunk_size = chunk_size
-    config.chunking.chunk_overlap = chunk_overlap
-
-    # 2. Load documents
-    if show_progress:
-        print(f"\n[2] Loading documents from {documents_dir}...")
-
-    loader = DocumentLoader(encoding="utf-8")
-    documents = loader.load_directory(documents_dir, recursive=True)
-
-    if not documents:
-        print(f"Error: No documents found in {documents_dir}")
-        return {"error": "No documents found"}
-
-    if show_progress:
-        print(f"  - Loaded {len(documents)} documents")
-
-    # 3. Create splitter and chunk documents
-    if show_progress:
-        print(f"\n[3] Chunking documents...")
-        print(f"  - Splitter: {splitter_type}")
-        print(f"  - Chunk size: {chunk_size}")
-        print(f"  - Chunk overlap: {chunk_overlap}")
-
-    if splitter_type == "chinese":
-        splitter = ChineseTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    else:
-        splitter = TextSplitter(splitter_type=splitter_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-    nodes = splitter.split_documents(documents)
-
-    if show_progress:
-        print(f"  - Generated {len(nodes)} chunks")
-        lengths = [len(n.text) for n in nodes]
-        print(f"  - Avg chunk length: {sum(lengths)/len(lengths):.1f}")
-
-    # 4. Initialize pipeline and ingest nodes
-    if show_progress:
-        print(f"\n[4] Initializing vector store and ingesting chunks...")
-
+    # Initialize pipeline first (needed for both modes)
     pipeline = RAGPipeline(config)
 
-    # Clear existing data if needed
-    # pipeline.clear()
+    if skip_ingest:
+        # Skip ingestion - use existing vector store data
+        if show_progress:
+            print(f"\n[SKIP] Skipping ingestion, using existing vector store data...")
+            stats = pipeline.get_stats()
+            print(f"  - Vector store count: {stats['vector_store']['count']}")
+            print(f"  - BM25 index count: {stats['bm25_index']['count']}")
 
-    # Ingest nodes
-    node_ids = pipeline.ingest_nodes(nodes, update_bm25=True)
+        # Get nodes from existing vector store by directly accessing storage
+        if show_progress:
+            print(f"\n[2] Loading nodes from vector store...")
 
+        vector_store = pipeline._vector_store
+        count = vector_store.count()
+
+        if count == 0:
+            print("Error: Vector store is empty")
+            return {"error": "Vector store is empty"}
+
+        # Use Qdrant scroll API to get all nodes without embedding
+        nodes = []
+        try:
+            # For Qdrant, we can scroll through all points
+            if hasattr(vector_store, '_client') and hasattr(vector_store._client, 'scroll'):
+                import json as json_lib
+                from qdrant_client.http.models import Filter
+                results, _ = vector_store._client.scroll(
+                    collection_name=vector_store.collection_name,
+                    limit=num_samples + 50,  # Get enough nodes
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in results:
+                    # Text is stored in _node_content as JSON
+                    node_content = point.payload.get("_node_content", "{}")
+                    try:
+                        content_data = json_lib.loads(node_content)
+                        text = content_data.get("text", "")
+                    except:
+                        text = ""
+
+                    metadata = point.payload.get("metadata", {})
+                    node_id = str(point.id)
+                    if text:  # Only add nodes with text
+                        nodes.append(TextNode(
+                            id_=node_id,
+                            text=text,
+                            metadata=metadata,
+                        ))
+        except Exception as e:
+            print(f"  Warning: Could not scroll vector store: {e}")
+
+        # Fallback: try to get nodes via random query (needs embedding)
+        if not nodes:
+            print("  Could not get nodes from vector store directly")
+            print("  Trying to retrieve via query (requires embedding API)...")
+            sample_queries = ["数据", "配置", "连接", "工具", "参数"]
+            for query in sample_queries:
+                try:
+                    result = pipeline.query(query, top_k=top_k)
+                    for node_with_score in result.get("source_nodes", []):
+                        nodes.append(node_with_score.node)
+                except Exception as ex:
+                    print(f"    Query failed: {ex}")
+                    continue
+
+            # Deduplicate
+            seen_ids = set()
+            unique_nodes = []
+            for node in nodes:
+                if node.node_id not in seen_ids:
+                    seen_ids.add(node.node_id)
+                    unique_nodes.append(node)
+            nodes = unique_nodes
+
+        if not nodes:
+            print("Error: Could not retrieve any nodes from vector store")
+            return {"error": "No nodes in vector store"}
+
+        if show_progress:
+            print(f"  - Retrieved {len(nodes)} nodes")
+
+        # Populate BM25 index for keyword-based retrieval (no embedding needed)
+        if show_progress:
+            print(f"\n[3] Building BM25 index for evaluation...")
+
+        from profirag.retrieval.hybrid import BM25Index
+        bm25_index = BM25Index(tokenizer="jieba", language="zh")
+        bm25_index.add_nodes(nodes)
+        print(f"  - BM25 index count: {bm25_index.count()}")
+
+    else:
+        # Full flow: chunk and ingest
+        config.chunking.splitter_type = splitter_type
+        config.chunking.chunk_size = chunk_size
+        config.chunking.chunk_overlap = chunk_overlap
+
+        # 2. Load documents
+        if show_progress:
+            print(f"\n[2] Loading documents from {documents_dir}...")
+
+        loader = DocumentLoader(encoding="utf-8")
+        documents = loader.load_directory(documents_dir, recursive=True)
+
+        if not documents:
+            print(f"Error: No documents found in {documents_dir}")
+            return {"error": "No documents found"}
+
+        if show_progress:
+            print(f"  - Loaded {len(documents)} documents")
+
+        # 3. Create splitter and chunk documents
+        if show_progress:
+            print(f"\n[3] Chunking documents...")
+            print(f"  - Splitter: {splitter_type}")
+            print(f"  - Chunk size: {chunk_size}")
+            print(f"  - Chunk overlap: {chunk_overlap}")
+
+        if splitter_type == "chinese":
+            splitter = ChineseTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        else:
+            splitter = TextSplitter(splitter_type=splitter_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+        nodes = splitter.split_documents(documents)
+
+        if show_progress:
+            print(f"  - Generated {len(nodes)} chunks")
+            lengths = [len(n.text) for n in nodes]
+            print(f"  - Avg chunk length: {sum(lengths)/len(lengths):.1f}")
+
+        # 4. Initialize pipeline and ingest nodes
+        if show_progress:
+            print(f"\n[4] Initializing vector store and ingesting chunks...")
+
+        # Ingest nodes
+        node_ids = pipeline.ingest_nodes(nodes, update_bm25=True)
+
+        if show_progress:
+            stats = pipeline.get_stats()
+            print(f"  - Vector store count: {stats['vector_store']['count']}")
+            print(f"  - BM25 index count: {stats['bm25_index']['count']}")
+
+    # 5. Generate evaluation dataset using node IDs
+    step_num = 5 if not skip_ingest else 3
     if show_progress:
-        stats = pipeline.get_stats()
-        print(f"  - Vector store count: {stats['vector_store']['count']}")
-        print(f"  - BM25 index count: {stats['bm25_index']['count']}")
-
-    # 5. Generate evaluation dataset using real node IDs
-    if show_progress:
-        print(f"\n[5] Generating evaluation dataset...")
-        print(f"  - Sampling {num_samples} chunks")
+        print(f"\n[{step_num}] Generating evaluation dataset...")
+        print(f"  - Sampling {num_samples} nodes")
 
     # Sample nodes for evaluation
     sample_size = min(num_samples, len(nodes))
@@ -201,17 +297,40 @@ def run_retrieval_evaluation(
     dataset.save(dataset_file)
 
     # 6. Run retrieval evaluation
+    eval_step_num = 6 if not skip_ingest else 4
     if show_progress:
-        print(f"\n[6] Running retrieval evaluation...")
+        print(f"\n[{eval_step_num}] Running retrieval evaluation...")
         print(f"  - Metrics: {metrics}")
         print(f"  - Top-K: {top_k}")
+        if skip_ingest:
+            print(f"  - Mode: BM25-only (no embedding needed)")
 
-    # Create retriever from pipeline
-    from llama_index.core import VectorIndexRetriever
-    retriever = VectorIndexRetriever(
-        index=pipeline._index,
-        similarity_top_k=top_k,
-    )
+    # Create retriever
+    if skip_ingest:
+        # Use BM25-only retriever (no embedding needed)
+        from llama_index.core.base.base_retriever import BaseRetriever
+        from llama_index.core.schema import QueryBundle
+
+        class BM25RetrieverWrapper(BaseRetriever):
+            """Wrapper for BM25Index to work as LlamaIndex retriever."""
+
+            def __init__(self, bm25_index, top_k=10):
+                self._bm25_index = bm25_index
+                self._top_k = top_k
+                super().__init__()
+
+            def _retrieve(self, query_bundle: QueryBundle) -> List:
+                """Retrieve using BM25."""
+                return self._bm25_index.retrieve(query_bundle.query_str, top_k=self._top_k)
+
+        retriever = BM25RetrieverWrapper(bm25_index, top_k=top_k)
+    else:
+        # Use vector retriever (needs embedding)
+        from llama_index.core.retrievers import VectorIndexRetriever
+        retriever = VectorIndexRetriever(
+            index=pipeline._index,
+            similarity_top_k=top_k,
+        )
 
     evaluator = RetrievalEvaluator(
         retriever=retriever,
@@ -305,13 +424,13 @@ def main():
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=512,
+        default=1024,
         help="Chunk size (default: 512)",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=50,
+        default=100,
         help="Chunk overlap (default: 50)",
     )
     parser.add_argument(
@@ -343,6 +462,11 @@ def main():
         action="store_true",
         help="Suppress progress output",
     )
+    parser.add_argument(
+        "--skip-ingest",
+        action="store_true",
+        help="Skip ingestion, use existing vector store data for evaluation",
+    )
 
     args = parser.parse_args()
 
@@ -360,6 +484,7 @@ def main():
             env_file=args.env,
             output_path=args.output,
             show_progress=not args.quiet,
+            skip_ingest=args.skip_ingest,
         )
         return 0
 

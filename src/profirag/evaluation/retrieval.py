@@ -141,33 +141,32 @@ class RetrievalEvaluator:
             queries: List of query strings
             expected_ids_list: List of expected IDs for each query
             expected_texts_list: Optional expected texts for each query
-            workers: Number of parallel workers
+            workers: Number of parallel workers (ignored for sync evaluation)
             show_progress: Show progress bar
 
         Returns:
             List of RetrievalEvalResult objects
         """
-        # Build dataset for batch evaluation
-        from llama_index.core.llama_dataset.legacy.embedding import EmbeddingQAFinetuneDataset
+        results = []
+        total = len(queries)
 
-        queries_dict = {str(i): q for i, q in enumerate(queries)}
-        relevant_docs = {str(i): ids for i, ids in enumerate(expected_ids_list)}
-        corpus = {}  # Not needed for retrieval eval
+        # Use synchronous evaluation to avoid async client issues
+        from tqdm import tqdm
+        iterator = tqdm(range(total), desc="Evaluating", disable=not show_progress)
 
-        dataset = EmbeddingQAFinetuneDataset(
-            queries=queries_dict,
-            corpus=corpus,
-            relevant_docs=relevant_docs,
-        )
+        for i in iterator:
+            expected_texts = None
+            if expected_texts_list and i < len(expected_texts_list):
+                expected_texts = expected_texts_list[i]
 
-        # Run async evaluation
-        return asyncio.run(
-            self._evaluator.aevaluate_dataset(
-                dataset=dataset,
-                workers=workers,
-                show_progress=show_progress,
+            result = self.evaluate(
+                query=queries[i],
+                expected_ids=expected_ids_list[i],
+                expected_texts=expected_texts,
             )
-        )
+            results.append(result)
+
+        return results
 
     def evaluate_dataset(
         self,
