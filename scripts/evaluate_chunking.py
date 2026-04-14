@@ -28,8 +28,13 @@ Usage:
 import argparse
 import json
 import sys
+import os
 from pathlib import Path
 from typing import List, Dict, Any
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -131,13 +136,28 @@ def main():
     # Set up LLM for quality evaluation if requested
     if args.quality_eval and not args.stats_only:
         try:
-            from llama_index.llms.openai import OpenAI
-            import os
+            from openai import OpenAI as OpenAIClient
             api_key = os.getenv("OPENAI_API_KEY")
             base_url = os.getenv("OPENAI_BASE_URL")
+            model = os.getenv("OPENAI_LLM_MODEL", "gpt-3.5-turbo")
             if api_key:
-                evaluator.llm = OpenAI(api_key=api_key, api_base=base_url)
-                print("  LLM initialized for quality evaluation")
+                # Create a simple wrapper for LLM calls
+                client = OpenAIClient(api_key=api_key, base_url=base_url)
+
+                class SimpleLLMWrapper:
+                    """Simple LLM wrapper for quality evaluation."""
+
+                    def complete(self, prompt: str) -> str:
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=100,  # Need enough tokens for reasoning models
+                        )
+                        from llama_index.core.llms import CompletionResponse
+                        return CompletionResponse(text=response.choices[0].message.content)
+
+                evaluator.llm = SimpleLLMWrapper()
+                print(f"  LLM initialized for quality evaluation (model={model})")
             else:
                 print("  Warning: OPENAI_API_KEY not set, quality evaluation disabled")
                 evaluator.use_quality_eval = False

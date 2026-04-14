@@ -291,23 +291,34 @@ class ChunkingEvaluator:
             semantic_response = self.llm.complete(
                 self.SEMANTIC_PROMPT.format(chunk_text=chunk.text[:500])
             )
+            semantic_score = 0.5  # Default value
             try:
-                semantic_score = float(semantic_response.text.strip())
-                semantic_score = max(0, min(1, semantic_score))
-                semantic_scores.append(semantic_score)
-            except ValueError:
-                semantic_scores.append(0.5)
+                response_text = semantic_response.text.strip()
+                # Extract last number from response (handles reasoning models)
+                import re
+                numbers = re.findall(r'[0-9]*\.?[0-9]+', response_text)
+                if numbers:
+                    semantic_score = float(numbers[-1])
+                    semantic_score = max(0, min(1, semantic_score))
+            except (ValueError, AttributeError):
+                semantic_score = 0.5
+            semantic_scores.append(semantic_score)
 
             # Evaluate boundary quality
             boundary_response = self.llm.complete(
                 self.BOUNDARY_PROMPT.format(chunk_text=chunk.text[:500])
             )
+            boundary_score = 0.5  # Default value
             try:
-                boundary_score = float(boundary_response.text.strip())
-                boundary_score = max(0, min(1, boundary_score))
-                boundary_scores.append(boundary_score)
-            except ValueError:
-                boundary_scores.append(0.5)
+                response_text = boundary_response.text.strip()
+                import re
+                numbers = re.findall(r'[0-9]*\.?[0-9]+', response_text)
+                if numbers:
+                    boundary_score = float(numbers[-1])
+                    boundary_score = max(0, min(1, boundary_score))
+            except (ValueError, AttributeError):
+                boundary_score = 0.5
+            boundary_scores.append(boundary_score)
 
             # Track issues for low-scoring chunks
             if semantic_score < 0.5:
