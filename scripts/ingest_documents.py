@@ -91,7 +91,7 @@ def ingest_directory(
     if show_progress:
         print(f"Loading documents from {documents_dir}...")
 
-    loader = DocumentLoader(encoding="utf-8")
+    loader = DocumentLoader(fix_heading_levels=True, encoding="utf-8")
     documents = loader.load_directory(
         documents_dir,
         recursive=recursive,
@@ -107,11 +107,11 @@ def ingest_directory(
     # Ingest documents
     if show_progress:
         print(f"Ingesting documents into vector store...")
-        start_time = time.time()
 
+    start_time = time.time()
     doc_ids = pipeline.ingest_documents(documents)
-
     elapsed = time.time() - start_time
+
     if show_progress:
         print(f"  - Ingested {len(doc_ids)} documents in {elapsed:.2f} seconds")
 

@@ -1,12 +1,43 @@
 """Text splitters for chunking documents"""
 
-from typing import List, Optional, Any
+import re
+from typing import List, Optional, Any, Dict
 from llama_index.core.node_parser import (
     SentenceSplitter,
     SemanticSplitterNodeParser,
     TokenTextSplitter,
 )
 from llama_index.core.schema import TextNode, Document
+
+
+# Pattern for markdown image references
+IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+
+
+def find_images_in_chunk(chunk_text: str, image_map: Dict[str, Dict]) -> List[str]:
+    """Find image IDs referenced in chunk text.
+
+    Args:
+        chunk_text: Text content of the chunk
+        image_map: Document's image_map dictionary
+
+    Returns:
+        List of image IDs found in the chunk
+    """
+    if not image_map:
+        return []
+
+    found_ids = []
+    for match in IMAGE_REFERENCE_PATTERN.finditer(chunk_text):
+        image_path = match.group(2)
+        # Find matching image_id from image_map
+        for img_id, img_info in image_map.items():
+            if img_info.get("path") == image_path or \
+               img_info.get("filename") in image_path:
+                found_ids.append(img_id)
+                break
+
+    return found_ids
 
 
 class TextSplitter:
@@ -89,7 +120,44 @@ class TextSplitter:
         Returns:
             List of TextNode objects
         """
-        return self._splitter.get_nodes_from_documents([document])
+        # Get image_map from document BEFORE modifying
+        image_map = document.metadata.get("image_map", {})
+
+        # Create reduced metadata (without large image_map) before splitting
+        # LlamaIndex splitter checks metadata length against chunk_size
+        reduced_metadata = {
+            k: v for k, v in document.metadata.items()
+            if k != "image_map"  # Skip the potentially large image_map
+        }
+
+        # Temporarily modify document metadata for splitting
+        original_metadata = document.metadata.copy()
+        document.metadata = reduced_metadata
+
+        # Split the document with reduced metadata
+        nodes = self._splitter.get_nodes_from_documents([document])
+
+        # Restore original metadata to document
+        document.metadata = original_metadata
+
+        # Add image-related metadata to each node
+        for node in nodes:
+            node.metadata.update(reduced_metadata)
+            # Store document ID in metadata
+            if document.doc_id:
+                node.metadata["source_doc_id"] = document.doc_id
+            # Find images in this chunk
+            chunk_images = find_images_in_chunk(node.text, image_map)
+            node.metadata["chunk_images"] = chunk_images
+            node.metadata["has_images"] = len(chunk_images) > 0
+            # Store image paths directly for easy access
+            if chunk_images:
+                node.metadata["image_paths"] = [
+                    image_map.get(img_id, {}).get("path", "")
+                    for img_id in chunk_images
+                    if image_map.get(img_id, {}).get("path")
+                ]
+        return nodes
 
     def split_documents(self, documents: List[Document]) -> List[TextNode]:
         """Split multiple Documents into nodes.
@@ -100,7 +168,11 @@ class TextSplitter:
         Returns:
             List of TextNode objects
         """
-        return self._splitter.get_nodes_from_documents(documents)
+        all_nodes = []
+        for doc in documents:
+            nodes = self.split_document(doc)
+            all_nodes.extend(nodes)
+        return all_nodes
 
     def update_chunk_size(self, chunk_size: int) -> None:
         """Update chunk size and recreate splitter.
@@ -179,11 +251,32 @@ class ChineseTextSplitter:
         Returns:
             List of TextNode objects
         """
+        # Hard limit for embedding API safety (most APIs have ~8k token limit)
+        # Chinese text: roughly 1 char = 1-2 tokens, so 4000 chars is safe
+        HARD_LIMIT = 4000
+
         sentences = self._split_sentences(text)
         nodes = []
         current_chunk = ""
 
         for sentence in sentences:
+            # Handle very long sentences (exceed chunk_size or hard limit)
+            if len(sentence) > self.chunk_size:
+                # First, save current chunk if not empty
+                if current_chunk.strip():
+                    nodes.append(TextNode(text=current_chunk.strip()))
+                    current_chunk = ""
+
+                # Split long sentence into smaller pieces
+                # Use hard_limit for safety with embedding APIs
+                split_size = min(self.chunk_size, HARD_LIMIT)
+                for i in range(0, len(sentence), split_size - self.chunk_overlap):
+                    chunk_piece = sentence[i:i + split_size]
+                    if chunk_piece.strip():
+                        nodes.append(TextNode(text=chunk_piece.strip()))
+                continue
+
+            # Check if adding sentence would exceed chunk_size
             if len(current_chunk) + len(sentence) > self.chunk_size:
                 if current_chunk:
                     nodes.append(TextNode(text=current_chunk.strip()))
@@ -195,7 +288,14 @@ class ChineseTextSplitter:
 
         # Add remaining chunk
         if current_chunk.strip():
-            nodes.append(TextNode(text=current_chunk.strip()))
+            # Final safety check - split if exceeds hard limit
+            if len(current_chunk) > HARD_LIMIT:
+                for i in range(0, len(current_chunk), HARD_LIMIT - self.chunk_overlap):
+                    chunk_piece = current_chunk[i:i + HARD_LIMIT]
+                    if chunk_piece.strip():
+                        nodes.append(TextNode(text=chunk_piece.strip()))
+            else:
+                nodes.append(TextNode(text=current_chunk.strip()))
 
         return nodes
 
@@ -209,12 +309,30 @@ class ChineseTextSplitter:
             List of TextNode objects
         """
         nodes = self.split_text(document.text)
-        # Update metadata without setting ref_doc_id directly
+        # Get image_map from document
+        image_map = document.metadata.get("image_map", {})
+        # Copy base metadata, excluding large image_map
+        base_metadata = {
+            k: v for k, v in document.metadata.items()
+            if k != "image_map"  # Skip the potentially large image_map
+        }
+        # Update metadata with image propagation
         for node in nodes:
-            node.metadata.update(document.metadata)
+            node.metadata.update(base_metadata)
             # Store document ID in metadata instead
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
+            # Find images in this chunk
+            chunk_images = find_images_in_chunk(node.text, image_map)
+            node.metadata["chunk_images"] = chunk_images
+            node.metadata["has_images"] = len(chunk_images) > 0
+            # Store image paths directly for easy access
+            if chunk_images:
+                node.metadata["image_paths"] = [
+                    image_map.get(img_id, {}).get("path", "")
+                    for img_id in chunk_images
+                    if image_map.get(img_id, {}).get("path")
+                ]
         return nodes
 
     def split_documents(self, documents: List[Document]) -> List[TextNode]:

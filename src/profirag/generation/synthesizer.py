@@ -8,6 +8,7 @@ from llama_index.core.response_synthesizers import (
 )
 
 from .prompts import PromptTemplates, DEFAULT_PROMPT_TEMPLATE
+from ..ingestion.image_processor import ImageResult
 
 
 class ResponseSynthesizer:
@@ -85,7 +86,7 @@ class ResponseSynthesizer:
             nodes = self._truncate_context(nodes, self.max_context_length)
 
         response = synthesizer.synthesize(
-            query_str=query_str,
+            query=query_str,
             nodes=nodes,
             **kwargs
         )
@@ -150,7 +151,7 @@ class ResponseSynthesizer:
             nodes = self._truncate_context(nodes, self.max_context_length)
 
         response = synthesizer.synthesize(
-            query_str=query_str,
+            query=query_str,
             nodes=nodes,
             **kwargs
         )
@@ -283,6 +284,90 @@ class ResponseFormatter:
         """
         md_parts = [f"## Response\n\n{response}\n"]
 
+        if nodes:
+            md_parts.append("\n## Sources\n")
+            for i, node_with_score in enumerate(nodes):
+                text = node_with_score.node.text if show_full_text else node_with_score.node.text[:300]
+                if not show_full_text and len(node_with_score.node.text) > 300:
+                    text += "..."
+
+                md_parts.append(f"\n### Source [{i+1}] (Score: {node_with_score.score:.3f})")
+                md_parts.append(f"\n```\n{text}\n```")
+
+        return "".join(md_parts)
+
+    @staticmethod
+    def format_with_sources_and_images(
+        response: str,
+        nodes: List[NodeWithScore],
+        images: List[ImageResult],
+        include_scores: bool = True,
+    ) -> Dict[str, Any]:
+        """Format response with sources and images.
+
+        Args:
+            response: Response string
+            nodes: Source nodes
+            images: List of ImageResult objects
+            include_scores: Include relevance scores
+
+        Returns:
+            Formatted response dictionary with images
+        """
+        # Get basic sources format
+        result = ResponseFormatter.format_with_sources(response, nodes, include_scores)
+
+        # Add images
+        image_list = []
+        for i, img in enumerate(images):
+            image_info = {
+                "index": i + 1,
+                "path": img.image_path,
+                "description": img.description,
+                "score": img.score if include_scores else None,
+                "source_chunk": img.source_chunk_id,
+            }
+            if img.metadata:
+                image_info["metadata"] = img.metadata
+            image_list.append(image_info)
+
+        result["images"] = image_list
+        result["num_images"] = len(images)
+
+        return result
+
+    @staticmethod
+    def format_markdown_with_images(
+        response: str,
+        nodes: List[NodeWithScore],
+        images: List[ImageResult],
+        show_full_text: bool = False,
+        show_images: bool = True,
+    ) -> str:
+        """Format response as markdown with sources and images.
+
+        Args:
+            response: Response string
+            nodes: Source nodes
+            images: List of ImageResult objects
+            show_full_text: Show full source text
+            show_images: Embed image references in markdown
+
+        Returns:
+            Markdown formatted string with images
+        """
+        md_parts = [f"## Response\n\n{response}\n"]
+
+        # Add images section if available
+        if images and show_images:
+            md_parts.append("\n## Related Images\n")
+            for i, img in enumerate(images):
+                md_parts.append(f"\n### Image {i+1}\n")
+                md_parts.append(f"![Image {i+1}]({img.image_path})\n")
+                if img.description:
+                    md_parts.append(f"\n*Description: {img.description}*\n")
+
+        # Add sources section
         if nodes:
             md_parts.append("\n## Sources\n")
             for i, node_with_score in enumerate(nodes):

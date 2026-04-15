@@ -7,6 +7,8 @@ from llama_index.core.vector_stores.types import VectorStoreQueryMode
 from rank_bm25 import BM25Okapi
 import jieba  # Chinese tokenizer
 
+from ..ingestion.image_processor import ImageResult, RetrievalResult
+
 
 class BM25Index:
     """BM25 keyword search index.
@@ -277,3 +279,79 @@ class HybridRetriever:
                     node = self.vector_index.docstore.get_node(node_id)
                     if node:
                         self.bm25_index.add_nodes([node])
+
+    def retrieve_with_images(
+        self,
+        query: str,
+        top_k: int = 10,
+        include_images: bool = True,
+        **kwargs
+    ) -> RetrievalResult:
+        """Retrieve text chunks and associated images.
+
+        Args:
+            query: Query string
+            top_k: Number of final results to return
+            include_images: Whether to collect associated images
+            **kwargs: Additional arguments
+
+        Returns:
+            RetrievalResult containing text nodes and images
+        """
+        # Standard text retrieval
+        text_nodes = self.retrieve(query, top_k=top_k)
+
+        # Collect images from retrieved chunks
+        images = []
+        if include_images:
+            for node_with_score in text_nodes:
+                node = node_with_score.node
+                # Get image paths directly from chunk metadata (not from image_map)
+                image_paths = node.metadata.get("image_paths", [])
+                chunk_images = node.metadata.get("chunk_images", [])
+
+                for i, img_id in enumerate(chunk_images):
+                    # Get image path - either from image_paths list or fallback
+                    if i < len(image_paths):
+                        img_path = image_paths[i]
+                    else:
+                        img_path = img_id  # Fallback
+
+                    if img_path:
+                        image_result = ImageResult(
+                            image_path=img_path,
+                            description="",  # Description stored separately
+                            score=node_with_score.score,
+                            source_chunk_id=node.node_id,
+                            metadata={"image_id": img_id},
+                        )
+                        images.append(image_result)
+
+        # Deduplicate images by path
+        unique_images = self._deduplicate_images(images)
+
+        return RetrievalResult(
+            text_nodes=text_nodes,
+            images=unique_images,
+        )
+
+    def _deduplicate_images(self, images: List[ImageResult]) -> List[ImageResult]:
+        """Deduplicate images by path, keeping highest score.
+
+        Args:
+            images: List of ImageResult objects
+
+        Returns:
+            Deduplicated list of ImageResult objects
+        """
+        if not images:
+            return []
+
+        # Group by path, keep highest score
+        path_to_image: Dict[str, ImageResult] = {}
+        for img in images:
+            path = img.image_path
+            if path not in path_to_image or img.score > path_to_image[path].score:
+                path_to_image[path] = img
+
+        return list(path_to_image.values())

@@ -11,6 +11,58 @@ from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
 
 
+# Pattern for markdown image references: ![alt](path)
+IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+
+
+def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str, Any]]:
+    """Extract image references from markdown and create image_map.
+
+    Scans the markdown text for image references and creates a mapping
+    of image IDs to their metadata (path, position, surrounding context).
+
+    Args:
+        text: Markdown text containing image references
+        context_chars: Number of characters to extract as surrounding context
+
+    Returns:
+        Dictionary mapping image_id to image metadata
+    """
+    image_map = {}
+
+    for match in IMAGE_REFERENCE_PATTERN.finditer(text):
+        alt_text = match.group(1)  # Alt text (usually empty in PDF conversion)
+        image_path = match.group(2)  # Image path
+        position = match.start()  # Position in text
+
+        # Generate image_id from filename
+        image_filename = Path(image_path).name
+        image_id = Path(image_path).stem or f"img_{len(image_map)}"
+
+        # Get surrounding context (text before and after image)
+        start_context = max(0, position - context_chars)
+        end_context = min(len(text), match.end() + context_chars)
+        surrounding_text = text[start_context:end_context]
+
+        # Clean surrounding text (remove the image reference itself)
+        before_text = text[start_context:position].strip()
+        after_text = text[match.end():end_context].strip()
+        context = (before_text[-context_chars//2:] if before_text else "") + \
+                  " " + \
+                  (after_text[:context_chars//2] if after_text else "")
+
+        image_map[image_id] = {
+            "path": image_path,
+            "filename": image_filename,
+            "alt_text": alt_text,
+            "markdown_ref": match.group(0),  # Full match: ![alt](path)
+            "position_char": position,
+            "surrounding_text": context.strip(),
+        }
+
+    return image_map
+
+
 def detect_header_footer_patterns(
     text: str,
     min_occurrences: int = 3,
@@ -134,6 +186,53 @@ HEADING_NUMBER_PATTERN = re.compile(
     r'(\d+(?:\.\d+)*)'  # Section number: 1, 1.1, 1.1.1, etc.
     r'(?:\*{2})?\s+'  # Optional closing bold ** followed by space
 )
+
+def remove_non_heading_markers(text: str) -> str:
+    """Remove markdown heading markers from non-heading content.
+
+    When PDFs are converted to markdown, pymupdf4llm may incorrectly mark
+    some content as headings based on font size detection. This function
+    identifies and removes heading markers from content that should NOT be
+    treated as headings.
+
+    Strategy: Only preserve headings that have section numbers (e.g., "1.1", "1.2.1").
+    All other heading markers are removed, converting them to plain text.
+
+    This handles cases like:
+    - ## 工具介绍 (no number, should be plain text)
+    - ## 下载并安装工具 (no number, should be plain text)
+    - ## ● 变量 (special symbol, should be plain text)
+    - ## **注意** (non-heading indicator, should be plain text)
+    - ## 1.1 gsql 连接数据库 (has number, should be heading)
+
+    Args:
+        text: Markdown text with potentially incorrect heading markers
+
+    Returns:
+        Markdown text with non-heading markers removed
+    """
+    lines = text.split("\n")
+    cleaned_lines = []
+
+    for line in lines:
+        # Check if this line is a markdown heading
+        heading_match = re.match(r'^(#+)\s+(.+)$', line)
+        if not heading_match:
+            cleaned_lines.append(line)
+            continue
+
+        content = heading_match.group(2).strip()  # e.g., 工具介绍 or 1.1 gsql
+
+        # Check if this is a numbered heading - preserve these only
+        if HEADING_NUMBER_PATTERN.match(line):
+            cleaned_lines.append(line)
+            continue
+
+        # All other headings without numbers -> remove heading marker
+        # Keep the content as plain text
+        cleaned_lines.append(content)
+
+    return "\n".join(cleaned_lines)
 
 
 def fix_heading_levels(text: str) -> str:
@@ -324,9 +423,10 @@ class PDFLoader:
                         )
                         doc.text = filtered_text
 
-                # Fix heading levels based on section numbers
+                # Remove non-heading markers and fix heading levels
                 if self.fix_heading_levels:
                     for doc in docs:
+                        doc.text = remove_non_heading_markers(doc.text)
                         doc.text = fix_heading_levels(doc.text)
 
                 for doc in docs:
@@ -337,6 +437,9 @@ class PDFLoader:
                     doc.metadata["heading_levels_fixed"] = self.fix_heading_levels
                     if image_dir:
                         doc.metadata["image_path"] = str(image_dir)
+                        # Extract image map from document text
+                        doc.metadata["image_map"] = extract_image_map(doc.text)
+                        doc.metadata["image_count"] = len(doc.metadata["image_map"])
 
                 return docs
             else:
@@ -357,11 +460,13 @@ class PDFLoader:
                         custom_patterns=self.header_footer_patterns,
                     )
 
-                # Fix heading levels based on section numbers
+                # Remove non-heading markers and fix heading levels
                 if self.fix_heading_levels:
+                    md_text = remove_non_heading_markers(md_text)
                     md_text = fix_heading_levels(md_text)
 
-                # Create single Document
+                # Create single Document with image map
+                image_map = extract_image_map(md_text) if image_dir else {}
                 doc = Document(
                     text=md_text,
                     metadata={
@@ -371,6 +476,8 @@ class PDFLoader:
                         "header_footer_filtered": self.exclude_header_footer,
                         "heading_levels_fixed": self.fix_heading_levels,
                         "image_path": str(image_dir) if image_dir else None,
+                        "image_map": image_map,
+                        "image_count": len(image_map),
                     },
                 )
                 return [doc]
@@ -513,6 +620,83 @@ class DocumentLoader:
             fix_heading_levels=fix_heading_levels,
         )
 
+    def _load_md_file(
+        self,
+        file_path: str,
+        base_path: Optional[str] = None,
+        **kwargs
+    ) -> List[Document]:
+        """Load a Markdown file with image extraction.
+
+        Args:
+            file_path: Path to MD file
+            base_path: Base path for resolving relative image paths (defaults to file's directory)
+            **kwargs: Additional arguments
+
+        Returns:
+            List of Document objects with image metadata
+        """
+        path = Path(file_path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"MD file not found: {file_path}")
+
+        # Read file content
+        with open(path, 'r', encoding=self.encoding) as f:
+            text = f.read()
+
+        # Apply heading level fix if enabled
+        if self.fix_heading_levels:
+            text = remove_non_heading_markers(text)
+            text = fix_heading_levels(text)
+
+        # Extract image references
+        image_map = extract_image_map(text)
+
+        # Resolve relative image paths to absolute paths
+        base_dir = Path(base_path) if base_path else path.parent
+        for img_id, img_info in image_map.items():
+            img_path = img_info.get("path", "")
+            if img_path and not Path(img_path).is_absolute():
+                # Try multiple resolution strategies to handle path variations
+                img_path_obj = Path(img_path)
+
+                # Strategy 1: Direct resolution from base_dir
+                candidate1 = (base_dir / img_path).resolve()
+
+                # Strategy 2: If img_path starts with base_dir's name, try from parent
+                # This handles cases where markdown has "markdown/images/..." and file is in ./markdown/
+                if img_path.startswith(base_dir.name + "/") or img_path.startswith(base_dir.name + "\\"):
+                    candidate2 = (base_dir.parent / img_path).resolve()
+                    # Use candidate2 if file exists there, otherwise fallback to candidate1
+                    if candidate2.exists():
+                        img_info["path"] = str(candidate2)
+                    else:
+                        img_info["path"] = str(candidate1)
+                else:
+                    img_info["path"] = str(candidate1)
+
+                img_info["original_path"] = img_path  # Keep original for reference
+
+        # Build metadata
+        metadata = {
+            "source_file": str(path.name),
+            "source_path": str(path),
+            "loader": "markdown",
+            "header_footer_filtered": False,
+            "heading_levels_fixed": self.fix_heading_levels,
+            "image_map": image_map,
+            "image_count": len(image_map),
+            "base_path": str(base_dir),
+        }
+
+        # Create Document
+        doc = Document(
+            text=text,
+            metadata=metadata,
+        )
+        return [doc]
+
     def load_directory(
         self,
         directory: str,
@@ -533,27 +717,32 @@ class DocumentLoader:
         """
         dir_path = Path(directory)
 
-        # Separate PDF files and other files
+        # Separate files by type
         pattern = "*" if not recursive else "**/*"
         all_files = list(dir_path.glob(pattern))
 
-        pdf_files = [f for f in all_files if f.suffix.lower() == ".pdf"]
+        pdf_files = [f for f in all_files if f.suffix.lower() == ".pdf" and f.is_file()]
+        md_files = [f for f in all_files if f.suffix.lower() == ".md" and f.is_file()]
         other_files = [
             f for f in all_files
             if f.suffix.lower() in self.SUPPORTED_EXTENSIONS
-            and f.suffix.lower() != ".pdf"
+            and f.suffix.lower() not in [".pdf", ".md"]
             and f.is_file()
         ]
 
         # Apply exclude patterns
         if exclude:
             import fnmatch
-            other_files = [
-                f for f in other_files
-                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
-            ]
             pdf_files = [
                 f for f in pdf_files
+                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
+            ]
+            md_files = [
+                f for f in md_files
+                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
+            ]
+            other_files = [
+                f for f in other_files
                 if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
             ]
 
@@ -563,6 +752,12 @@ class DocumentLoader:
         if pdf_files:
             for pdf_file in pdf_files:
                 docs = self._pdf_loader.load_pdf(str(pdf_file))
+                documents.extend(docs)
+
+        # Load MD files with image extraction
+        if md_files:
+            for md_file in md_files:
+                docs = self._load_md_file(str(md_file))
                 documents.extend(docs)
 
         # Load other files with SimpleDirectoryReader
@@ -599,6 +794,10 @@ class DocumentLoader:
         if path.suffix.lower() == ".pdf":
             return self._pdf_loader.load_pdf(file_path)
 
+        # Use MD loader for Markdown files (with image extraction)
+        if path.suffix.lower() == ".md":
+            return self._load_md_file(file_path, **kwargs)
+
         # Use SimpleDirectoryReader for other files
         reader = SimpleDirectoryReader(
             input_files=[file_path],
@@ -629,11 +828,12 @@ class DocumentLoader:
         if not valid_files:
             return []
 
-        # Separate PDF and non-PDF files
+        # Separate files by type
         pdf_files = [f for f in valid_files if Path(f).suffix.lower() == ".pdf"]
+        md_files = [f for f in valid_files if Path(f).suffix.lower() == ".md"]
         other_files = [
             f for f in valid_files
-            if Path(f).suffix.lower() != ".pdf"
+            if Path(f).suffix.lower() not in [".pdf", ".md"]
         ]
 
         documents = []
@@ -642,6 +842,12 @@ class DocumentLoader:
         if pdf_files:
             for pdf_file in pdf_files:
                 docs = self._pdf_loader.load_pdf(pdf_file)
+                documents.extend(docs)
+
+        # Load MD files (with image extraction)
+        if md_files:
+            for md_file in md_files:
+                docs = self._load_md_file(md_file, **kwargs)
                 documents.extend(docs)
 
         # Load other files
@@ -758,8 +964,9 @@ class DocumentLoader:
                 custom_patterns=self.header_footer_patterns,
             )
 
-        # Fix heading levels based on section numbers
+        # Remove non-heading markers and fix heading levels
         if do_fix_headings:
+            md_text = remove_non_heading_markers(md_text)
             md_text = fix_heading_levels(md_text)
 
         # Save to file

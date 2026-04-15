@@ -1,5 +1,6 @@
 """Configuration management using Pydantic with .env support"""
 
+import os
 from pathlib import Path
 from typing import Dict, Any, Literal, Optional
 
@@ -26,6 +27,16 @@ class EnvSettings(BaseSettings):
     openai_llm_model: str = "gpt-4-turbo"
     openai_llm_temperature: float = 0.0
     openai_llm_max_tokens: Optional[int] = None
+
+    # MiniMax Vision Configuration (for image understanding)
+    minimax_api_key: Optional[str] = None
+    minimax_api_host: str = "https://api.minimax.chat"
+
+    # Image Processing Configuration
+    profirag_image_processing_enabled: bool = True
+    profirag_generate_image_descriptions: bool = True
+    profirag_image_storage_path: str = "./images"
+    profirag_image_description_prompt: str = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
 
     # Storage Configuration
     profirag_storage_type: Literal["qdrant", "local", "postgres"] = "qdrant"
@@ -133,6 +144,16 @@ class GenerationConfig(BaseModel):
     streaming: bool = False
 
 
+class ImageProcessingConfig(BaseModel):
+    """Image processing configuration for PDF image handling"""
+    enabled: bool = True
+    generate_descriptions: bool = True
+    storage_path: str = "./images"
+    description_prompt: str = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
+    minimax_api_key: Optional[str] = None
+    minimax_api_host: str = "https://api.minimax.chat"
+
+
 class RAGConfig(BaseModel):
     """Complete RAG configuration"""
     storage: StorageConfig
@@ -143,6 +164,7 @@ class RAGConfig(BaseModel):
     retrieval: RetrievalConfig = RetrievalConfig()
     reranking: RerankingConfig = RerankingConfig()
     generation: GenerationConfig = GenerationConfig()
+    image_processing: ImageProcessingConfig = ImageProcessingConfig()
 
     class Config:
         extra = "allow"
@@ -218,6 +240,14 @@ class RAGConfig(BaseModel):
                 enabled=env_settings.profirag_rerank_enabled,
                 model=env_settings.profirag_rerank_model,
                 top_n=env_settings.profirag_rerank_top_n,
+            ),
+            image_processing=ImageProcessingConfig(
+                enabled=env_settings.profirag_image_processing_enabled,
+                generate_descriptions=env_settings.profirag_generate_image_descriptions,
+                storage_path=env_settings.profirag_image_storage_path,
+                description_prompt=env_settings.profirag_image_description_prompt,
+                minimax_api_key=env_settings.minimax_api_key,
+                minimax_api_host=env_settings.minimax_api_host,
             ),
         )
 
