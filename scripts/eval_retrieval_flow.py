@@ -8,14 +8,17 @@ This script performs retrieval evaluation:
 3. Run retrieval evaluation
 
 Usage:
-    # Full flow: ingest + evaluate
+    # Full flow: ingest + evaluate (requires embedding API)
     uv run python scripts/eval_retrieval_flow.py --num-samples 15 --splitter chinese
 
-    # Skip ingestion, use existing vector store
+    # Skip ingestion, use existing vector store + LLM queries
+    uv run python scripts/eval_retrieval_flow.py --skip-ingest --llm-queries --num-samples 15
+
+    # Skip ingestion, simple keyword-based queries (no LLM/embedding needed)
     uv run python scripts/eval_retrieval_flow.py --skip-ingest --num-samples 15 --top-k 10
 
     # Specify options
-    uv run python scripts/eval_retrieval_flow.py --skip-ingest --num-samples 20 --top-k 5
+    uv run python scripts/eval_retrieval_flow.py --skip-ingest --llm-queries --num-samples 20 --top-k 5
 """
 
 import argparse
@@ -65,7 +68,7 @@ def extract_keywords_from_text(text: str, max_keywords: int = 5) -> List[str]:
 
 
 def generate_query_from_text(text: str, style: str = "question") -> str:
-    """Generate query from text content."""
+    """Generate query from text content (simple keyword-based)."""
     keywords = extract_keywords_from_text(text, max_keywords=5)
     if not keywords:
         return text[:100].replace("\n", " ").strip() + "?"
@@ -77,6 +80,69 @@ def generate_query_from_text(text: str, style: str = "question") -> str:
         return f"{keywords[0]}与{keywords[1]}的关系是什么?"
     else:
         return f"{keywords[0]}是什么?"
+
+
+def generate_query_with_llm(llm_client: Any, model: str, text: str) -> str:
+    """Generate a high-quality query from text using LLM.
+
+    Args:
+        llm_client: OpenAI client instance
+        model: Model name
+        text: Source text content
+
+    Returns:
+        Generated query string
+    """
+    prompt = f"""基于以下文本内容，生成一个具体的、有针对性的问题。
+
+要求：
+1. 问题应该能够通过这段文本内容回答
+2. 问题要具体，不要过于宽泛
+3. 问题应该涉及文本中的关键概念或操作步骤
+4. 使用中文提问
+
+文本内容：
+{text[:800]}
+
+请直接输出一个问题，不要有任何解释或其他内容："""
+
+    try:
+        response = llm_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+        )
+        query = response.choices[0].message.content.strip()
+        # Remove quotes if present
+        query = query.strip('"').strip("'").strip("「").strip("」")
+        return query
+    except Exception as e:
+        print(f"  Warning: LLM query generation failed: {e}")
+        # Fallback to keyword-based
+        return generate_query_from_text(text)
+
+
+def create_llm_client(env_file: str) -> tuple:
+    """Create LLM client from environment config.
+
+    Args:
+        env_file: Path to .env file
+
+    Returns:
+        Tuple of (client, model_name)
+    """
+    from openai import OpenAI
+
+    load_dotenv(Path(env_file))
+    api_key = os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL")
+    model = os.getenv("OPENAI_LLM_MODEL", "gpt-4-turbo")
+
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not set in environment")
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    return client, model
 
 
 def run_retrieval_evaluation(
@@ -91,6 +157,7 @@ def run_retrieval_evaluation(
     output_path: str = None,
     show_progress: bool = True,
     skip_ingest: bool = False,
+    use_llm_queries: bool = False,
 ) -> Dict[str, Any]:
     """Run complete retrieval evaluation flow.
 
@@ -106,6 +173,7 @@ def run_retrieval_evaluation(
         output_path: Path to save results
         show_progress: Show progress output
         skip_ingest: Skip ingestion step, use existing vector store data
+        use_llm_queries: Use LLM to generate evaluation queries (better quality)
 
     Returns:
         Dictionary with evaluation results
@@ -269,14 +337,28 @@ def run_retrieval_evaluation(
     if show_progress:
         print(f"\n[{step_num}] Generating evaluation dataset...")
         print(f"  - Sampling {num_samples} nodes")
+        if use_llm_queries:
+            print(f"  - Using LLM for query generation")
 
     # Sample nodes for evaluation
     sample_size = min(num_samples, len(nodes))
     sampled_nodes = random.sample(nodes, sample_size)
 
+    # Create LLM client if needed
+    llm_client = None
+    llm_model = None
+    if use_llm_queries:
+        llm_client, llm_model = create_llm_client(env_file)
+
     eval_items = []
-    for node in sampled_nodes:
-        query = generate_query_from_text(node.text, style="question")
+    for i, node in enumerate(sampled_nodes):
+        if use_llm_queries:
+            query = generate_query_with_llm(llm_client, llm_model, node.text)
+            if show_progress and (i + 1) % 5 == 0:
+                print(f"    Generated {i + 1}/{sample_size} queries")
+        else:
+            query = generate_query_from_text(node.text, style="question")
+
         eval_items.append(EvalItem(
             query=query,
             expected_ids=[node.node_id],
@@ -467,6 +549,11 @@ def main():
         action="store_true",
         help="Skip ingestion, use existing vector store data for evaluation",
     )
+    parser.add_argument(
+        "--llm-queries",
+        action="store_true",
+        help="Use LLM to generate evaluation queries (better quality, slower)",
+    )
 
     args = parser.parse_args()
 
@@ -485,6 +572,7 @@ def main():
             output_path=args.output,
             show_progress=not args.quiet,
             skip_ingest=args.skip_ingest,
+            use_llm_queries=args.llm_queries,
         )
         return 0
 
