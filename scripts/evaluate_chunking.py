@@ -151,7 +151,7 @@ def main():
                         response = client.chat.completions.create(
                             model=model,
                             messages=[{"role": "user", "content": prompt}],
-                            max_tokens=100,  # Need enough tokens for reasoning models
+                            max_tokens=1000,  # Need enough tokens for reasoning models
                         )
                         from llama_index.core.llms import CompletionResponse
                         return CompletionResponse(text=response.choices[0].message.content)

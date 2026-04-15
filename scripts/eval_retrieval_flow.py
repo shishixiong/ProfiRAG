@@ -102,7 +102,7 @@ def generate_query_with_llm(llm_client: Any, model: str, text: str) -> str:
 4. 使用中文提问
 
 文本内容：
-{text[:800]}
+{text}
 
 请直接输出一个问题，不要有任何解释或其他内容："""
 
@@ -110,7 +110,7 @@ def generate_query_with_llm(llm_client: Any, model: str, text: str) -> str:
         response = llm_client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=100,
+            max_tokens=1000,
         )
         query = response.choices[0].message.content.strip()
         # Remove quotes if present
