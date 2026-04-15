@@ -8,15 +8,22 @@ This script evaluates the answer generation quality of the RAG system:
 3. Generate answers using LLM
 4. Evaluate answer quality (faithfulness, relevancy, etc.)
 
+Features:
+- Sample caching: Only generates missing samples if cache exists
+- Progress tracking: Shows how many new samples need to be generated
+
 Usage:
     # Use LLM for query generation + answer generation + evaluation
-    uv run python scripts/eval_response_flow.py --num-samples 15 --llm-queries
+    uv run python scripts/eval_response_flow.py --num-samples 20 --llm-queries
 
-    # Use simple keyword queries + evaluate
-    uv run python scripts/eval_response_flow.py --num-samples 10
+    # Continue from cache (if 5 samples exist, only generates 15 more)
+    uv run python scripts/eval_response_flow.py --num-samples 20 --llm-queries --cache eval_samples_cache.json
+
+    # Force regenerate all samples
+    uv run python scripts/eval_response_flow.py --num-samples 10 --no-cache
 
     # Specific evaluators
-    uv run python scripts/eval_response_flow.py --evaluators faithfulness,relevancy --num-samples 20
+    uv run python scripts/eval_response_flow.py --evaluators faithfulness,relevancy --num-samples 15
 """
 
 import argparse
@@ -24,8 +31,10 @@ import sys
 import os
 import random
 import json
+import hashlib
+import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -39,6 +48,55 @@ from profirag.evaluation.dataset import EvalDataset, EvalItem
 from profirag.evaluation.response import ResponseEvaluator
 from profirag.retrieval import BM25Index
 from llama_index.core.schema import TextNode
+
+
+def get_cache_key(use_llm_queries: bool, top_k: int, llm_model: str) -> str:
+    """Generate a cache key based on configuration."""
+    config_str = f"llm_queries={use_llm_queries}|top_k={top_k}|model={llm_model}"
+    return hashlib.md5(config_str.encode()).hexdigest()[:8]
+
+
+def load_cache(cache_path: str, cache_key: str) -> Dict[str, Any]:
+    """Load cached samples from file.
+
+    Args:
+        cache_path: Path to cache file
+        cache_key: Cache key to identify the configuration
+
+    Returns:
+        Dictionary with cache data
+    """
+    cache_file = Path(cache_path)
+    if not cache_file.exists():
+        return {"samples": [], "cache_key": cache_key}
+
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+
+        # Check if cache key matches current configuration
+        if cache_data.get("cache_key") != cache_key:
+            print(f"  Cache key mismatch, will regenerate all samples")
+            return {"samples": [], "cache_key": cache_key}
+
+        return cache_data
+    except Exception as e:
+        print(f"  Warning: Could not load cache: {e}")
+        return {"samples": [], "cache_key": cache_key}
+
+
+def save_cache(cache_path: str, cache_data: Dict[str, Any]) -> None:
+    """Save samples to cache file.
+
+    Args:
+        cache_path: Path to cache file
+        cache_data: Cache data dictionary
+    """
+    cache_file = Path(cache_path)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f, indent=2, ensure_ascii=False)
 
 
 def extract_keywords_from_text(text: str, max_keywords: int = 5) -> List[str]:
@@ -86,8 +144,8 @@ def create_llm_client(env_file: str) -> tuple:
     return client, model
 
 
-def generate_query_with_llm(llm_client: Any, model: str, text: str) -> str:
-    """Generate a high-quality query from text using LLM."""
+def generate_query_with_llm(llm_client: Any, model: str, text: str, max_retries: int = 3) -> str:
+    """Generate a high-quality query from text using LLM with retry."""
     prompt = f"""基于以下文本内容，生成一个具体的、有针对性的问题。
 
 要求：
@@ -101,22 +159,30 @@ def generate_query_with_llm(llm_client: Any, model: str, text: str) -> str:
 
 请直接输出一个问题，不要有任何解释或其他内容："""
 
-    try:
-        response = llm_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
-        )
-        query = response.choices[0].message.content.strip()
-        query = query.strip('"').strip("'").strip("「").strip("」")
-        return query
-    except Exception as e:
-        print(f"  Warning: LLM query generation failed: {e}")
-        return generate_query_from_text(text)
+    for attempt in range(max_retries):
+        try:
+            response = llm_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+            )
+            query = response.choices[0].message.content.strip()
+            query = query.strip('"').strip("'").strip("「").strip("」")
+            return query
+        except Exception as e:
+            error_str = str(e)
+            if "529" in error_str or "500" in error_str or "overload" in error_str.lower():
+                if attempt < max_retries - 1:
+                    wait_time = 2.0 * (attempt + 1)
+                    print(f"    Query generation error, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            print(f"  Warning: LLM query generation failed: {e}")
+            return generate_query_from_text(text)
 
 
-def generate_answer_with_llm(llm_client: Any, model: str, query: str, context: str) -> str:
-    """Generate an answer using LLM based on retrieved context."""
+def generate_answer_with_llm(llm_client: Any, model: str, query: str, context: str, max_retries: int = 3) -> str:
+    """Generate an answer using LLM based on retrieved context with retry."""
     prompt = f"""请基于以下参考信息回答问题。如果参考信息中没有相关内容，请说明无法回答。
 
 参考信息：
@@ -126,16 +192,24 @@ def generate_answer_with_llm(llm_client: Any, model: str, query: str, context: s
 
 请用中文简洁回答，不要引用原文，直接给出答案："""
 
-    try:
-        response = llm_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=5000,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"  Warning: LLM answer generation failed: {e}")
-        return "无法生成答案"
+    for attempt in range(max_retries):
+        try:
+            response = llm_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=5000,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            error_str = str(e)
+            if "529" in error_str or "500" in error_str or "overload" in error_str.lower():
+                if attempt < max_retries - 1:
+                    wait_time = 2.0 * (attempt + 1)
+                    print(f"    Answer generation error, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            print(f"  Warning: LLM answer generation failed: {e}")
+            return "无法生成答案"
 
 
 def load_nodes_from_vector_store(vector_store: Any, limit: int = 100) -> List[TextNode]:
@@ -179,8 +253,10 @@ def run_response_evaluation(
     show_progress: bool = True,
     use_llm_queries: bool = False,
     use_llm_answers: bool = True,
+    cache_path: Optional[str] = None,
+    no_cache: bool = False,
 ) -> Dict[str, Any]:
-    """Run response generation evaluation flow.
+    """Run response generation evaluation flow with caching support.
 
     Args:
         num_samples: Number of evaluation samples
@@ -191,6 +267,8 @@ def run_response_evaluation(
         show_progress: Show progress output
         use_llm_queries: Use LLM to generate queries
         use_llm_answers: Use LLM to generate answers (default True, always use LLM)
+        cache_path: Path to cache file (default: eval_samples_cache.json)
+        no_cache: Force regenerate all samples without caching
 
     Returns:
         Dictionary with evaluation results
@@ -200,12 +278,19 @@ def run_response_evaluation(
         print("ProfiRAG Response Generation Evaluation")
         print("=" * 60)
 
+    # Set default cache path
+    if not no_cache and cache_path is None:
+        cache_path = "eval_samples_cache.json"
+    elif no_cache:
+        cache_path = None
+
     # 1. Load configuration and initialize pipeline
     if show_progress:
         print(f"\n[1] Loading configuration from {env_file}...")
 
     config = load_config(env_file)
     pipeline = RAGPipeline(config)
+    llm_client, llm_model = create_llm_client(env_file)
 
     stats = pipeline.get_stats()
     vector_count = stats['vector_store']['count']
@@ -216,79 +301,136 @@ def run_response_evaluation(
 
     if show_progress:
         print(f"  - Vector store count: {vector_count}")
-        print(f"  - LLM model: {config.llm.model}")
+        print(f"  - LLM model: {llm_model}")
 
-    # 2. Load nodes from vector store
+    # Generate cache key
+    cache_key = get_cache_key(use_llm_queries, top_k, llm_model)
+
+    # 2. Load existing cache
+    existing_samples = []
+    if cache_path and not no_cache:
+        if show_progress:
+            print(f"\n[2] Checking cache ({cache_path})...")
+
+        cache_data = load_cache(cache_path, cache_key)
+        existing_samples = cache_data.get("samples", [])
+
+        if show_progress:
+            print(f"  - Cached samples: {len(existing_samples)}")
+            print(f"  - Cache key: {cache_key}")
+
+    # Calculate how many new samples needed
+    cached_count = len(existing_samples)
+    new_samples_needed = max(0, num_samples - cached_count)
+
     if show_progress:
-        print(f"\n[2] Loading nodes from vector store...")
+        print(f"\n  Samples status:")
+        print(f"    - Required: {num_samples}")
+        print(f"    - Cached: {cached_count}")
+        print(f"    - Need to generate: {new_samples_needed}")
 
-    nodes = load_nodes_from_vector_store(pipeline._vector_store, limit=num_samples + 50)
+    # 3. Load nodes from vector store (only if need to generate new samples)
+    nodes = []
+    bm25 = None
+    if new_samples_needed > 0:
+        if show_progress:
+            print(f"\n[3] Loading nodes from vector store...")
 
-    if not nodes:
-        print("Error: Could not load any nodes from vector store")
-        return {"error": "No nodes loaded"}
+        nodes = load_nodes_from_vector_store(pipeline._vector_store, limit=num_samples + 50)
 
-    if show_progress:
-        print(f"  - Loaded {len(nodes)} nodes")
+        if not nodes:
+            print("Error: Could not load any nodes from vector store")
+            return {"error": "No nodes loaded"}
 
-    # 3. Create LLM clients
-    llm_client, llm_model = create_llm_client(env_file)
+        if show_progress:
+            print(f"  - Loaded {len(nodes)} nodes")
 
-    # 4. Generate evaluation samples
-    if show_progress:
-        print(f"\n[3] Generating evaluation samples...")
-        print(f"  - Sampling {num_samples} nodes")
-        if use_llm_queries:
-            print(f"  - Using LLM for query generation")
-
-    sample_size = min(num_samples, len(nodes))
-    sampled_nodes = random.sample(nodes, sample_size)
-
-    eval_data = []  # List of (query, contexts, answer, expected_text)
-
-    for i, node in enumerate(sampled_nodes):
-        # Generate query
-        if use_llm_queries:
-            query = generate_query_with_llm(llm_client, llm_model, node.text)
-        else:
-            query = generate_query_from_text(node.text)
-
-        # Retrieve context using BM25 (no embedding needed)
-        # Build a simple BM25 retriever
+        # Build BM25 index for retrieval
         bm25 = BM25Index(tokenizer="jieba", language="zh")
         bm25.add_nodes(nodes)
-        retrieved = bm25.retrieve(query, top_k=top_k)
+    else:
+        if show_progress:
+            print(f"\n[3] All samples cached, skipping node loading")
 
-        contexts = [n.node.text for n in retrieved]
+    # 4. Generate new samples
+    eval_data = existing_samples.copy()  # Start with cached samples
 
-        # Generate answer
-        context_text = "\n\n".join(contexts[:3])  # Use top 3 contexts
-        answer = generate_answer_with_llm(llm_client, llm_model, query, context_text)
+    if new_samples_needed > 0:
+        if show_progress:
+            print(f"\n[4] Generating {new_samples_needed} new samples...")
+            if use_llm_queries:
+                print(f"  - Using LLM for query generation")
 
-        eval_data.append({
-            "query": query,
-            "contexts": contexts,
-            "answer": answer,
-            "expected_text": node.text,
-            "node_id": node.node_id,
-        })
+        # Filter out node_ids already used in cached samples
+        used_node_ids = set(s.get("node_id") for s in existing_samples)
+        available_nodes = [n for n in nodes if n.node_id not in used_node_ids]
 
-        if show_progress and (i + 1) % 5 == 0:
-            print(f"    Generated {i + 1}/{sample_size} samples")
+        if len(available_nodes) < new_samples_needed:
+            print(f"  Warning: Only {len(available_nodes)} nodes available, reducing new samples")
+            new_samples_needed = len(available_nodes)
+
+        # Sample nodes for new samples
+        new_sampled_nodes = random.sample(available_nodes, new_samples_needed)
+
+        for i, node in enumerate(new_sampled_nodes):
+            # Generate query
+            if use_llm_queries:
+                query = generate_query_with_llm(llm_client, llm_model, node.text)
+            else:
+                query = generate_query_from_text(node.text)
+
+            # Retrieve context using BM25
+            retrieved = bm25.retrieve(query, top_k=top_k)
+            contexts = [n.node.text for n in retrieved]
+
+            # Generate answer
+            context_text = "\n\n".join(contexts[:3])  # Use top 3 contexts
+            answer = generate_answer_with_llm(llm_client, llm_model, query, context_text)
+
+            new_sample = {
+                "query": query,
+                "contexts": contexts,
+                "answer": answer,
+                "expected_text": node.text,
+                "node_id": node.node_id,
+            }
+            eval_data.append(new_sample)
+
+            # Save cache after each sample (incremental caching)
+            if cache_path:
+                cache_data = {
+                    "cache_key": cache_key,
+                    "config": {
+                        "use_llm_queries": use_llm_queries,
+                        "top_k": top_k,
+                        "llm_model": llm_model,
+                    },
+                    "samples": eval_data,
+                }
+                save_cache(cache_path, cache_data)
+
+            if show_progress and (i + 1) % 3 == 0:
+                print(f"    Generated {i + 1}/{new_samples_needed} new samples (total: {len(eval_data)})")
+
+        if show_progress:
+            print(f"  - Completed: {len(eval_data)} total samples")
+    else:
+        if show_progress:
+            print(f"\n[4] No new samples needed, using cached data")
 
     if show_progress:
         print(f"\n  Sample queries and answers:")
         for i, data in enumerate(eval_data[:3]):
             print(f"    {i+1}. Query: {data['query'][:50]}...")
-            print(f"       Answer: {data['answer'][:100]}...")
+            print(f"       Answer: {data['answer'][:80]}...")
 
     # 5. Run response evaluation
     if show_progress:
-        print(f"\n[4] Running response evaluation...")
+        print(f"\n[5] Running response evaluation...")
         print(f"  - Evaluators: {evaluators}")
+        print(f"  - Total samples: {len(eval_data)}")
 
     # Create simple LLM wrapper for llama_index evaluators
-    # We need a custom wrapper because llama_index validates model names
     from llama_index.core.llms.custom import CustomLLM
     from llama_index.core.llms import CompletionResponse, LLMMetadata
     from openai import OpenAI as OpenAIClient
@@ -296,33 +438,45 @@ def run_response_evaluation(
     class MiniMaxLLM(CustomLLM):
         """Custom LLM wrapper for MiniMax/DashScope API."""
 
-        client: Any = None  # Define as pydantic field
-        model_actual: str = ""  # Define as pydantic field
+        client: Any = None
+        model_actual: str = ""
 
         def __init__(self, client: OpenAIClient, model: str, **kwargs):
             super().__init__(client=client, model_actual=model, **kwargs)
 
         @property
         def metadata(self) -> LLMMetadata:
-            """Return metadata with a fake model name to pass validation."""
             return LLMMetadata(
                 context_window=4096,
                 num_output=512,
-                model_name="gpt-3.5-turbo",  # Fake name for validation
+                model_name="gpt-3.5-turbo",
             )
 
         def complete(self, prompt: str, **kwargs) -> CompletionResponse:
-            """Generate completion."""
-            response = self.client.chat.completions.create(
-                model=self.model_actual,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=kwargs.get("max_tokens", 512),
-            )
-            return CompletionResponse(text=response.choices[0].message.content)
+            """Complete with retry logic for transient API errors."""
+            max_retries = 3
+            retry_delay = 2.0  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model_actual,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=kwargs.get("max_tokens", 512),
+                    )
+                    return CompletionResponse(text=response.choices[0].message.content)
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Check if it's a retryable error (5xx, overload)
+                        error_str = str(e)
+                        if "529" in error_str or "500" in error_str or "overload" in error_str.lower():
+                            wait_time = retry_delay * (attempt + 1)
+                            print(f"    API error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                    raise  # Re-raise if not retryable or max retries reached
 
         def stream_complete(self, prompt: str, **kwargs):
-            """Stream completion (required by abstract class)."""
-            # Just return the complete response for simplicity
             response = self.complete(prompt, **kwargs)
             yield response
 
@@ -390,10 +544,13 @@ def run_response_evaluation(
     output_data = {
         "config": {
             "num_samples": num_samples,
+            "cached_samples": cached_count,
+            "new_samples": new_samples_needed,
             "top_k": top_k,
             "evaluators": evaluators,
             "use_llm_queries": use_llm_queries,
             "llm_model": llm_model,
+            "cache_path": cache_path,
         },
         "summary": summary,
         "total_samples": len(eval_results),
@@ -421,12 +578,15 @@ def run_response_evaluation(
         if show_progress:
             print(f"\nResults saved to: {output_path}")
 
+    if cache_path and show_progress:
+        print(f"Cache saved to: {cache_path} ({len(eval_data)} samples)")
+
     return output_data
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run response generation evaluation",
+        description="Run response generation evaluation with caching",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -434,8 +594,8 @@ def main():
     parser.add_argument(
         "--num-samples", "-n",
         type=int,
-        default=15,
-        help="Number of evaluation samples (default: 15)",
+        default=20,
+        help="Number of evaluation samples (default: 20)",
     )
     parser.add_argument(
         "--top-k", "-k",
@@ -471,6 +631,17 @@ def main():
         action="store_true",
         help="Use LLM to generate evaluation queries (better quality)",
     )
+    parser.add_argument(
+        "--cache",
+        type=str,
+        default="eval_samples_cache.json",
+        help="Cache file path (default: eval_samples_cache.json)",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Force regenerate all samples without caching",
+    )
 
     args = parser.parse_args()
 
@@ -485,6 +656,8 @@ def main():
             output_path=args.output,
             show_progress=not args.quiet,
             use_llm_queries=args.llm_queries,
+            cache_path=args.cache if not args.no_cache else None,
+            no_cache=args.no_cache,
         )
         return 0
 
