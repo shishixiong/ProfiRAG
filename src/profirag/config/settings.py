@@ -301,6 +301,7 @@ class RAGConfig(BaseModel):
                 "port": env.qdrant_port,
                 "collection_name": env.qdrant_collection_name,
                 "dimension": env.openai_embedding_dimension,
+                "use_bm25": env.profirag_use_bm25,
             }
             if env.qdrant_api_key:
                 config["api_key"] = env.qdrant_api_key

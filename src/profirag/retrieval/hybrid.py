@@ -142,7 +142,8 @@ class HybridRetriever:
     """Hybrid retriever combining vector search and BM25 keyword search.
 
     Uses Reciprocal Rank Fusion (RRF) to combine results from
-    both retrieval methods.
+    both retrieval methods. When vector_store has native BM25 (Qdrant),
+    delegates to vector_store.query() which handles hybrid search internally.
     """
 
     def __init__(
@@ -151,6 +152,7 @@ class HybridRetriever:
         bm25_index: Optional[BM25Index] = None,
         alpha: float = 0.5,
         rrf_k: int = 60,
+        vector_store: Optional[Any] = None,
         **kwargs
     ):
         """Initialize hybrid retriever.
@@ -161,16 +163,29 @@ class HybridRetriever:
             alpha: Weight for vector search (1-alpha for BM25)
                    Default 0.5 means equal weight
             rrf_k: RRF constant for smoothing (default 60)
+            vector_store: Optional BaseVectorStore reference.
+                         If it has native BM25 (use_bm25=True), retrieval
+                         is delegated to vector_store.query().
             **kwargs: Additional arguments
         """
         self.vector_index = vector_index
         self.bm25_index = bm25_index
         self.alpha = alpha
         self.rrf_k = rrf_k
+        self.vector_store = vector_store
         self.kwargs = kwargs
 
         # Create vector retriever
         self._vector_retriever = vector_index.as_retriever(**kwargs)
+
+    @property
+    def _use_native_bm25(self) -> bool:
+        """Check if vector store handles BM25 natively."""
+        if self.vector_store is not None:
+            return getattr(self.vector_store, "use_bm25", False) and \
+                   getattr(self.vector_store, "_sparse_vectorizer", None) is not None and \
+                   self.vector_store._sparse_vectorizer.has_idf
+        return False
 
     def retrieve(
         self,
@@ -188,6 +203,13 @@ class HybridRetriever:
         Returns:
             List of NodeWithScore objects after RRF fusion
         """
+        # Check if vector store handles BM25 natively (Qdrant with use_bm25=True)
+        if self._use_native_bm25:
+            # Delegate to vector store which does hybrid search internally
+            from llama_index.core.schema import QueryBundle
+            query_bundle = QueryBundle(query_str=query)
+            return self.vector_store.query(query_bundle, similarity_top_k=top_k, **kwargs)
+
         # Vector retrieval
         vector_nodes = self._vector_retriever.retrieve(query)
 

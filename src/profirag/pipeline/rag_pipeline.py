@@ -79,9 +79,16 @@ class RAGPipeline:
         # Initialize index
         self._index = self._create_index()
 
-        # Initialize BM25 index if enabled
+        # Initialize BM25 index if enabled (Python-side).
+        # When Qdrant native BM25 is used (use_bm25=True in storage config),
+        # Python-side BM25Index is not needed.
         self._bm25_index: Optional[BM25Index] = None
-        if config.retrieval.use_bm25:
+        self._use_qdrant_native_bm25 = (
+            config.retrieval.use_bm25
+            and config.storage.type == "qdrant"
+            and config.storage.config.get("use_bm25", False)
+        )
+        if config.retrieval.use_bm25 and not self._use_qdrant_native_bm25:
             self._bm25_index = BM25Index()
 
         # Initialize components
@@ -98,6 +105,7 @@ class RAGPipeline:
             vector_index=self._index,
             bm25_index=self._bm25_index,
             alpha=config.retrieval.alpha,
+            vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
         )
 
         self._reranker = Reranker(
@@ -235,12 +243,15 @@ class RAGPipeline:
             # Split documents using configured splitter
             text_nodes = self._splitter.split_documents(documents)
             # Insert nodes directly
-            for node in text_nodes:
-                self._index.insert_nodes([node], **kwargs)
-
-            # Update BM25 index if enabled
-            if update_bm25 and self._bm25_index:
-                self._bm25_index.add_nodes(text_nodes)
+            if self._use_qdrant_native_bm25:
+                # Use vector_store.add() for sparse vector computation
+                self._vector_store.add(text_nodes, **kwargs)
+            else:
+                for node in text_nodes:
+                    self._index.insert_nodes([node], **kwargs)
+                # Update BM25 index if enabled
+                if update_bm25 and self._bm25_index:
+                    self._bm25_index.add_nodes(text_nodes)
         else:
             # Add documents to index (uses llama_index default chunking)
             for doc in documents:
@@ -260,10 +271,13 @@ class RAGPipeline:
         # Insert image nodes if any
         image_node_ids = []
         if image_nodes:
-            self._index.insert_nodes(image_nodes, **kwargs)
+            if self._use_qdrant_native_bm25:
+                self._vector_store.add(image_nodes, **kwargs)
+            else:
+                self._index.insert_nodes(image_nodes, **kwargs)
+                if update_bm25 and self._bm25_index:
+                    self._bm25_index.add_nodes(image_nodes)
             image_node_ids = [node.node_id for node in image_nodes]
-            if update_bm25 and self._bm25_index:
-                self._bm25_index.add_nodes(image_nodes)
 
         return {
             "document_ids": [doc.doc_id for doc in documents],
@@ -289,12 +303,16 @@ class RAGPipeline:
         Returns:
             List of node IDs
         """
-        # Use index to insert nodes (auto-generates embeddings)
-        self._index.insert_nodes(nodes, **kwargs)
-        node_ids = [node.node_id for node in nodes]
+        if self._use_qdrant_native_bm25:
+            # Use QdrantStore.add() which computes and stores sparse vectors
+            node_ids = self._vector_store.add(nodes, **kwargs)
+        else:
+            # Use index to insert nodes (auto-generates embeddings)
+            self._index.insert_nodes(nodes, **kwargs)
+            node_ids = [node.node_id for node in nodes]
 
-        if update_bm25 and self._bm25_index:
-            self._bm25_index.add_nodes(nodes)
+            if update_bm25 and self._bm25_index:
+                self._bm25_index.add_nodes(nodes)
 
         return node_ids
 
