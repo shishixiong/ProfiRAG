@@ -33,12 +33,13 @@ from profirag.pipeline.rag_pipeline import RAGPipeline
 class InteractiveSession:
     """Interactive Q&A session manager."""
 
-    def __init__(self, env_file: str = ".env", show_images: bool = True):
+    def __init__(self, env_file: str = ".env", show_images: bool = True, query_mode: str = "pipeline"):
         """Initialize interactive session.
 
         Args:
             env_file: Path to configuration file
             show_images: Whether to show images in responses
+            query_mode: Query mode ("pipeline" or "agent")
         """
         print("=" * 60)
         print("  ProfiRAG Interactive Q&A System")
@@ -53,6 +54,7 @@ class InteractiveSession:
 
         self.show_images = show_images
         self.query_count = 0
+        self.query_mode = query_mode  # "pipeline" or "agent"
 
         # Show system stats
         stats = self.pipeline.get_stats()
@@ -79,7 +81,11 @@ class InteractiveSession:
         print("-" * 60)
 
         try:
-            if self.show_images:
+            if self.query_mode == "agent":
+                # Agent模式
+                result = self.pipeline.query_with_agent(query, mode="agent")
+                self._display_agent_result(result)
+            elif self.show_images:
                 result = self.pipeline.query_with_images(query, top_k=5)
                 self._display_result_with_images(result)
             else:
@@ -159,6 +165,45 @@ class InteractiveSession:
             print("【相关图片】 无")
             print()
 
+    def _display_agent_result(self, result: dict) -> None:
+        """Display Agent query result.
+
+        Args:
+            result: Agent query result dictionary
+        """
+        print()
+        print("【回答】")
+        print(result.get("response", "无回答"))
+        print()
+
+        # Show mode and iterations
+        mode = result.get("mode", "unknown")
+        iterations = result.get("iterations", 0)
+        print(f"【Agent信息】 模式: {mode}, 迭代次数: {iterations}")
+        print()
+
+        # Show sources
+        sources = result.get("sources", [])
+        if sources:
+            print("【参考来源】")
+            for i, source in enumerate(sources[:3], 1):
+                score = source.get("score", 0)
+                text = source.get("text", "")[:150]
+                source_file = source.get("source_file", "未知")
+                print(f"  {i}. [{score:.2f}] {source_file}")
+                if text:
+                    print(f"     {text}...")
+            print()
+
+        # Show tool calls if available
+        tool_calls = result.get("tool_calls", [])
+        if tool_calls:
+            print("【工具调用】")
+            for i, tc in enumerate(tool_calls, 1):
+                tool_name = tc.get("tool", "unknown")
+                print(f"  {i}. {tool_name}")
+            print()
+
     def handle_command(self, command: str) -> bool:
         """Handle special commands.
 
@@ -179,6 +224,8 @@ class InteractiveSession:
             print("可用命令:")
             print("  /help        - 显示帮助信息")
             print("  /stats       - 显示系统统计")
+            print("  /mode pipeline - 使用Pipeline模式（固定流程）")
+            print("  /mode agent    - 使用Agent模式（ReAct动态决策）")
             print("  /images on   - 启用图片检索")
             print("  /images off  - 禁用图片检索")
             print("  /clear       - 清屏")
@@ -192,8 +239,23 @@ class InteractiveSession:
             print(f"  - 向量数据库: {stats['vector_store']['count']} 条")
             print(f"  - BM25索引: {stats['bm25_index']['count']} 条")
             print(f"  - 查询次数: {self.query_count}")
+            print(f"  - 查询模式: {self.query_mode}")
             print(f"  - 图片检索: {'启用' if self.show_images else '禁用'}")
             print()
+
+        elif cmd.startswith("/mode"):
+            parts = cmd.split()
+            if len(parts) == 2:
+                if parts[1] == "pipeline":
+                    self.query_mode = "pipeline"
+                    print("已切换到Pipeline模式")
+                elif parts[1] in ("agent", "react"):
+                    self.query_mode = "agent"
+                    print("已切换到Agent模式")
+                else:
+                    print("用法: /mode pipeline 或 /mode agent")
+            else:
+                print(f"当前查询模式: {self.query_mode}")
 
         elif cmd.startswith("/images"):
             parts = cmd.split()
@@ -245,18 +307,21 @@ class InteractiveSession:
                 break
 
 
-def single_query(query: str, env_file: str = ".env", show_images: bool = True) -> None:
+def single_query(query: str, env_file: str = ".env", show_images: bool = True, query_mode: str = "pipeline") -> None:
     """Execute a single query and exit.
 
     Args:
         query: Query string
         env_file: Configuration file path
         show_images: Whether to include images
+        query_mode: Query mode ("pipeline" or "agent")
     """
     config = load_config(env_file)
     pipeline = RAGPipeline(config)
 
-    if show_images:
+    if query_mode == "agent":
+        result = pipeline.query_with_agent(query, mode="agent")
+    elif show_images:
         result = pipeline.query_with_images(query, top_k=5)
     else:
         result = pipeline.query(query, top_k=5)
@@ -290,17 +355,25 @@ def main():
         action="store_true",
         help="Disable image retrieval",
     )
+    parser.add_argument(
+        "--mode", "-m",
+        type=str,
+        choices=["pipeline", "agent"],
+        default=None,
+        help="Query mode: pipeline (fixed flow) or agent (ReAct dynamic)",
+    )
 
     args = parser.parse_args()
 
     show_images = not args.no_images
+    query_mode = args.mode or "pipeline"
 
     if args.query:
         # Single query mode
-        single_query(args.query, args.env, show_images)
+        single_query(args.query, args.env, show_images, query_mode)
     else:
         # Interactive mode
-        session = InteractiveSession(args.env, show_images)
+        session = InteractiveSession(args.env, show_images, query_mode)
         session.run()
 
 

@@ -17,6 +17,7 @@ from ..retrieval.reranker import Reranker
 from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
 from ..ingestion.image_processor import ImageProcessor, ImageResult, RetrievalResult
+from ..agent import RAGReActAgent, RAGTools, AgentFactory
 
 
 class CustomOpenAILLM(OpenAI):
@@ -124,6 +125,10 @@ class RAGPipeline:
                 storage_path=config.image_processing.storage_path,
                 generate_descriptions=config.image_processing.generate_descriptions,
             )
+
+        # Initialize Agent if enabled (lazy initialization)
+        self._agent: Optional[RAGReActAgent] = None
+        self._agent_config = config.agent
 
     def _create_splitter(self):
         """Create text splitter based on configuration."""
@@ -444,6 +449,54 @@ class RAGPipeline:
         # Stream response
         for chunk in self._synthesizer.synthesize_streaming(query_str, reranked_nodes[:top_k]):
             yield chunk
+
+    def query_with_agent(
+        self,
+        query_str: str,
+        mode: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Execute query using Agent or Pipeline mode.
+
+        Args:
+            query_str: Query string
+            mode: Query mode ("agent", "react", "pipeline")
+                  If None, uses config.agent.enabled setting
+            **kwargs: Additional arguments
+
+        Returns:
+            Query result dictionary
+        """
+        # Determine mode
+        query_mode = mode or (self._agent_config.mode if self._agent_config.enabled else "pipeline")
+
+        if query_mode in ("agent", "react"):
+            # Use ReAct Agent
+            if self._agent is None:
+                self._init_agent()
+            return self._agent.query(query_str)
+
+        else:
+            # Use Pipeline mode
+            return self.query(query_str, **kwargs)
+
+    def _init_agent(self) -> None:
+        """Initialize Agent lazily."""
+        # Create tools
+        tools = RAGTools(
+            retriever=self._hybrid_retriever,
+            synthesizer=self._synthesizer,
+            llm=self._llm,
+            pre_retrieval=self._pre_retrieval,
+        )
+
+        # Create agent
+        self._agent = RAGReActAgent(
+            tools=tools,
+            llm=self._llm,
+            max_iterations=self._agent_config.max_iterations,
+            verbose=self._agent_config.verbose,
+        )
 
     def _deduplicate_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
         """Remove duplicate nodes based on node_id.

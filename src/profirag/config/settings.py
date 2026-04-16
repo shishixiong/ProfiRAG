@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Any, Literal, Optional
+from typing import Dict, Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -81,6 +81,12 @@ class EnvSettings(BaseSettings):
     profirag_use_rewrite: bool = False
     profirag_multi_query: bool = False
 
+    # Agent Configuration
+    profirag_agent_enabled: bool = False
+    profirag_agent_mode: str = "react"
+    profirag_agent_max_iterations: int = 10
+    profirag_agent_verbose: bool = True
+
 
 class StorageConfig(BaseModel):
     """Vector store configuration"""
@@ -154,6 +160,23 @@ class ImageProcessingConfig(BaseModel):
     minimax_api_host: str = "https://api.minimax.chat"
 
 
+class AgentConfig(BaseModel):
+    """Agent configuration for ReAct-based question answering"""
+    enabled: bool = False  # 默认关闭，使用Pipeline模式
+    mode: str = "react"  # "react" or "pipeline"
+    max_iterations: int = 10
+    verbose: bool = True
+    # 可用的工具列表
+    tools: List[str] = [
+        "vector_search",
+        "keyword_search",
+        "multi_query_search",
+        "hyde_search",
+        "generate_answer",
+        "retrieve_and_answer",
+    ]
+
+
 class RAGConfig(BaseModel):
     """Complete RAG configuration"""
     storage: StorageConfig
@@ -165,6 +188,7 @@ class RAGConfig(BaseModel):
     reranking: RerankingConfig = RerankingConfig()
     generation: GenerationConfig = GenerationConfig()
     image_processing: ImageProcessingConfig = ImageProcessingConfig()
+    agent: AgentConfig = AgentConfig()  # Agent配置
 
     class Config:
         extra = "allow"
@@ -248,6 +272,12 @@ class RAGConfig(BaseModel):
                 description_prompt=env_settings.profirag_image_description_prompt,
                 minimax_api_key=env_settings.minimax_api_key,
                 minimax_api_host=env_settings.minimax_api_host,
+            ),
+            agent=AgentConfig(
+                enabled=env_settings.profirag_agent_enabled,
+                mode=env_settings.profirag_agent_mode,
+                max_iterations=env_settings.profirag_agent_max_iterations,
+                verbose=env_settings.profirag_agent_verbose,
             ),
         )
 
