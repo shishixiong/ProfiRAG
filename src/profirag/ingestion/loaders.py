@@ -5,7 +5,7 @@ import re
 import tempfile
 import shutil
 from collections import Counter
-from typing import List, Optional, Dict, Any, Union, Set
+from typing import List, Optional, Dict, Any, Union, Set, Tuple
 from pathlib import Path
 from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
@@ -13,6 +13,15 @@ from llama_index.core.readers.base import BaseReader
 
 # Pattern for markdown image references: ![alt](path)
 IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+
+# Pattern for markdown table rows (starts with |)
+TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+
+# Pattern for markdown table separator (|---|---|)
+TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+
+# Pattern for table title (表 X-X 标题)
+TABLE_TITLE_PATTERN = re.compile(r'^表\s*(\d+[-\.\d]*)\s*(.+)?$', re.MULTILINE)
 
 
 def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str, Any]]:
@@ -63,6 +72,153 @@ def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str
     return image_map
 
 
+def extract_tables_from_markdown(text: str, pdf_name: str = "") -> Tuple[str, List[Dict[str, Any]]]:
+    """从Markdown文本中提取表格，替换为索引链接。
+
+    Args:
+        text: Markdown文本
+        pdf_name: PDF文件名（用于生成表格文件名）
+
+    Returns:
+        Tuple[替换后的文本, 表格数据列表]
+        表格数据包含: {
+            "table_id": int,
+            "title": str,
+            "title_num": str,  # 表格编号如 "1-1"
+            "content": str,  # 原始表格Markdown内容
+            "filename": str  # 建议的文件名
+        }
+    """
+    lines = text.split("\n")
+    tables = []
+    table_id = 0
+
+    # Find all table blocks
+    i = 0
+    result_lines = lines.copy()
+
+    while i < len(lines):
+        # Check if this line starts a table
+        if TABLE_ROW_PATTERN.match(lines[i].strip()):
+            # Found a potential table start
+            table_start = i
+
+            # Look for separator row (next line should be |---|---|)
+            if i + 1 < len(lines) and TABLE_SEPARATOR_PATTERN.match(lines[i + 1].strip()):
+                # This is a valid table, find its end
+                table_end = i + 2
+                while table_end < len(lines) and TABLE_ROW_PATTERN.match(lines[table_end].strip()):
+                    table_end += 1
+
+                # Extract table content
+                table_lines = lines[table_start:table_end]
+                table_content = "\n".join(table_lines)
+
+                # Find table title before the table
+                # Look backwards for "表 X-X 标题" pattern
+                title = ""
+                title_num = ""
+                title_line_idx = -1
+
+                for j in range(table_start - 1, max(table_start - 10, -1), -1):
+                    prev_line = lines[j].strip()
+                    # Match pattern like "表 1-1 gsql高级功能" or "表1-1"
+                    title_match = re.match(r'表\s*(\d+[-\.\d]*)\s*(.+)?$', prev_line)
+                    if title_match:
+                        title_num = title_match.group(1)
+                        title_suffix = title_match.group(2) or ""
+                        title = f"表 {title_num} {title_suffix.strip()}" if title_suffix.strip() else f"表 {title_num}"
+                        title_line_idx = j
+                        break
+                    # Also check for bold format: **表 1-1** 标题
+                    bold_match = re.match(r'\*{0,2}表\s*\*{0,2}(\d+[-\.\d]*)\s*\*{0,2}\s*(.+)?$', prev_line)
+                    if bold_match:
+                        title_num = bold_match.group(1)
+                        title_suffix = bold_match.group(2) or ""
+                        title = f"表 {title_num} {title_suffix.strip()}" if title_suffix.strip() else f"表 {title_num}"
+                        title_line_idx = j
+                        break
+                    # Stop looking if we hit another heading or significant content
+                    if prev_line.startswith("#") or prev_line.startswith("表"):
+                        break
+
+                # Generate filename
+                table_id += 1
+                # Clean title for filename (remove special chars)
+                clean_title = re.sub(r'[^\w\-\u4e00-\u9fff]', '_', title)[:50]
+                pdf_clean = re.sub(r'[^\w\-\u4e00-\u9fff]', '_', pdf_name)[:30]
+                filename = f"{pdf_clean}_table_{table_id}_{clean_title}.md" if pdf_clean else f"table_{table_id}_{clean_title}.md"
+
+                # Create index link
+                index_link = f"[{title}](tables/{filename})"
+
+                tables.append({
+                    "table_id": table_id,
+                    "title": title,
+                    "title_num": title_num,
+                    "content": table_content,
+                    "filename": filename,
+                    "start_line": table_start,
+                    "end_line": table_end,
+                    "title_line": title_line_idx,
+                })
+
+                # Replace table with index in result_lines
+                # First, mark lines to be removed (we'll do actual replacement later)
+                # For now, replace the table block with index link
+
+                # Calculate how many lines to replace
+                lines_to_replace = table_end - table_start
+                if title_line_idx >= 0 and title_line_idx < table_start:
+                    # Also replace the title line
+                    lines_to_replace += (table_start - title_line_idx)
+                    table_start = title_line_idx
+
+                i = table_end - 1  # Continue from after the table
+
+        i += 1
+
+    # Build the final text with table replacements
+    if not tables:
+        return text, []
+
+    # Re-process the text to replace tables with index links
+    # We need to be careful about overlapping replacements
+    result_text_parts = []
+    current_pos = 0
+
+    for table in sorted(tables, key=lambda t: t["start_line"]):
+        start_line = table["start_line"]
+
+        # Handle title line position
+        if table["title_line"] >= 0 and table["title_line"] < start_line:
+            start_line = table["title_line"]
+
+        # Get text before this table
+        before_text = "\n".join(lines[current_pos:start_line])
+        if before_text:
+            result_text_parts.append(before_text)
+
+        # Add the index link
+        result_text_parts.append(table["title"] + f" → [查看表格](tables/{table['filename']})")
+
+        # Update current position to after the table
+        current_pos = table["end_line"]
+
+    # Add remaining text after all tables
+    remaining_text = "\n".join(lines[current_pos:])
+    if remaining_text:
+        result_text_parts.append(remaining_text)
+
+    # Join all parts
+    final_text = "\n".join(result_text_parts)
+
+    # Clean up excessive newlines
+    final_text = re.sub(r"\n{3,}", "\n\n", final_text)
+
+    return final_text.strip(), tables
+
+
 def detect_header_footer_patterns(
     text: str,
     min_occurrences: int = 3,
@@ -84,13 +240,18 @@ def detect_header_footer_patterns(
     # Matches lines containing only |, -, :, and whitespace
     TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
 
+    # Pattern for markdown table rows (starts with |)
+    TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+
     lines = text.split("\n")
     # Filter lines by length and clean whitespace
-    # Exclude table separator rows (critical for markdown table formatting)
+    # Exclude table separator rows and table rows (critical for markdown table formatting)
+    # Table headers that repeat across multiple tables should not be filtered as header/footer
     candidate_lines = [
         line.strip() for line in lines
         if min_line_length <= len(line.strip()) <= max_line_length
         and not TABLE_SEPARATOR_PATTERN.match(line.strip())  # Skip table separators
+        and not TABLE_ROW_PATTERN.match(line.strip())  # Skip table rows (including headers)
     ]
 
     # Count occurrences
@@ -128,6 +289,9 @@ def filter_header_footer(
     # Matches lines containing only |, -, :, and whitespace
     TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
 
+    # Pattern for markdown table rows (starts with |)
+    TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+
     all_patterns: Set[str] = patterns or set()
 
     # Auto-detect patterns
@@ -150,8 +314,9 @@ def filter_header_footer(
     for line in lines:
         stripped = line.strip()
 
-        # Always preserve table separator rows (essential for markdown tables)
-        if TABLE_SEPARATOR_PATTERN.match(stripped):
+        # Always preserve table separator rows and table rows (essential for markdown tables)
+        # This ensures table headers and data rows are never filtered as header/footer
+        if TABLE_SEPARATOR_PATTERN.match(stripped) or TABLE_ROW_PATTERN.match(stripped):
             filtered_lines.append(line)
             continue
 
@@ -923,8 +1088,10 @@ class DocumentLoader:
         output_md_path: str,
         exclude_header_footer: Optional[bool] = None,
         fix_headings: Optional[bool] = None,
+        extract_tables: bool = False,
+        tables_output_dir: Optional[str] = None,
         **kwargs
-    ) -> str:
+    ) -> Tuple[str, List[str]]:
         """Convert PDF to Markdown file and save it.
 
         Args:
@@ -932,10 +1099,12 @@ class DocumentLoader:
             output_md_path: Path to save Markdown file
             exclude_header_footer: Filter header/footer (uses instance default if None)
             fix_headings: Fix heading levels (uses instance default if None)
+            extract_tables: Extract tables to separate files and use index in main MD
+            tables_output_dir: Directory to save extracted tables (default: output_dir/tables)
             **kwargs: Additional arguments for pymupdf4llm
 
         Returns:
-            Path to the saved Markdown file
+            Tuple[str, List[str]]: (Path to saved Markdown file, List of saved table file paths)
         """
         import pymupdf4llm
 
@@ -969,12 +1138,38 @@ class DocumentLoader:
             md_text = remove_non_heading_markers(md_text)
             md_text = fix_heading_levels(md_text)
 
+        # Extract tables if enabled
+        saved_table_paths = []
+        if extract_tables:
+            # Get PDF name for table file naming
+            pdf_name = path.stem
+
+            # Set default tables output directory
+            output_path = Path(output_md_path)
+            if tables_output_dir is None:
+                tables_dir = output_path.parent / "tables"
+            else:
+                tables_dir = Path(tables_output_dir)
+
+            tables_dir.mkdir(parents=True, exist_ok=True)
+
+            # Extract tables from markdown
+            md_text, tables = extract_tables_from_markdown(md_text, pdf_name)
+
+            # Save each table to a separate file
+            for table in tables:
+                table_file_path = tables_dir / table["filename"]
+                # Write table content with a header
+                table_content = f"# {table['title']}\n\n{table['content']}"
+                table_file_path.write_text(table_content, encoding="utf-8")
+                saved_table_paths.append(str(table_file_path))
+
         # Save to file
         output_path = Path(output_md_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(md_text, encoding="utf-8")
 
-        return str(output_path)
+        return str(output_path), saved_table_paths
 
 
 def convert_pdf_to_markdown(

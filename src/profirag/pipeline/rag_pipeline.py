@@ -482,20 +482,14 @@ class RAGPipeline:
 
     def _init_agent(self) -> None:
         """Initialize Agent lazily."""
-        # Create tools
-        tools = RAGTools(
+        self._agent = AgentFactory.create_react_agent(
             retriever=self._hybrid_retriever,
             synthesizer=self._synthesizer,
             llm=self._llm,
-            pre_retrieval=self._pre_retrieval,
-        )
-
-        # Create agent
-        self._agent = RAGReActAgent(
-            tools=tools,
-            llm=self._llm,
             max_iterations=self._agent_config.max_iterations,
             verbose=self._agent_config.verbose,
+            markdown_base_path=self._agent_config.markdown_base_path,
+            pre_retrieval=self._pre_retrieval,
         )
 
     def _deduplicate_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:

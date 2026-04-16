@@ -93,11 +93,16 @@ class RAGReActAgent:
 5. 如需更多信息，继续检索
 6. 使用generate_answer生成最终回答
 
+表格处理:
+- 检索结果中如果包含表格索引（如 "表 X-X → [查看表格](tables/xxx.md)"），
+  使用 table_lookup 工具获取完整表格数据
+- table_lookup 的参数可以是完整索引链接或表格文件路径
+
 注意事项:
 - 简单问题可以直接用retrieve_and_answer
 - 复杂问题可能需要多轮检索
 - 检索结果不足时可以换用不同工具
-- 回答要基于检索到的文档，不要编造信息"""
+- 回答要基于检索到的文档和表格内容，不要编造信息"""
 
     def query(self, question: str) -> Dict[str, Any]:
         """执行Agent问答
@@ -260,6 +265,8 @@ class AgentFactory:
         llm: Any,
         max_iterations: int = 10,
         verbose: bool = True,
+        markdown_base_path: Optional[str] = None,
+        pre_retrieval: Any = None,
     ) -> RAGReActAgent:
         """创建ReAct Agent
 
@@ -269,6 +276,8 @@ class AgentFactory:
             llm: LLM实例
             max_iterations: 最大迭代次数
             verbose: 是否显示详细日志
+            markdown_base_path: Markdown文件目录路径（用于表格索引解析）
+            pre_retrieval: PreRetrievalPipeline实例（可选）
 
         Returns:
             RAGReActAgent实例
@@ -277,6 +286,8 @@ class AgentFactory:
             retriever=retriever,
             synthesizer=synthesizer,
             llm=llm,
+            markdown_base_path=markdown_base_path,
+            pre_retrieval=pre_retrieval,
         )
         return RAGReActAgent(
             tools=tools,

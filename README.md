@@ -75,6 +75,11 @@ print(result["response"])
 
 ## Usage
 
+## convert pdf to markdown
+```bash
+python scripts/pdf_to_markdown.py --write-images --pages "2914-3393" --exclude-header-footer --extract-tables
+```
+
 ### Ingest Documents
 
 ```bash

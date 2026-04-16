@@ -52,6 +52,17 @@ def main():
         default=None,
         help="Custom pattern to filter (can be used multiple times)"
     )
+    parser.add_argument(
+        "--extract-tables",
+        action="store_true",
+        help="Extract tables to separate files and use index links in main MD file"
+    )
+    parser.add_argument(
+        "--tables-dir",
+        type=str,
+        default=None,
+        help="Directory to save extracted tables (default: output_dir/tables)"
+    )
 
     args = parser.parse_args()
 
@@ -99,11 +110,18 @@ def main():
 
         try:
             # Convert PDF to Markdown file
-            saved_path = loader.pdf_to_markdown_file(
+            saved_path, table_paths = loader.pdf_to_markdown_file(
                 pdf_path=str(pdf_file),
                 output_md_path=str(output_path),
+                extract_tables=args.extract_tables,
+                tables_output_dir=args.tables_dir,
             )
             print(f"  Saved to: {saved_path}")
+
+            if args.extract_tables and table_paths:
+                print(f"  Extracted {len(table_paths)} tables to tables/ directory")
+                for table_path in table_paths:
+                    print(f"    - {Path(table_path).name}")
 
         except Exception as e:
             print(f"  Error: {e}")

@@ -86,6 +86,7 @@ class EnvSettings(BaseSettings):
     profirag_agent_mode: str = "react"
     profirag_agent_max_iterations: int = 10
     profirag_agent_verbose: bool = True
+    profirag_agent_markdown_base_path: Optional[str] = None
 
 
 class StorageConfig(BaseModel):
@@ -166,6 +167,7 @@ class AgentConfig(BaseModel):
     mode: str = "react"  # "react" or "pipeline"
     max_iterations: int = 10
     verbose: bool = True
+    markdown_base_path: Optional[str] = None  # Markdown文件目录路径（用于表格索引解析）
     # 可用的工具列表
     tools: List[str] = [
         "vector_search",
@@ -278,6 +280,7 @@ class RAGConfig(BaseModel):
                 mode=env_settings.profirag_agent_mode,
                 max_iterations=env_settings.profirag_agent_max_iterations,
                 verbose=env_settings.profirag_agent_verbose,
+                markdown_base_path=env_settings.profirag_agent_markdown_base_path,
             ),
         )
 

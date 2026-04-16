@@ -33,11 +33,11 @@ from profirag.pipeline.rag_pipeline import RAGPipeline
 class InteractiveSession:
     """Interactive Q&A session manager."""
 
-    def __init__(self, env_file: str = ".env", show_images: bool = True, query_mode: str = "pipeline"):
+    def __init__(self, config, show_images: bool = True, query_mode: str = "pipeline"):
         """Initialize interactive session.
 
         Args:
-            env_file: Path to configuration file
+            config: RAGConfig instance
             show_images: Whether to show images in responses
             query_mode: Query mode ("pipeline" or "agent")
         """
@@ -46,8 +46,7 @@ class InteractiveSession:
         print("=" * 60)
         print()
 
-        print("正在加载配置...")
-        self.config = load_config(env_file)
+        self.config = config
 
         print("正在初始化 RAG 系统...")
         self.pipeline = RAGPipeline(self.config)
@@ -307,16 +306,15 @@ class InteractiveSession:
                 break
 
 
-def single_query(query: str, env_file: str = ".env", show_images: bool = True, query_mode: str = "pipeline") -> None:
+def single_query(query: str, config, show_images: bool = True, query_mode: str = "pipeline") -> None:
     """Execute a single query and exit.
 
     Args:
         query: Query string
-        env_file: Configuration file path
+        config: RAGConfig instance
         show_images: Whether to include images
         query_mode: Query mode ("pipeline" or "agent")
     """
-    config = load_config(env_file)
     pipeline = RAGPipeline(config)
 
     if query_mode == "agent":
@@ -362,18 +360,30 @@ def main():
         default=None,
         help="Query mode: pipeline (fixed flow) or agent (ReAct dynamic)",
     )
+    parser.add_argument(
+        "--markdown-base-path",
+        type=str,
+        default=None,
+        help="Markdown files directory path for table index resolution (used by Agent)",
+    )
 
     args = parser.parse_args()
 
     show_images = not args.no_images
     query_mode = args.mode or "pipeline"
 
+    # Load config
+    config = load_config(args.env)
+    # Override markdown_base_path if provided via CLI
+    if args.markdown_base_path:
+        config.agent.markdown_base_path = args.markdown_base_path
+
     if args.query:
         # Single query mode
-        single_query(args.query, args.env, show_images, query_mode)
+        single_query(args.query, config, show_images, query_mode)
     else:
         # Interactive mode
-        session = InteractiveSession(args.env, show_images, query_mode)
+        session = InteractiveSession(config, show_images, query_mode)
         session.run()
 
 
