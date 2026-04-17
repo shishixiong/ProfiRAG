@@ -13,6 +13,62 @@ from llama_index.core.schema import TextNode, Document
 # Pattern for markdown image references
 IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
+# Pattern for markdown headings
+HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
+
+
+def extract_heading_chain(text: str) -> List[tuple]:
+    """Extract hierarchical heading structure from markdown text.
+
+    Args:
+        text: Markdown text content
+
+    Returns:
+        List of (line_number, level, heading_text) tuples, in document order.
+        e.g., [(0, 1, "概述"), (5, 2, "工具介绍"), ...]
+    """
+    results = []
+    lines = text.split("\n")
+    for line_num, line in enumerate(lines):
+        match = HEADING_PATTERN.match(line.strip())
+        if match:
+            level = len(match.group(1))
+            heading_text = match.group(2).strip()
+            results.append((line_num, level, heading_text))
+    return results
+
+
+def get_heading_chain_for_position(
+    heading_chain: List[tuple],
+    position_line: int
+) -> tuple:
+    """Get the heading chain (ancestors) for content at a given line position.
+
+    Args:
+        heading_chain: List of (line_number, level, heading_text) from extract_heading_chain
+        position_line: The line number to find heading context for
+
+    Returns:
+        Tuple of (current_heading, heading_chain_list)
+        - current_heading: The most recent heading text (or "")
+        - heading_chain_list: List of ancestor heading texts, e.g., ["1 概述", "1.1 工具介绍"]
+    """
+    if not heading_chain:
+        return "", []
+
+    # Find the last heading that appears before or at position_line
+    current_heading = ""
+    ancestors: List[str] = []
+
+    for line_num, level, heading_text in heading_chain:
+        if line_num > position_line:
+            break
+        current_heading = heading_text
+        # Rebuild ancestors: headings at levels 1 through current_level-1
+        ancestors = [h for _, l, h in heading_chain if l < level and _ <= position_line]
+
+    return current_heading, ancestors
+
 
 def find_images_in_chunk(chunk_text: str, image_map: Dict[str, Dict]) -> List[str]:
     """Find image IDs referenced in chunk text.
@@ -123,6 +179,9 @@ class TextSplitter:
         # Get image_map from document BEFORE modifying
         image_map = document.metadata.get("image_map", {})
 
+        # Extract heading chain from original text for heading metadata
+        heading_chain = extract_heading_chain(document.text)
+
         # Create reduced metadata (without large image_map) before splitting
         # LlamaIndex splitter checks metadata length against chunk_size
         reduced_metadata = {
@@ -140,12 +199,26 @@ class TextSplitter:
         # Restore original metadata to document
         document.metadata = original_metadata
 
-        # Add image-related metadata to each node
+        # Add image-related and heading metadata to each node
         for node in nodes:
             node.metadata.update(reduced_metadata)
             # Store document ID in metadata
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
+
+            # Find heading context for this node
+            if heading_chain:
+                # Match node text back to original document to find position
+                node_start_in_original = document.text.find(node.text[:50]) if len(node.text) >= 50 else document.text.find(node.text)
+                if node_start_in_original >= 0:
+                    current_heading, heading_chain_list = get_heading_chain_for_position(
+                        heading_chain, document.text[:node_start_in_original].count("\n")
+                    )
+                    if current_heading:
+                        node.metadata["current_heading"] = current_heading
+                    if heading_chain_list:
+                        node.metadata["heading_chain"] = heading_chain_list
+
             # Find images in this chunk
             chunk_images = find_images_in_chunk(node.text, image_map)
             node.metadata["chunk_images"] = chunk_images
@@ -308,6 +381,9 @@ class ChineseTextSplitter:
         Returns:
             List of TextNode objects
         """
+        # Extract heading chain from original text
+        heading_chain = extract_heading_chain(document.text)
+
         nodes = self.split_text(document.text)
         # Get image_map from document
         image_map = document.metadata.get("image_map", {})
@@ -316,12 +392,25 @@ class ChineseTextSplitter:
             k: v for k, v in document.metadata.items()
             if k != "image_map"  # Skip the potentially large image_map
         }
-        # Update metadata with image propagation
+        # Update metadata with image propagation and heading context
         for node in nodes:
             node.metadata.update(base_metadata)
             # Store document ID in metadata instead
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
+
+            # Find heading context for this node
+            if heading_chain:
+                node_start_in_original = document.text.find(node.text[:20]) if len(node.text) >= 20 else document.text.find(node.text)
+                if node_start_in_original >= 0:
+                    current_heading, heading_chain_list = get_heading_chain_for_position(
+                        heading_chain, document.text[:node_start_in_original].count("\n")
+                    )
+                    if current_heading:
+                        node.metadata["current_heading"] = current_heading
+                    if heading_chain_list:
+                        node.metadata["heading_chain"] = heading_chain_list
+
             # Find images in this chunk
             chunk_images = find_images_in_chunk(node.text, image_map)
             node.metadata["chunk_images"] = chunk_images

@@ -226,6 +226,12 @@ class RAGPipeline:
         text_nodes = []
         image_nodes = []
 
+        # Delete existing points for documents that already exist (re-ingestion)
+        for doc in documents:
+            if self._vector_store.get_ref_doc_info(doc.doc_id):
+                # Document already exists - delete old points first
+                self._vector_store.delete(ref_doc_id=doc.doc_id)
+
         # Process images if enabled and documents have images
         if process_images and self._image_processor:
             for doc in documents:
