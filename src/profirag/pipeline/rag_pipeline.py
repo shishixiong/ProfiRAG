@@ -1,5 +1,6 @@
 """Main RAG pipeline integrating all components"""
 
+import re
 from typing import List, Dict, Any, Optional
 from llama_index.core import VectorStoreIndex, Document
 from llama_index.core.schema import NodeWithScore, TextNode
@@ -84,9 +85,8 @@ class RAGPipeline:
         # Python-side BM25Index is not needed.
         self._bm25_index: Optional[BM25Index] = None
         self._use_qdrant_native_bm25 = (
-            config.retrieval.use_bm25
+            (config.retrieval.use_bm25 or config.retrieval.use_hybrid)
             and config.storage.type == "qdrant"
-            and config.storage.config.get("use_bm25", False)
         )
         if config.retrieval.use_bm25 and not self._use_qdrant_native_bm25:
             self._bm25_index = BM25Index()
@@ -102,7 +102,7 @@ class RAGPipeline:
         )
 
         self._hybrid_retriever = HybridRetriever(
-            vector_index=self._index,
+            vector_index=None if self._use_qdrant_native_bm25 else self._index,
             bm25_index=self._bm25_index,
             alpha=config.retrieval.alpha,
             vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
@@ -250,6 +250,10 @@ class RAGPipeline:
             text_nodes = self._splitter.split_documents(documents)
             # Insert nodes directly
             if self._use_qdrant_native_bm25:
+                # Compute embeddings for nodes before storing
+                for node in text_nodes:
+                    if node.embedding is None:
+                        node.embedding = self._embed_model.get_text_embedding(node.text)
                 # Use vector_store.add() for sparse vector computation
                 self._vector_store.add(text_nodes, **kwargs)
             else:

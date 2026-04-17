@@ -175,8 +175,8 @@ class HybridRetriever:
         self.vector_store = vector_store
         self.kwargs = kwargs
 
-        # Create vector retriever
-        self._vector_retriever = vector_index.as_retriever(**kwargs)
+        # Create vector retriever (only if vector_index is available)
+        self._vector_retriever = vector_index.as_retriever(**kwargs) if vector_index is not None else None
 
     @property
     def _use_native_bm25(self) -> bool:
@@ -209,8 +209,10 @@ class HybridRetriever:
             query_bundle = QueryBundle(query_str=query, embedding=query_embedding)
             return self.vector_store.query(query_bundle, similarity_top_k=top_k, **kwargs)
 
-        # Vector retrieval
-        vector_nodes = self._vector_retriever.retrieve(query)
+        # Vector retrieval (only if vector retriever is available)
+        vector_nodes = []
+        if self._vector_retriever is not None:
+            vector_nodes = self._vector_retriever.retrieve(query)
 
         # BM25 retrieval (if available)
         bm25_nodes = []

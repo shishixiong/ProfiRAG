@@ -74,7 +74,13 @@ class QdrantStore(BaseVectorStore):
 
         # Try to load IDF from existing collection if use_bm25=True
         if self.use_bm25 and self._sparse_vectorizer is None:
-            self._sparse_vectorizer = self._try_load_idf_from_collection()
+            loaded = self._try_load_idf_from_collection()
+            if loaded is not None:
+                self._sparse_vectorizer = loaded
+            else:
+                # No IDF found - create empty vectorizer for incremental fitting
+                from ..retrieval.sparse_vectorizer import SparseVectorizer
+                self._sparse_vectorizer = SparseVectorizer()
         elif self._sparse_vectorizer is None:
             # Create an empty vectorizer for tokenization-only use
             from ..retrieval.sparse_vectorizer import SparseVectorizer
@@ -93,6 +99,42 @@ class QdrantStore(BaseVectorStore):
         """
         return self.use_bm25 and self._sparse_vectorizer is not None and self._sparse_vectorizer.has_idf
 
+    # Metadata keys to exclude from storage (too large or redundant)
+    LARGE_METADATA_KEYS = frozenset({
+        "image_map", "b64_image", "image_data", "original_image",
+        "combined_text", "_document", "page_content", "b64_json",
+        "base64", "embeddings", "text_vector", "content_vector",
+    })
+
+    # Maximum metadata value length (50KB per value)
+    MAX_METADATA_VALUE_LEN = 50 * 1024
+
+    def _filter_metadata_for_storage(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter metadata to exclude large/redundant fields before storing in Qdrant.
+
+        Args:
+            metadata: Original metadata dict
+
+        Returns:
+            Filtered metadata dict safe for Qdrant storage
+        """
+        filtered = {}
+        for k, v in metadata.items():
+            # Skip known large field names
+            if k.lower() in self.LARGE_METADATA_KEYS:
+                continue
+            # Skip very large values
+            v_str = str(v) if not isinstance(v, (int, float, bool, type(None))) else ""
+            if len(v_str) > self.MAX_METADATA_VALUE_LEN:
+                continue
+            # Skip list/dict values that could be large
+            if isinstance(v, (dict, list)):
+                v_str = str(v)
+                if len(v_str) > self.MAX_METADATA_VALUE_LEN:
+                    continue
+            filtered[k] = v
+        return filtered
+
     def _ensure_collection_exists(self) -> None:
         """Ensure the collection exists, create if not."""
         collections = self._client.get_collections().collections
@@ -104,7 +146,6 @@ class QdrantStore(BaseVectorStore):
                     collection_name=self.collection_name,
                     vectors_config={
                         "dense": VectorParams(size=self.dimension, distance=self.distance),
-                        self.SPARSE_VECTOR_NAME: VectorParams(size=self.dimension, distance=Distance.DOT),
                     },
                     sparse_vectors_config={
                         self.SPARSE_VECTOR_NAME: SparseVectorParams()
@@ -160,7 +201,7 @@ class QdrantStore(BaseVectorStore):
                     vector=vectors,
                     payload={
                         "text": node.text or "",
-                        "metadata": node.metadata or {},
+                        "metadata": self._filter_metadata_for_storage(node.metadata) if node.metadata else {},
                         "ref_doc_id": node.metadata.get("ref_doc_id", "") if node.metadata else "",
                     }
                 )
@@ -189,7 +230,7 @@ class QdrantStore(BaseVectorStore):
         idf_payload = self._sparse_vectorizer.get_idf_payload()
         # Store as a special point with known ID
         idf_point = models.PointStruct(
-            id="__idf_meta__",
+            id="00000000-0000-0000-0000-000000000001",
             vector={
                 self.SPARSE_VECTOR_NAME: models.SparseVector(indices=[0], values=[0.0])
             },
@@ -218,7 +259,7 @@ class QdrantStore(BaseVectorStore):
         try:
             results = self._client.retrieve(
                 collection_name=self.collection_name,
-                ids=["__idf_meta__"],
+                ids=["00000000-0000-0000-0000-000000000001"],
                 with_payload=True,
             )
             if results and len(results) > 0:
@@ -249,6 +290,9 @@ class QdrantStore(BaseVectorStore):
             List of NodeWithScore objects
         """
         if not self._sparse_vectorizer.has_idf:
+            # Fallback to sparse-only (raw TF) if no IDF computed
+            if query_str:
+                return self._query_sparse_only(query_str, top_k)
             # Fallback to dense only
             if query_embedding:
                 return self._query_dense(query_embedding, top_k)
@@ -333,6 +377,48 @@ class QdrantStore(BaseVectorStore):
 
         return nodes
 
+    def _query_sparse_only(self, query_str: str, top_k: int) -> List[NodeWithScore]:
+        """Query using sparse vectors only (raw TF, no IDF weighting).
+
+        Used when IDF hasn't been computed yet (e.g., collection loaded from disk
+        without IDF metadata). This provides basic keyword search capability.
+
+        Args:
+            query_str: Query text
+            top_k: Number of results
+
+        Returns:
+            List of NodeWithScore objects
+        """
+        # Compute sparse vector without IDF weighting (raw TF)
+        query_indices, query_values = self._sparse_vectorizer.compute_sparse_vector(
+            query_str, with_idf=False
+        )
+
+        if not query_indices:
+            return []
+
+        results = self._client.query_points(
+            collection_name=self.collection_name,
+            query=models.SparseVector(indices=query_indices, values=query_values),
+            using=self.SPARSE_VECTOR_NAME,
+            limit=top_k,
+            with_payload=True,
+        )
+
+        nodes = []
+        for hit in results.points:
+            text = hit.payload.get("text", "")
+            metadata = hit.payload.get("metadata", {}) or {}
+            node = TextNode(
+                id_=str(hit.id),
+                text=text,
+                metadata=metadata,
+            )
+            nodes.append(NodeWithScore(node=node, score=hit.score))
+
+        return nodes
+
     def delete(self, ref_doc_id: Optional[str] = None, node_ids: Optional[List[str]] = None, **kwargs) -> bool:
         """Delete nodes from Qdrant.
 
@@ -380,8 +466,10 @@ class QdrantStore(BaseVectorStore):
             query_embedding = query.embedding if hasattr(query, "embedding") else None
             return self._query_hybrid(query_str, query_embedding, similarity_top_k)
         else:
-            # Fallback to LlamaIndex vector store (dense only)
-            return self._vector_store.query(query, similarity_top_k=similarity_top_k, **kwargs)
+            # Fallback to dense-only via Qdrant client directly (bypasses LlamaIndex wrapper)
+            if query.embedding:
+                return self._query_dense(query.embedding, similarity_top_k)
+            return []
 
     def get_node(self, node_id: str) -> Optional[TextNode]:
         """Get a specific node by ID from Qdrant.

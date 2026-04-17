@@ -322,53 +322,66 @@ class ChineseTextSplitter:
             text: Chinese text
 
         Returns:
-            List of TextNode objects
+            List of TextNode objects with _char_start metadata for heading context.
         """
-        # Hard limit for embedding API safety (most APIs have ~8k token limit)
-        # Chinese text: roughly 1 char = 1-2 tokens, so 4000 chars is safe
         HARD_LIMIT = 4000
 
         sentences = self._split_sentences(text)
         nodes = []
         current_chunk = ""
+        # Cumulative character offset in the original text
+        # Represents the starting position of the current_chunk in original text
+        offset = 0
+
+        def flush_chunk(chunk: str, flush_offset: int) -> None:
+            """Helper to yield a chunk with its starting position."""
+            if chunk.strip():
+                nodes.append(
+                    TextNode(text=chunk.strip(), metadata={"_char_start": flush_offset})
+                )
 
         for sentence in sentences:
+            sentence_len = len(sentence)
+
             # Handle very long sentences (exceed chunk_size or hard limit)
-            if len(sentence) > self.chunk_size:
+            if sentence_len > self.chunk_size:
                 # First, save current chunk if not empty
                 if current_chunk.strip():
-                    nodes.append(TextNode(text=current_chunk.strip()))
+                    flush_chunk(current_chunk, offset - len(current_chunk))
                     current_chunk = ""
 
                 # Split long sentence into smaller pieces
-                # Use hard_limit for safety with embedding APIs
                 split_size = min(self.chunk_size, HARD_LIMIT)
-                for i in range(0, len(sentence), split_size - self.chunk_overlap):
+                piece_offset = offset
+                for i in range(0, sentence_len, split_size - self.chunk_overlap):
                     chunk_piece = sentence[i:i + split_size]
                     if chunk_piece.strip():
-                        nodes.append(TextNode(text=chunk_piece.strip()))
+                        flush_chunk(chunk_piece, piece_offset + i)
+                offset += sentence_len
                 continue
 
             # Check if adding sentence would exceed chunk_size
-            if len(current_chunk) + len(sentence) > self.chunk_size:
+            if len(current_chunk) + sentence_len > self.chunk_size:
                 if current_chunk:
-                    nodes.append(TextNode(text=current_chunk.strip()))
-                # Add overlap
-                overlap_start = max(0, len(current_chunk) - self.chunk_overlap)
-                current_chunk = current_chunk[overlap_start:] + sentence
+                    flush_chunk(current_chunk, offset - len(current_chunk))
+                # Add overlap: keep last chunk_overlap chars of current_chunk
+                overlap = max(0, len(current_chunk) - self.chunk_overlap)
+                current_chunk = current_chunk[overlap:] + sentence
+                offset += sentence_len  # advance by new sentence
             else:
                 current_chunk += sentence
+                offset += sentence_len
 
         # Add remaining chunk
         if current_chunk.strip():
-            # Final safety check - split if exceeds hard limit
             if len(current_chunk) > HARD_LIMIT:
+                piece_offset = offset - len(current_chunk)
                 for i in range(0, len(current_chunk), HARD_LIMIT - self.chunk_overlap):
                     chunk_piece = current_chunk[i:i + HARD_LIMIT]
                     if chunk_piece.strip():
-                        nodes.append(TextNode(text=chunk_piece.strip()))
+                        flush_chunk(chunk_piece, piece_offset + i)
             else:
-                nodes.append(TextNode(text=current_chunk.strip()))
+                flush_chunk(current_chunk, offset - len(current_chunk))
 
         return nodes
 
@@ -399,17 +412,21 @@ class ChineseTextSplitter:
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
 
-            # Find heading context for this node
+            # Find heading context for this node using actual character position
             if heading_chain:
-                node_start_in_original = document.text.find(node.text[:20]) if len(node.text) >= 20 else document.text.find(node.text)
-                if node_start_in_original >= 0:
-                    current_heading, heading_chain_list = get_heading_chain_for_position(
-                        heading_chain, document.text[:node_start_in_original].count("\n")
-                    )
-                    if current_heading:
-                        node.metadata["current_heading"] = current_heading
-                    if heading_chain_list:
-                        node.metadata["heading_chain"] = heading_chain_list
+                char_start = node.metadata.get("_char_start", 0)
+                # Convert character offset to line count in original document
+                line_count = document.text[:char_start].count("\n") if char_start > 0 else 0
+                current_heading, heading_chain_list = get_heading_chain_for_position(
+                    heading_chain, line_count
+                )
+                if current_heading:
+                    node.metadata["current_heading"] = current_heading
+                if heading_chain_list:
+                    node.metadata["heading_chain"] = heading_chain_list
+
+            # Remove internal tracking key
+            node.metadata.pop("_char_start", None)
 
             # Find images in this chunk
             chunk_images = find_images_in_chunk(node.text, image_map)
