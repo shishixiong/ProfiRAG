@@ -182,9 +182,7 @@ class HybridRetriever:
     def _use_native_bm25(self) -> bool:
         """Check if vector store handles BM25 natively."""
         if self.vector_store is not None:
-            return getattr(self.vector_store, "use_bm25", False) and \
-                   getattr(self.vector_store, "_sparse_vectorizer", None) is not None and \
-                   self.vector_store._sparse_vectorizer.has_idf
+            return getattr(self.vector_store, "has_native_bm25", lambda: False)()
         return False
 
     def retrieve(
@@ -207,7 +205,8 @@ class HybridRetriever:
         if self._use_native_bm25:
             # Delegate to vector store which does hybrid search internally
             from llama_index.core.schema import QueryBundle
-            query_bundle = QueryBundle(query_str=query)
+            query_embedding = kwargs.get("query_embedding")
+            query_bundle = QueryBundle(query_str=query, embedding=query_embedding)
             return self.vector_store.query(query_bundle, similarity_top_k=top_k, **kwargs)
 
         # Vector retrieval

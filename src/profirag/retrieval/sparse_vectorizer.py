@@ -46,6 +46,9 @@ class SparseVectorizer:
         # Cumulative document frequency for each token (for incremental updates)
         self._doc_freq: Counter = Counter()
 
+        # Track seen document IDs to avoid double-counting on re-ingestion
+        self._seen_doc_ids: set = set()
+
         # Token to vocabulary index mapping
         self._token_to_idx: Dict[str, int] = {}
         self._idx_to_token: Dict[int, str] = {}
@@ -113,7 +116,14 @@ class SparseVectorizer:
             self
         """
         texts = []
+        new_ids = []
         for node in nodes:
+            node_id = getattr(node, "node_id", None) or getattr(node, "id_", None)
+            if node_id and node_id in self._seen_doc_ids:
+                continue  # Skip already-seen documents
+            if node_id:
+                self._seen_doc_ids.add(node_id)
+
             text = getattr(node, "text", "") or ""
             metadata = getattr(node, "metadata", {}) or {}
             # Also include combined text from metadata if available
@@ -121,6 +131,11 @@ class SparseVectorizer:
             if isinstance(metadata, dict):
                 combined = metadata.get("combined_text", text)
             texts.append(combined)
+            new_ids.append(node_id)
+
+        if not texts:
+            return self  # No new documents
+
         return self.fit(texts)
 
     def compute_sparse_vector(
@@ -186,6 +201,7 @@ class SparseVectorizer:
             "token_to_idx": self._token_to_idx,
             "doc_count": self._doc_count,
             "doc_freq": dict(self._doc_freq),
+            "seen_doc_ids": list(self._seen_doc_ids),
         }
 
     def load_idf_from_payload(self, payload: Dict) -> None:
@@ -199,6 +215,7 @@ class SparseVectorizer:
         self._idx_to_token = {v: k for k, v in self._token_to_idx.items()}
         self._doc_count = payload.get("doc_count", 0)
         self._doc_freq = Counter(payload.get("doc_freq", {}))
+        self._seen_doc_ids = set(payload.get("seen_doc_ids", []))
 
     @property
     def vocab_size(self) -> int:

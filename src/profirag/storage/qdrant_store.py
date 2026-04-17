@@ -85,6 +85,14 @@ class QdrantStore(BaseVectorStore):
         """Get the underlying Qdrant client."""
         return self._client
 
+    def has_native_bm25(self) -> bool:
+        """Check if Qdrant native BM25 (sparse vector) is enabled and ready.
+
+        Returns:
+            True if use_bm25=True and IDF has been computed, False otherwise.
+        """
+        return self.use_bm25 and self._sparse_vectorizer is not None and self._sparse_vectorizer.has_idf
+
     def _ensure_collection_exists(self) -> None:
         """Ensure the collection exists, create if not."""
         collections = self._client.get_collections().collections
@@ -342,12 +350,12 @@ class QdrantStore(BaseVectorStore):
             if ref_info:
                 self._client.delete_points(
                     collection_name=self.collection_name,
-                    points=[ref_info.node_ids],
+                    points=ref_info.node_ids,
                 )
         elif node_ids:
             self._client.delete_points(
                 collection_name=self.collection_name,
-                points=[node_ids],
+                points=node_ids,
             )
         else:
             # Delete entire collection
