@@ -206,6 +206,9 @@ class HybridRetriever:
             # Delegate to vector store which does hybrid search internally
             from llama_index.core.schema import QueryBundle
             query_embedding = kwargs.get("query_embedding")
+            # If no embedding provided, generate it from query text using the index's embed model
+            if query_embedding is None and self.vector_index is not None:
+                query_embedding = self.vector_index._embed_model.get_text_embedding(query)
             query_bundle = QueryBundle(query_str=query, embedding=query_embedding)
             return self.vector_store.query(query_bundle, similarity_top_k=top_k, **kwargs)
 

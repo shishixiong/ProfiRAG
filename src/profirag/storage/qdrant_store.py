@@ -64,11 +64,13 @@ class QdrantStore(BaseVectorStore):
         self._ensure_collection_exists()
 
         # Create LlamaIndex vector store wrapper
+        # Use dense_vector_name="dense" to match our collection config when use_bm25=False
         self._vector_store = QdrantVectorStore(
             client=client,
             collection_name=collection_name,
             prefer_grpc=prefer_grpc,
             aclient=aclient,
+            dense_vector_name="dense",
             **kwargs
         )
 
