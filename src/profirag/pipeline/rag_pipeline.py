@@ -2,7 +2,7 @@
 
 import re
 from typing import List, Dict, Any, Optional
-from llama_index.core import VectorStoreIndex, Document
+from llama_index.core import VectorStoreIndex, Document, QueryBundle
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.llms.openai import OpenAI
@@ -102,7 +102,7 @@ class RAGPipeline:
         )
 
         self._hybrid_retriever = HybridRetriever(
-            vector_index=None if self._use_qdrant_native_bm25 else self._index,
+            vector_index=self._index,
             bm25_index=self._bm25_index,
             alpha=config.retrieval.alpha,
             vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
@@ -345,22 +345,10 @@ class RAGPipeline:
                 - source_nodes: Retrieved source nodes
                 - metadata: Query and retrieval metadata
         """
-        # 1. Pre-retrieval: Transform query
         query_bundles = self._pre_retrieval.transform(query_str)
-
-        # 2. Retrieval: Hybrid search
-        all_nodes: List[NodeWithScore] = []
-        for qb in query_bundles:
-            nodes = self._hybrid_retriever.retrieve(qb.query_str, top_k=top_k)
-            all_nodes.extend(nodes)
-
-        # Deduplicate nodes
+        all_nodes, all_images = self._retrieve(query_bundles, top_k, include_images=False)
         unique_nodes = self._deduplicate_nodes(all_nodes)
-
-        # 3. Post-retrieval: Rerank
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-
-        # 4. Generation: Synthesize response
         response = self._synthesizer.synthesize(query_str, reranked_nodes[:top_k])
 
         return {
@@ -395,38 +383,52 @@ class RAGPipeline:
                 - sources: Source information
                 - images: List of associated images with paths and descriptions
         """
-        # 1. Pre-retrieval: Transform query
         query_bundles = self._pre_retrieval.transform(query_str)
-
-        # 2. Retrieval with images
-        all_text_nodes: List[NodeWithScore] = []
-        all_images: List[ImageResult] = []
-
-        for qb in query_bundles:
-            result = self._hybrid_retriever.retrieve_with_images(
-                qb.query_str,
-                top_k=top_k,
-                include_images=include_images,
-            )
-            all_text_nodes.extend(result.text_nodes)
-            all_images.extend(result.images)
-
-        # Deduplicate
-        unique_nodes = self._deduplicate_nodes(all_text_nodes)
+        all_nodes, all_images = self._retrieve(query_bundles, top_k, include_images=True)
+        unique_nodes = self._deduplicate_nodes(all_nodes)
         unique_images = self._deduplicate_images(all_images)
-
-        # 3. Post-retrieval: Rerank
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-
-        # 4. Generation: Synthesize response
         response = self._synthesizer.synthesize(query_str, reranked_nodes[:top_k])
 
-        # 5. Format response with sources and images
         return ResponseFormatter.format_with_sources_and_images(
             response,
             reranked_nodes[:top_k],
             unique_images,
         )
+
+    def _retrieve(
+        self,
+        query_bundles: List["QueryBundle"],
+        top_k: int,
+        include_images: bool = False,
+    ) -> tuple[List[NodeWithScore], List[ImageResult]]:
+        """Retrieve nodes (and optionally images) for query bundles.
+
+        Args:
+            query_bundles: Transformed query bundles from pre-retrieval
+            top_k: Number of results to retrieve
+            include_images: Whether to include image retrieval
+
+        Returns:
+            Tuple of (text_nodes, images)
+        """
+        all_nodes: List[NodeWithScore] = []
+        all_images: List[ImageResult] = []
+
+        for qb in query_bundles:
+            if include_images:
+                result = self._hybrid_retriever.retrieve_with_images(
+                    qb.query_str,
+                    top_k=top_k,
+                    include_images=True,
+                )
+                all_nodes.extend(result.text_nodes)
+                all_images.extend(result.images)
+            else:
+                nodes = self._hybrid_retriever.retrieve(qb.query_str, top_k=top_k)
+                all_nodes.extend(nodes)
+
+        return all_nodes, all_images
 
     def _deduplicate_images(self, images: List[ImageResult]) -> List[ImageResult]:
         """Remove duplicate images based on image_path.
@@ -464,13 +466,8 @@ class RAGPipeline:
         Yields:
             Response chunks
         """
-        # Execute retrieval
         query_bundles = self._pre_retrieval.transform(query_str)
-        all_nodes = []
-        for qb in query_bundles:
-            nodes = self._hybrid_retriever.retrieve(qb.query_str, top_k=top_k)
-            all_nodes.extend(nodes)
-
+        all_nodes, _ = self._retrieve(query_bundles, top_k, include_images=False)
         unique_nodes = self._deduplicate_nodes(all_nodes)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
 

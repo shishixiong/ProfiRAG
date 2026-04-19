@@ -9,7 +9,6 @@ from .loaders import (
     fix_heading_levels,
 )
 from .splitters import TextSplitter
-from .pipelines import IngestionPipeline
 
 __all__ = [
     "DocumentLoader",
@@ -19,5 +18,4 @@ __all__ = [
     "detect_header_footer_patterns",
     "fix_heading_levels",
     "TextSplitter",
-    "IngestionPipeline",
 ]
