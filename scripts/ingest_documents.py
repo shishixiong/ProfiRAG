@@ -18,6 +18,20 @@ Usage:
     # Ingest a single file
     python scripts/ingest_documents.py --file ./documents/example.pdf
 
+    # BM25-only mode (no vectors)
+    python scripts/ingest_documents.py --file ./documents/example.pdf --mode bm25
+
+    # Vector-only mode (no BM25)
+    python scripts/ingest_documents.py --file ./documents/example.pdf --mode vector
+
+    # Hybrid mode (default)
+    python scripts/ingest_documents.py --file ./documents/example.pdf --mode hybrid
+
+Index modes:
+    - bm25: BM25/sparse index only (no dense vectors), best for keyword search
+    - vector: Dense vector index only (no BM25), best for semantic search
+    - hybrid: Both BM25 and vector indexes (default), best for mixed queries
+
 Splitter types:
     - sentence: Split by sentences (default)
     - token: Split by token count
@@ -33,10 +47,41 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from profirag.config.settings import load_config
+from profirag.config.settings import load_config, RAGConfig
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from profirag.ingestion.loaders import DocumentLoader
 from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
+
+
+def apply_index_mode(config: RAGConfig, mode: str) -> RAGConfig:
+    """Apply index mode settings to configuration.
+
+    Args:
+        config: RAGConfig instance
+        mode: Index mode - "bm25", "vector", or "hybrid"
+
+    Returns:
+        Modified RAGConfig with index mode applied
+    """
+    if mode == "bm25":
+        # BM25-only: use_bm25=True, use_hybrid=False, dense_vector_name=None
+        config.retrieval.use_bm25 = True
+        config.retrieval.use_hybrid = False
+        config.storage.config["use_bm25"] = True
+        config.storage.config["dense_vector_name"] = None
+    elif mode == "vector":
+        # Vector-only: use_bm25=False, use_hybrid=False
+        config.retrieval.use_bm25 = False
+        config.retrieval.use_hybrid = False
+        config.storage.config["use_bm25"] = False
+        config.storage.config["dense_vector_name"] = "dense"
+    else:  # hybrid
+        # Hybrid: use_bm25=True, use_hybrid=True
+        config.retrieval.use_bm25 = True
+        config.retrieval.use_hybrid = True
+        config.storage.config["use_bm25"] = True
+        config.storage.config["dense_vector_name"] = "dense"
+    return config
 
 
 def ingest_directory(
@@ -47,6 +92,7 @@ def ingest_directory(
     splitter_type: str = None,
     chunk_size: int = None,
     chunk_overlap: int = None,
+    mode: str = "hybrid",
 ) -> dict:
     """Ingest documents from a directory into the RAG pipeline.
 
@@ -58,14 +104,19 @@ def ingest_directory(
         splitter_type: Override splitter type (sentence, token, semantic, chinese)
         chunk_size: Override chunk size
         chunk_overlap: Override chunk overlap
+        mode: Index mode - "bm25", "vector", or "hybrid"
 
     Returns:
         Dictionary with ingestion statistics
     """
     # Load configuration
+    config = load_config(env_file)
+
+    # Apply index mode settings
+    config = apply_index_mode(config, mode)
+
     if show_progress:
         print(f"Loading configuration from {env_file}...")
-    config = load_config(env_file)
 
     # Override chunking settings if provided
     if splitter_type:
@@ -135,6 +186,7 @@ def ingest_file(
     file_path: str,
     env_file: str = ".env",
     show_progress: bool = True,
+    mode: str = "hybrid",
 ) -> dict:
     """Ingest a single file into the RAG pipeline.
 
@@ -142,14 +194,19 @@ def ingest_file(
         file_path: Path to the file
         env_file: Path to .env configuration file
         show_progress: Show progress information
+        mode: Index mode - "bm25", "vector", or "hybrid"
 
     Returns:
         Dictionary with ingestion statistics
     """
     # Load configuration
+    config = load_config(env_file)
+
+    # Apply index mode settings
+    config = apply_index_mode(config, mode)
+
     if show_progress:
         print(f"Loading configuration from {env_file}...")
-    config = load_config(env_file)
 
     # Initialize pipeline
     if show_progress:
@@ -261,6 +318,14 @@ def main():
         action="store_true",
         help="Suppress progress output",
     )
+    parser.add_argument(
+        "--mode",
+        "-m",
+        type=str,
+        choices=["bm25", "vector", "hybrid"],
+        default="hybrid",
+        help="Index mode: bm25 (keyword only), vector (semantic only), hybrid (both, default)",
+    )
 
     args = parser.parse_args()
 
@@ -273,6 +338,7 @@ def main():
                 file_path=args.file,
                 env_file=args.env,
                 show_progress=show_progress,
+                mode=args.mode,
             )
         else:
             # Ingest directory
@@ -284,6 +350,7 @@ def main():
                 chunk_size=args.chunk_size,
                 chunk_overlap=args.chunk_overlap,
                 show_progress=show_progress,
+                mode=args.mode,
             )
 
         if not show_progress:
