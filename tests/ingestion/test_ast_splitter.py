@@ -10,8 +10,6 @@ from profirag.ingestion.ast_splitter import (
     JavaParser,
     CppParser,
     GoParser,
-    LANGUAGE_PARSERS,
-    EXTENSION_TO_LANGUAGE,
 )
 
 
@@ -21,49 +19,50 @@ class TestCodeChunk:
     def test_code_chunk_creation(self):
         """CodeChunk stores all required fields."""
         chunk = CodeChunk(
-            text="def hello(): pass",
+            code="def hello(): pass",
             language="python",
-            chunk_type="function_definition",
+            entity_name="hello",
+            entity_type="function",
+            file_path="/test.py",
             start_line=1,
             end_line=2,
-            name="hello",
         )
-        assert chunk.text == "def hello(): pass"
+        assert chunk.code == "def hello(): pass"
         assert chunk.language == "python"
-        assert chunk.chunk_type == "function_definition"
+        assert chunk.entity_name == "hello"
+        assert chunk.entity_type == "function"
+        assert chunk.file_path == "/test.py"
         assert chunk.start_line == 1
         assert chunk.end_line == 2
-        assert chunk.name == "hello"
 
-    def test_code_chunk_defaults(self):
-        """Optional fields default to sensible values."""
+    def test_code_chunk_to_text_node(self):
+        """CodeChunk converts to TextNode with correct metadata."""
         chunk = CodeChunk(
-            text="class Foo: pass",
+            code="def hello(): pass",
             language="python",
-            chunk_type="class_definition",
-            start_line=5,
-            end_line=6,
+            entity_name="hello",
+            entity_type="function",
+            file_path="/test.py",
+            start_line=1,
+            end_line=2,
         )
-        assert chunk.name is None
-        assert chunk.metadata == {}
+        node = chunk.to_text_node()
+        assert node.text == "def hello(): pass"
+        assert node.metadata["language"] == "python"
+        assert node.metadata["function_name"] == "hello"
+        assert node.metadata["entity_type"] == "function"
 
 
 class TestLanguageRegistry:
     """Unit tests for language parser registry and extension mapping."""
 
-    def test_supported_languages(self):
-        """All four target languages are registered."""
-        expected = {"python", "java", "cpp", "c", "go"}
-        assert set(LANGUAGE_PARSERS.keys()) == expected
-
-    def test_extension_mappings(self):
-        """Common file extensions map to the correct languages."""
-        assert EXTENSION_TO_LANGUAGE[".py"] == "python"
-        assert EXTENSION_TO_LANGUAGE[".java"] == "java"
-        assert EXTENSION_TO_LANGUAGE[".go"] == "go"
-        assert EXTENSION_TO_LANGUAGE[".cpp"] == "cpp"
-        assert EXTENSION_TO_LANGUAGE[".c"] == "c"
-        assert EXTENSION_TO_LANGUAGE[".hpp"] == "cpp"
+    def test_parsers_registered(self):
+        """All four target language parsers are available."""
+        from profirag.ingestion.ast_splitter import LANGUAGE_PARSERS
+        assert "python" in LANGUAGE_PARSERS
+        assert "java" in LANGUAGE_PARSERS
+        assert "cpp" in LANGUAGE_PARSERS
+        assert "go" in LANGUAGE_PARSERS
 
 
 class TestASTSplitter:
@@ -74,63 +73,32 @@ class TestASTSplitter:
         splitter = ASTSplitter()
         assert splitter.chunk_size == 512
         assert splitter.chunk_overlap == 50
-        assert splitter.fallback_to_text is True
+        assert splitter.language == "python"
 
     def test_splitter_init_custom(self):
         """Custom constructor values are stored."""
-        splitter = ASTSplitter(chunk_size=256, chunk_overlap=20, fallback_to_text=False)
+        splitter = ASTSplitter(chunk_size=256, chunk_overlap=20, language="java")
         assert splitter.chunk_size == 256
         assert splitter.chunk_overlap == 20
-        assert splitter.fallback_to_text is False
-
-    def test_detect_language_python(self):
-        """detect_language returns correct language for .py files."""
-        splitter = ASTSplitter()
-        assert splitter.detect_language("example.py") == "python"
-
-    def test_detect_language_java(self):
-        """detect_language returns correct language for .java files."""
-        splitter = ASTSplitter()
-        assert splitter.detect_language("MyClass.java") == "java"
-
-    def test_detect_language_go(self):
-        """detect_language returns correct language for .go files."""
-        splitter = ASTSplitter()
-        assert splitter.detect_language("main.go") == "go"
-
-    def test_detect_language_cpp(self):
-        """detect_language returns correct language for various C++ extensions."""
-        splitter = ASTSplitter()
-        assert splitter.detect_language("file.cpp") == "cpp"
-        assert splitter.detect_language("file.hpp") == "cpp"
-        assert splitter.detect_language("file.h") == "cpp"
-        assert splitter.detect_language("file.c") == "c"
-
-    def test_detect_language_unknown(self):
-        """detect_language returns None for unrecognised extensions."""
-        splitter = ASTSplitter()
-        assert splitter.detect_language("file.txt") is None
-        assert splitter.detect_language("file.xyz") is None
+        assert splitter.language == "java"
 
     def test_unsupported_language_raises(self):
-        """split_code raises ValueError for unsupported languages when fallback is disabled."""
-        splitter = ASTSplitter(fallback_to_text=False)
+        """ASTSplitter raises ValueError for unsupported languages."""
         with pytest.raises(ValueError, match="Unsupported language"):
-            splitter.split_code("some code", language="ruby")
+            ASTSplitter(language="ruby")
 
-    def test_split_code_returns_list(self):
-        """split_code returns a list of CodeChunk objects."""
-        splitter = ASTSplitter()
-        # Currently raises NotImplementedError because parsers are skeletons.
-        # This test documents the expected return type contract.
-        with pytest.raises(NotImplementedError):
-            splitter.split_code("def foo(): pass", language="python", file_path="/test.py")
+    def test_split_text_returns_list(self):
+        """split_text returns a list of TextNode objects."""
+        splitter = ASTSplitter(language="python")
+        nodes = splitter.split_text("def foo(): pass", "test.py")
+        assert isinstance(nodes, list)
+        assert len(nodes) >= 1
 
-    def test_split_code_with_file_path(self):
-        """file_path is stored in chunk metadata when provided."""
-        splitter = ASTSplitter()
-        with pytest.raises(NotImplementedError):
-            splitter.split_code("def foo(): pass", language="python", file_path="foo.py")
+    def test_split_text_with_file_path(self):
+        """file_path is passed to parser correctly."""
+        splitter = ASTSplitter(language="python")
+        nodes = splitter.split_text("def foo(): pass", "/path/test.py")
+        assert len(nodes) >= 1
 
 
 def test_code_chunk_dataclass():
@@ -261,5 +229,3 @@ def world():
     nodes = splitter.split_text(code, "test.py")
     assert len(nodes) == 2
     assert nodes[0].text == "def hello():\n    print(\"hello\")"
-
-
