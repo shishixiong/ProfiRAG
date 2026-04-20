@@ -9,6 +9,7 @@ Usage:
     python scripts/chunk_documents.py --input ./documents --output ./chunks
     python scripts/chunk_documents.py --input ./documents --output ./chunks --splitter sentence
     python scripts/chunk_documents.py --input ./documents --output ./chunks --splitter chinese --chunk-size 512
+    python scripts/chunk_documents.py --input ./code --output ./chunks --splitter ast --ast-language python
 """
 
 import argparse
@@ -22,7 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from profirag.ingestion.loaders import DocumentLoader
 from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
+from profirag.ingestion.ast_splitter import ASTSplitter
 from llama_index.core.schema import TextNode
+
+# Code file extensions that can use AST splitter
+CODE_EXTENSIONS = {".py", ".java", ".cpp", ".c", ".h", ".hpp", ".go", ".js", ".ts", ".jsx", ".tsx"}
 
 
 def chunk_documents(
@@ -35,19 +40,21 @@ def chunk_documents(
     recursive: bool = True,
     output_format: str = "txt",
     show_progress: bool = True,
+    ast_language: str = "python",
 ) -> dict:
     """Chunk documents and write to output directory.
 
     Args:
         input_dir: Path to input documents directory
         output_dir: Path to output directory for chunks
-        splitter_type: Type of splitter ("sentence", "token", "semantic", "chinese")
+        splitter_type: Type of splitter ("sentence", "token", "semantic", "chinese", "ast")
         chunk_size: Maximum chunk size
         chunk_overlap: Overlap between chunks
         language: Document language ("auto", "en", "zh")
         recursive: Search subdirectories
         output_format: Output format ("txt", "json", "jsonl")
         show_progress: Show progress information
+        ast_language: Language for AST splitter ("python", "java", "cpp", "go")
 
     Returns:
         Dictionary with chunking statistics
@@ -93,7 +100,13 @@ def chunk_documents(
     if show_progress:
         print(f"Creating splitter: {splitter_type} (chunk_size={chunk_size}, overlap={chunk_overlap})")
 
-    if splitter_type == "chinese" or (language == "zh" and splitter_type == "sentence"):
+    if splitter_type == "ast":
+        splitter = ASTSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            language=ast_language,
+        )
+    elif splitter_type == "chinese" or (language == "zh" and splitter_type == "sentence"):
         splitter = ChineseTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -279,7 +292,7 @@ def main():
     parser.add_argument(
         "--splitter", "-s",
         type=str,
-        choices=["sentence", "token", "semantic", "chinese"],
+        choices=["sentence", "token", "semantic", "chinese", "ast"],
         default="sentence",
         help="Splitter type (default: sentence)",
     )
@@ -326,6 +339,13 @@ def main():
         action="store_true",
         help="Suppress progress output",
     )
+    parser.add_argument(
+        "--ast-language",
+        type=str,
+        choices=["python", "java", "cpp", "go"],
+        default="python",
+        help="Language for AST splitter (default: python)",
+    )
 
     args = parser.parse_args()
 
@@ -342,6 +362,7 @@ def main():
             recursive=args.recursive,
             output_format=args.format,
             show_progress=show_progress,
+            ast_language=args.ast_language,
         )
 
         if not show_progress:
