@@ -18,11 +18,15 @@ Usage:
     # Ingest a single file
     python scripts/ingest_documents.py --file ./documents/example.pdf
 
+    # Use AST splitter for code files
+    python scripts/ingest_documents.py --documents ./code --splitter ast --ast-language python
+
 Splitter types:
     - sentence: Split by sentences (default)
     - token: Split by token count
     - semantic: Split by semantic similarity (requires embedding)
     - chinese: Optimized for Chinese text
+    - ast: AST-based splitter for code files (Python, Java, C++, Go)
 """
 
 import argparse
@@ -47,6 +51,7 @@ def ingest_directory(
     splitter_type: str = None,
     chunk_size: int = None,
     chunk_overlap: int = None,
+    ast_language: str = None,
 ) -> dict:
     """Ingest documents from a directory into the RAG pipeline.
 
@@ -55,9 +60,10 @@ def ingest_directory(
         env_file: Path to .env configuration file
         recursive: Whether to search subdirectories
         show_progress: Show progress information
-        splitter_type: Override splitter type (sentence, token, semantic, chinese)
+        splitter_type: Override splitter type (sentence, token, semantic, chinese, ast)
         chunk_size: Override chunk size
         chunk_overlap: Override chunk overlap
+        ast_language: Language for AST splitter (python, java, cpp, go)
 
     Returns:
         Dictionary with ingestion statistics
@@ -74,6 +80,8 @@ def ingest_directory(
         config.chunking.chunk_size = chunk_size
     if chunk_overlap:
         config.chunking.chunk_overlap = chunk_overlap
+    if ast_language:
+        config.chunking.ast_language = ast_language
 
     # Initialize pipeline
     if show_progress:
@@ -239,7 +247,7 @@ def main():
         "--splitter",
         "-s",
         type=str,
-        choices=["sentence", "token", "semantic", "chinese"],
+        choices=["sentence", "token", "semantic", "chinese", "ast"],
         default=None,
         help="Splitter type (default: from .env or 'sentence')",
     )
@@ -260,6 +268,13 @@ def main():
         "-q",
         action="store_true",
         help="Suppress progress output",
+    )
+    parser.add_argument(
+        "--ast-language",
+        type=str,
+        choices=["python", "java", "cpp", "go"],
+        default=None,
+        help="Language for AST splitter (default: from .env or 'python')",
     )
 
     args = parser.parse_args()
@@ -283,6 +298,7 @@ def main():
                 splitter_type=args.splitter,
                 chunk_size=args.chunk_size,
                 chunk_overlap=args.chunk_overlap,
+                ast_language=args.ast_language,
                 show_progress=show_progress,
             )
 

@@ -725,7 +725,9 @@ class DocumentLoader:
 
     SUPPORTED_EXTENSIONS = [
         ".pdf", ".txt", ".md", ".docx", ".html", ".htm",
-        ".json", ".csv", ".xlsx", ".pptx"
+        ".json", ".csv", ".xlsx", ".pptx",
+        # Code files for AST splitter
+        ".py", ".java", ".cpp", ".c", ".h", ".hpp", ".go", ".js", ".ts", ".jsx", ".tsx",
     ]
 
     def __init__(
