@@ -135,7 +135,14 @@ class RAGPipeline:
     def _create_splitter(self):
         """Create text splitter based on configuration."""
         chunking = self.config.chunking
-        if chunking.splitter_type == "chinese" or chunking.language == "zh":
+        if chunking.splitter_type == "ast":
+            from profirag.ingestion.ast_splitter import ASTSplitter
+            return ASTSplitter(
+                chunk_size=chunking.chunk_size,
+                chunk_overlap=chunking.chunk_overlap,
+                language=chunking.ast_language,
+            )
+        elif chunking.splitter_type == "chinese" or chunking.language == "zh":
             return ChineseTextSplitter(
                 chunk_size=chunking.chunk_size,
                 chunk_overlap=chunking.chunk_overlap,
