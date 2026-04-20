@@ -124,10 +124,13 @@ class PreRetrievalConfig(BaseModel):
 
 class ChunkingConfig(BaseModel):
     """Chunking configuration"""
-    splitter_type: Literal["sentence", "token", "semantic", "chinese"] = "sentence"
+    splitter_type: Literal["sentence", "token", "semantic", "chinese", "ast"] = "sentence"
     chunk_size: int = 512
     chunk_overlap: int = 50
     language: Literal["en", "zh"] = "en"
+
+    # AST-specific settings
+    ast_language: Literal["python", "java", "cpp", "go"] = "python"
 
 
 class RetrievalConfig(BaseModel):
