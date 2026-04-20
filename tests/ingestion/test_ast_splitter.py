@@ -245,3 +245,21 @@ void world() {
     assert chunks[0].entity_type == "function"
 
 
+def test_ast_splitter_basic():
+    splitter = ASTSplitter(
+        chunk_size=512,
+        chunk_overlap=50,
+        language="python"
+    )
+    code = """
+def hello():
+    print("hello")
+
+def world():
+    print("world")
+"""
+    nodes = splitter.split_text(code, "test.py")
+    assert len(nodes) == 2
+    assert nodes[0].text == "def hello():\n    print(\"hello\")"
+
+

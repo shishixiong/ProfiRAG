@@ -835,3 +835,45 @@ class ASTSplitter:
         import pathlib
         suffix = pathlib.Path(file_path).suffix.lower()
         return EXTENSION_TO_LANGUAGE.get(suffix)
+
+
+class ASTSplitter:
+    """Main AST-based splitter for code files."""
+
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
+                 language: str = "python"):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.language = language
+        self._parser = self._create_parser(language)
+
+    def _create_parser(self, language: str) -> BaseLanguageParser:
+        """Create language-specific parser."""
+        parsers = {
+            "python": PythonParser,
+            "java": JavaParser,
+            "cpp": CppParser,
+            "go": GoParser,
+        }
+        parser_class = parsers.get(language)
+        if parser_class is None:
+            raise ValueError(f"Unsupported language: {language}. Supported: {list(parsers.keys())}")
+        return parser_class(chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
+
+    def split_text(self, text: str, file_path: str = "") -> List:
+        """Split code text into TextNode chunks."""
+        chunks = self._parser.parse(text, file_path)
+        return [chunk.to_text_node() for chunk in chunks]
+
+    def split_document(self, document) -> List:
+        """Split a document into code chunks."""
+        code = document.text
+        file_path = document.metadata.get("file_path", "")
+        return self.split_text(code, file_path)
+
+    def split_documents(self, documents: List) -> List:
+        """Split multiple documents."""
+        nodes = []
+        for doc in documents:
+            nodes.extend(self.split_document(doc))
+        return nodes
