@@ -158,6 +158,41 @@ def test_base_parser_abstract():
         parser.parse("def foo(): pass")
 
 
+class TestPythonParser:
+    """Unit tests for the PythonParser class."""
+
+    def test_python_parser_basic_function(self):
+        parser = PythonParser(chunk_size=512)
+        code = """
+def hello():
+    print("hello")
+
+def world():
+    print("world")
+"""
+        chunks = parser.parse(code, "/test.py")
+        assert len(chunks) == 2
+        assert chunks[0].entity_name == "hello"
+        assert chunks[0].entity_type == "function"
+        assert chunks[0].start_line == 2
+        assert chunks[0].end_line == 3
+
+    def test_python_parser_class(self):
+        parser = PythonParser(chunk_size=512)
+        code = """
+class MyClass:
+    def method1(self):
+        pass
+
+    def method2(self):
+        pass
+"""
+        chunks = parser.parse(code, "/test.py")
+        assert len(chunks) == 1
+        assert chunks[0].entity_name == "MyClass"
+        assert chunks[0].entity_type == "class"
+
+
 class TestParserPlaceholders:
     """Sanity tests that parser stubs exist and raise NotImplementedError."""
 
