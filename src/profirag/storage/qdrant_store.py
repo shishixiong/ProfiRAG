@@ -625,5 +625,6 @@ class QdrantStore(BaseVectorStore):
             distance=config.get("distance", "Cosine"),
             prefer_grpc=config.get("prefer_grpc", False),
             use_bm25=config.get("use_bm25", False),
+            dense_vector_name=config.get("dense_vector_name", "dense"),
             **config.get("store_options", {})
         )
