@@ -16,26 +16,30 @@ from abc import ABC, abstractmethod
 
 @dataclass
 class CodeChunk:
-    """Represents a semantically meaningful chunk of source code.
-
-    Attributes:
-        text: The source text of the chunk.
-        language: Programming language identifier (e.g. "python", "java").
-        chunk_type: AST node type that produced this chunk
-                    (e.g. "function_definition", "class_definition").
-        start_line: 1-based starting line number in the original file.
-        end_line: 1-based ending line number in the original file.
-        name: Optional qualified name of the symbol (e.g. "MyClass.my_method").
-        metadata: Arbitrary extra metadata.
-    """
-
-    text: str
+    """Represents a chunk of code with metadata."""
+    code: str
     language: str
-    chunk_type: str
+    entity_name: str
+    entity_type: str  # "function" | "class" | "method" | "module"
+    file_path: str
     start_line: int
     end_line: int
-    name: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_text_node(self):
+        """Convert to llama_index TextNode."""
+        from llama_index.core.schema import TextNode
+        return TextNode(
+            text=self.code,
+            metadata={
+                "language": self.language,
+                "function_name": self.entity_name if self.entity_type == "function" else None,
+                "class_name": self.entity_name if self.entity_type == "class" else None,
+                "file_path": self.file_path,
+                "start_line": self.start_line,
+                "end_line": self.end_line,
+                "entity_type": self.entity_type,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------

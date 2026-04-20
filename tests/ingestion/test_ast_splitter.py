@@ -132,6 +132,25 @@ class TestASTSplitter:
             splitter.split_code("def foo(): pass", language="python", file_path="foo.py")
 
 
+def test_code_chunk_dataclass():
+    chunk = CodeChunk(
+        code="def foo(): pass",
+        language="python",
+        entity_name="foo",
+        entity_type="function",
+        file_path="/test.py",
+        start_line=1,
+        end_line=2
+    )
+    assert chunk.code == "def foo(): pass"
+    assert chunk.language == "python"
+    assert chunk.entity_name == "foo"
+    assert chunk.entity_type == "function"
+    assert chunk.file_path == "/test.py"
+    assert chunk.start_line == 1
+    assert chunk.end_line == 2
+
+
 class TestParserPlaceholders:
     """Sanity tests that parser stubs exist and raise NotImplementedError."""
 
