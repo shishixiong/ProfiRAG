@@ -20,19 +20,20 @@ ProfiRAG 是一个高级 RAG (Retrieval-Augmented Generation) 系统，支持完
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
 │  │  Ingestion   │    │   Retrieval  │    │  Generation  │       │
 │  ├──────────────┤    ├──────────────┤    ├──────────────┤       │
-│  │ Loaders      │    │ Pre-Retrieval │    │ Synthesizer  │       │
-│  │ Splitters    │───▶│ Hybrid       │───▶│ Formatter    │       │
+│  │ Loaders      │    │ Pre-Retrieval│    │ Synthesizer  │       │
+│  │ Splitters    │───▶│ HybridRetriever───▶│ Formatter    │       │
 │  │ Pipelines    │    │ Reranker     │    │ Prompts      │       │
-│  └──────────────┘    └──────────────┘    └──────────────┘       │
-│         │                   │                                     │
-│         ▼                   ▼                                     │
-│  ┌──────────────┐    ┌──────────────┐                           │
-│  │   Storage    │    │   Embedding  │                           │
-│  ├──────────────┤    ├──────────────┤                           │
+│  │ ImageProcessor│   │ SparseVectorizer│  └──────────────┘       │
+│  └──────────────┘    └──────────────┘           │               │
+│         │                   │                    ▼               │
+│         ▼                   ▼            ┌──────────────┐       │
+│  ┌──────────────┐    ┌──────────────┐    │   Agent      │       │
+│  │   Storage    │    │   Embedding  │    │  (ReAct)    │       │
+│  ├──────────────┤    ├──────────────┤    └──────────────┘       │
 │  │ QdrantStore  │    │ CustomOpenAI │                           │
 │  │ LocalStore   │    │ Embedding    │                           │
 │  │ PostgresStore│    └──────────────┘                           │
-│  └──────────────┘                                             │
+│  └──────────────┘                                                │
 │         │                                                         │
 │         ▼                                                         │
 │  ┌──────────────┐                                                │
@@ -218,15 +219,17 @@ PreRetrievalPipeline
 #### 3.5.2 混合检索 (`hybrid.py`)
 
 ```python
-BM25Index
+SparseVectorizer (别名: BM25Index)
 ├── 中文分词: jieba
+├── TF-IDF 加权稀疏向量计算
+├── 用于 Qdrant native BM25 hybrid retrieval
 ├── 方法:
-│   ├── add_nodes(nodes)
-│   ├── retrieve(query, top_k) → List[NodeWithScore]
-│   ├── clear(), count()
+│   ├── fit(texts) / fit_nodes(nodes)  # 构建词汇表和 IDF
+│   ├── compute_sparse_vector(text)    # 计算查询稀疏向量
+│   └── get_idf_payload() / load_idf_from_payload()
 
 HybridRetriever
-├── 组合: VectorIndex + BM25Index
+├── 组合: VectorStoreIndex + Qdrant native BM25 (或 SparseVectorizer)
 ├── 融合: Reciprocal Rank Fusion (RRF)
 │   score = α/(k + rank_vector) + (1-α)/(k + rank_bm25)
 ├── 方法:
@@ -429,8 +432,8 @@ CustomOpenAIEmbedding._get_text_embeddings()
 向量列表
     ↓
 VectorStore.add(nodes)
-    ↓
-BM25Index.add_nodes() (可选)
+    ├── Qdrant native BM25: SparseVectorizer 计算稀疏向量
+    └── 其他存储: 向量存储完成摄入
     ↓
 完成摄入
 ```
@@ -596,7 +599,6 @@ ProfiRAG
 │   ├── llama-index-embeddings-openai
 │   └── llama-index-llms-openai
 ├── qdrant-client (向量数据库)
-├── rank-bm25 (BM25 算法)
 ├── sentence-transformers (Cross-Encoder)
 ├── jieba (中文分词)
 ├── pydantic / pydantic-settings (配置管理)
@@ -624,20 +626,27 @@ ProfiRAG/
 │   │   ├── __init__.py
 │   │   ├── loaders.py           # 文档加载
 │   │   ├── pipelines.py         # 摄入管道
-│   │   └── splitters.py         # 文本分块
+│   │   ├── splitters.py         # 文本分块
+│   │   └── image_processor.py   # PDF 图片处理 + VLM 描述生成
 │   ├── pipeline/
 │   │   ├── __init__.py
 │   │   └── rag_pipeline.py      # 主 RAG 管道
 │   ├── retrieval/
 │   │   ├── __init__.py
 │   │   ├── hybrid.py            # 混合检索
-│   │   ├── query_transform.py   # 查询变换
+│   │   ├── sparse_vectorizer.py # TF-IDF 稀疏向量 (BM25Index 别名)
+│   │   ├── query_transform.py   # 查询变换 (HyDE/Rewrite/MultiQuery)
 │   │   └── reranker.py          # 重排序
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── react_agent.py       # ReAct 代理
+│   │   └── tools.py             # RAG 工具集
 │   ├── evaluation/              # 评估模块
 │   │   ├── __init__.py
 │   │   ├── dataset.py           # 评估数据集
 │   │   ├── retrieval.py         # 检索评估
 │   │   ├── response.py          # 响应评估
+│   │   ├── chunking.py          # 分块质量评估
 │   │   └── runner.py            # 批量评估执行器
 │   └── storage/
 │       ├── __init__.py
@@ -649,7 +658,11 @@ ProfiRAG/
 ├── scripts/
 │   ├── chunk_documents.py        # 分块脚本
 │   ├── ingest_documents.py       # 摄入脚本
-│   └── evaluate_rag.py           # 评估脚本
+│   ├── evaluate_rag.py           # 评估脚本
+│   ├── eval_retrieval_flow.py   # 检索流程评估
+│   └── eval_response_flow.py    # 响应生成评估
+├── docs/
+│   └── DESIGN.md                 # 系统设计文档
 ├── .env                          # 配置文件
 ├── pyproject.toml                # 项目配置
 └── README.md
