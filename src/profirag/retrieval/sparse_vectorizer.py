@@ -226,3 +226,7 @@ class SparseVectorizer:
     def has_idf(self) -> bool:
         """Check if IDF has been computed."""
         return self._doc_count > 0 and len(self._idf) > 0
+
+
+# Backwards compatibility alias
+BM25Index = SparseVectorizer

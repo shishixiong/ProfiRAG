@@ -13,7 +13,8 @@ from ..embedding import CustomOpenAIEmbedding
 from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
 from ..retrieval.query_transform import PreRetrievalPipeline
-from ..retrieval.hybrid import HybridRetriever, BM25Index
+from ..retrieval.hybrid import HybridRetriever
+from ..retrieval.sparse_vectorizer import BM25Index
 from ..retrieval.reranker import Reranker
 from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
@@ -80,16 +81,10 @@ class RAGPipeline:
         # Initialize index
         self._index = self._create_index()
 
-        # Initialize BM25 index if enabled (Python-side).
-        # When Qdrant native BM25 is used (use_bm25=True in storage config),
-        # Python-side BM25Index is not needed.
-        self._bm25_index: Optional[BM25Index] = None
         self._use_qdrant_native_bm25 = (
             (config.retrieval.use_bm25 or config.retrieval.use_hybrid)
             and config.storage.type == "qdrant"
         )
-        if config.retrieval.use_bm25 and not self._use_qdrant_native_bm25:
-            self._bm25_index = BM25Index()
 
         # Initialize components
         self._pre_retrieval = PreRetrievalPipeline(
@@ -103,7 +98,6 @@ class RAGPipeline:
 
         self._hybrid_retriever = HybridRetriever(
             vector_index=self._index,
-            bm25_index=self._bm25_index,
             alpha=config.retrieval.alpha,
             vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
         )
@@ -203,7 +197,6 @@ class RAGPipeline:
     def ingest_documents(
         self,
         documents: List[Document],
-        update_bm25: bool = True,
         use_custom_splitter: bool = True,
         process_images: bool = True,
         **kwargs
@@ -212,7 +205,6 @@ class RAGPipeline:
 
         Args:
             documents: List of Document objects to ingest
-            update_bm25: Update BM25 index with new nodes
             use_custom_splitter: Use configured splitter (True) or llama_index default (False)
             process_images: Process images and generate descriptions if enabled
             **kwargs: Additional arguments for ingestion
@@ -259,24 +251,10 @@ class RAGPipeline:
             else:
                 for node in text_nodes:
                     self._index.insert_nodes([node], **kwargs)
-                # Update BM25 index if enabled
-                if update_bm25 and self._bm25_index:
-                    self._bm25_index.add_nodes(text_nodes)
         else:
             # Add documents to index (uses llama_index default chunking)
             for doc in documents:
                 self._index.insert(doc, **kwargs)
-
-            # Update BM25 index if enabled
-            if update_bm25 and self._bm25_index:
-                # Get nodes from ingested documents
-                for doc in documents:
-                    ref_doc_info = self._vector_store.get_ref_doc_info(doc.doc_id)
-                    if ref_doc_info:
-                        for node_id in ref_doc_info.node_ids:
-                            node = self._vector_store.get_node(node_id)
-                            if node:
-                                self._bm25_index.add_nodes([node])
 
         # Insert image nodes if any
         image_node_ids = []
@@ -285,8 +263,6 @@ class RAGPipeline:
                 self._vector_store.add(image_nodes, **kwargs)
             else:
                 self._index.insert_nodes(image_nodes, **kwargs)
-                if update_bm25 and self._bm25_index:
-                    self._bm25_index.add_nodes(image_nodes)
             image_node_ids = [node.node_id for node in image_nodes]
 
         return {
@@ -298,7 +274,6 @@ class RAGPipeline:
     def ingest_nodes(
         self,
         nodes: List[TextNode],
-        update_bm25: bool = True,
         **kwargs
     ) -> List[str]:
         """Ingest nodes directly into the vector store.
@@ -307,7 +282,6 @@ class RAGPipeline:
 
         Args:
             nodes: List of TextNode objects (embedding will be generated if not set)
-            update_bm25: Update BM25 index
             **kwargs: Additional arguments
 
         Returns:
@@ -320,9 +294,6 @@ class RAGPipeline:
             # Use index to insert nodes (auto-generates embeddings)
             self._index.insert_nodes(nodes, **kwargs)
             node_ids = [node.node_id for node in nodes]
-
-            if update_bm25 and self._bm25_index:
-                self._bm25_index.add_nodes(nodes)
 
         return node_ids
 
@@ -550,8 +521,6 @@ class RAGPipeline:
     def clear(self) -> None:
         """Clear all data from the pipeline."""
         self._vector_store.clear()
-        if self._bm25_index:
-            self._bm25_index.clear()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get pipeline statistics.
@@ -563,10 +532,6 @@ class RAGPipeline:
             "vector_store": {
                 "type": self.config.storage.type,
                 "count": self._vector_store.count(),
-            },
-            "bm25_index": {
-                "enabled": self.config.retrieval.use_bm25,
-                "count": self._bm25_index.count() if self._bm25_index else 0,
             },
             "reranking": {
                 "enabled": self.config.reranking.enabled,
