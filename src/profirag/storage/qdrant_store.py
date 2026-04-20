@@ -145,17 +145,27 @@ class QdrantStore(BaseVectorStore):
         collection_names = [c.name for c in collections]
 
         if self.collection_name not in collection_names:
-            if self.use_bm25:
+            if self.use_bm25 and self.dense_vector_name is None:
+                # BM25-only mode: sparse vectors only, no dense vectors
+                self._client.create_collection(
+                    collection_name=self.collection_name,
+                    sparse_vectors_config={
+                        self.SPARSE_VECTOR_NAME: SparseVectorParams()
+                    },
+                )
+            elif self.use_bm25:
+                # Hybrid mode: both dense and sparse vectors
                 self._client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config={
-                        "dense": VectorParams(size=self.dimension, distance=self.distance),
+                        self.dense_vector_name: VectorParams(size=self.dimension, distance=self.distance),
                     },
                     sparse_vectors_config={
                         self.SPARSE_VECTOR_NAME: SparseVectorParams()
                     },
                 )
             else:
+                # No BM25: dense vectors only
                 self._client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=VectorParams(
