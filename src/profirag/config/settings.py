@@ -48,6 +48,9 @@ class EnvSettings(BaseSettings):
     qdrant_collection_name: str = "profirag"
     qdrant_url: Optional[str] = None
 
+    # Dense Vector Configuration
+    profirag_dense_vector_name: Optional[str] = "dense"  # Set to None for BM25-only
+
     # PostgreSQL Configuration
     postgres_host: str = "localhost"
     postgres_port: int = 5432
@@ -305,6 +308,7 @@ class RAGConfig(BaseModel):
                 "collection_name": env.qdrant_collection_name,
                 "dimension": env.openai_embedding_dimension,
                 "use_bm25": env.profirag_use_bm25,
+                "dense_vector_name": env.profirag_dense_vector_name,
             }
             if env.qdrant_api_key:
                 config["api_key"] = env.qdrant_api_key
