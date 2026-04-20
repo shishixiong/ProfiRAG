@@ -121,7 +121,6 @@ def ingest_directory(
     if show_progress:
         print(f"\nIngestion complete!")
         print(f"  - Vector store count: {stats['vector_store']['count']}")
-        print(f"  - BM25 index count: {stats['bm25_index']['count']}")
 
     return {
         "documents_loaded": len(documents),
@@ -227,7 +226,7 @@ def main():
         "--recursive",
         "-r",
         action="store_true",
-        default=True,
+        default=False,
         help="Search subdirectories (default: True)",
     )
     parser.add_argument(
@@ -247,13 +246,13 @@ def main():
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=None,
+        default=1024,
         help="Chunk size (default: from .env or 512)",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=None,
+        default=100,
         help="Chunk overlap (default: from .env or 50)",
     )
     parser.add_argument(
