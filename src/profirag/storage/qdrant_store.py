@@ -34,6 +34,7 @@ class QdrantStore(BaseVectorStore):
         aclient: Optional[AsyncQdrantClient] = None,
         use_bm25: bool = False,
         sparse_vectorizer: Optional[Any] = None,
+        dense_vector_name: Optional[str] = "dense",
         **kwargs
     ):
         """Initialize Qdrant vector store.
@@ -56,6 +57,7 @@ class QdrantStore(BaseVectorStore):
         self.dimension = dimension
         self.distance = Distance[distance.upper()]
         self.use_bm25 = use_bm25
+        self.dense_vector_name = dense_vector_name
 
         # Sparse vectorizer (for BM25)
         self._sparse_vectorizer = sparse_vectorizer
@@ -70,7 +72,7 @@ class QdrantStore(BaseVectorStore):
             collection_name=collection_name,
             prefer_grpc=prefer_grpc,
             aclient=aclient,
-            dense_vector_name="dense",
+            dense_vector_name=self.dense_vector_name,
             **kwargs
         )
 
