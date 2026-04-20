@@ -4,6 +4,7 @@ import pytest
 
 from profirag.ingestion.ast_splitter import (
     ASTSplitter,
+    BaseLanguageParser,
     CodeChunk,
     PythonParser,
     JavaParser,
@@ -149,6 +150,12 @@ def test_code_chunk_dataclass():
     assert chunk.file_path == "/test.py"
     assert chunk.start_line == 1
     assert chunk.end_line == 2
+
+
+def test_base_parser_abstract():
+    parser = BaseLanguageParser()
+    with pytest.raises(NotImplementedError):
+        parser.parse("def foo(): pass")
 
 
 class TestParserPlaceholders:

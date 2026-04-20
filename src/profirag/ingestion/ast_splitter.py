@@ -49,16 +49,32 @@ class CodeChunk:
 class BaseLanguageParser(ABC):
     """Abstract base class for language-specific AST parsers."""
 
-    @abstractmethod
-    def parse(self, source: str) -> List[CodeChunk]:
-        """Parse *source* and return a list of semantic code chunks.
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
 
-        Args:
-            source: Raw source code text.
+    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+        """Parse source code and return list of code chunks."""
+        raise NotImplementedError
 
-        Returns:
-            Ordered list of :class:`CodeChunk` objects.
-        """
+    def get_language_name(self) -> str:
+        """Return the language name (python, java, cpp, go)."""
+        raise NotImplementedError
+
+    def _estimate_tokens(self, code: str) -> int:
+        """Estimate token count from code string."""
+        return len(code) // 4  # rough estimate
+
+    def _split_if_needed(self, chunk: CodeChunk) -> List[CodeChunk]:
+        """Split oversized chunk into smaller pieces."""
+        if self._estimate_tokens(chunk.code) <= self.chunk_size:
+            return [chunk]
+
+        # Try to split by logical blocks (subclasses override for language-specific)
+        return self._split_by_blocks(chunk)
+
+    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+        """Language-specific block splitting."""
         raise NotImplementedError
 
 
