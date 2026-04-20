@@ -199,16 +199,16 @@ class QdrantStore(BaseVectorStore):
                 indices, values = self._sparse_vectorizer.compute_sparse_vector(
                     node.text or "", with_idf=False
                 )
-                # Build vectors dict with both dense and sparse
+                # Build vectors dict
                 vectors = {
                     self.SPARSE_VECTOR_NAME: models.SparseVector(
                         indices=indices,
                         values=values
                     )
                 }
-                # Get dense vector from node if available
-                if hasattr(node, "embedding") and node.embedding:
-                    vectors["dense"] = node.embedding
+                # Add dense vector only if dense_vector_name is configured
+                if self.dense_vector_name and hasattr(node, "embedding") and node.embedding:
+                    vectors[self.dense_vector_name] = node.embedding
 
                 point = models.PointStruct(
                     id=node.node_id,
