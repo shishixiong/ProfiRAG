@@ -160,6 +160,27 @@ BaseVectorStore (ABC)
 | **PostgreSQL** | `postgres_store.py` | pgvector 扩展、适合现有数据库 |
 | **Local** | `local_store.py` | 本地文件存储、无需外部依赖 |
 
+##### Qdrant
+
+**BM25-Only Mode**
+
+当设置 `dense_vector_name=None` 时，Qdrant collection 仅使用稀疏向量创建：
+
+```python
+# Example: BM25-only ingestion
+store = QdrantStore(
+    collection_name="bm25_only_collection",
+    client=client,
+    use_bm25=True,
+    dense_vector_name=None,  # No dense vectors stored
+)
+```
+
+此模式：
+- 减少存储占用（无密集向量）
+- 启用纯关键字/BM25检索
+- 适用于不需要向量搜索的文本密集型工作负载
+
 #### 3.3.3 存储注册器 (`registry.py`)
 
 ```python
