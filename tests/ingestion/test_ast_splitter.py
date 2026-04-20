@@ -124,7 +124,7 @@ class TestASTSplitter:
         # Currently raises NotImplementedError because parsers are skeletons.
         # This test documents the expected return type contract.
         with pytest.raises(NotImplementedError):
-            splitter.split_code("def foo(): pass", language="python")
+            splitter.split_code("def foo(): pass", language="python", file_path="/test.py")
 
     def test_split_code_with_file_path(self):
         """file_path is stored in chunk metadata when provided."""
@@ -155,7 +155,7 @@ def test_code_chunk_dataclass():
 def test_base_parser_abstract():
     parser = BaseLanguageParser()
     with pytest.raises(NotImplementedError):
-        parser.parse("def foo(): pass")
+        parser.parse("def foo(): pass", "/test.py")
 
 
 class TestPythonParser:
@@ -193,25 +193,55 @@ class MyClass:
         assert chunks[0].entity_type == "class"
 
 
-class TestParserPlaceholders:
-    """Sanity tests that parser stubs exist and raise NotImplementedError."""
+def test_go_parser_basic_function():
+    parser = GoParser(chunk_size=512)
+    code = """
+func hello() {
+    println("hello")
+}
 
-    def test_python_parser_placeholder(self):
-        parser = PythonParser()
-        with pytest.raises(NotImplementedError):
-            parser.parse("def foo(): pass")
+func world() {
+    println("world")
+}
+"""
+    chunks = parser.parse(code, "/test.go")
+    assert len(chunks) == 2
+    assert chunks[0].entity_name == "hello"
+    assert chunks[0].entity_type == "function"
 
-    def test_java_parser_placeholder(self):
-        parser = JavaParser()
-        with pytest.raises(NotImplementedError):
-            parser.parse("public class Foo {}")
 
-    def test_cpp_parser_placeholder(self):
-        parser = CppParser()
-        with pytest.raises(NotImplementedError):
-            parser.parse("void foo() {}")
+def test_java_parser_basic_method():
+    parser = JavaParser(chunk_size=512)
+    code = """
+public class MyClass {
+    public void hello() {
+        System.out.println("hello");
+    }
 
-    def test_go_parser_placeholder(self):
-        parser = GoParser()
-        with pytest.raises(NotImplementedError):
-            parser.parse("func main() {}")
+    public void world() {
+        System.out.println("world");
+    }
+}
+"""
+    chunks = parser.parse(code, "/Test.java")
+    assert len(chunks) == 1  # class level
+    assert chunks[0].entity_name == "MyClass"
+    assert chunks[0].entity_type == "class"
+
+
+def test_cpp_parser_basic_function():
+    parser = CppParser(chunk_size=512)
+    code = """
+void hello() {
+    printf("hello");
+}
+
+void world() {
+    printf("world");
+}
+"""
+    chunks = parser.parse(code, "/test.cpp")
+    assert len(chunks) == 2
+    assert chunks[0].entity_type == "function"
+
+

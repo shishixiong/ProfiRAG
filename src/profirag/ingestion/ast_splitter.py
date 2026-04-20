@@ -241,24 +241,480 @@ class PythonParser(BaseLanguageParser):
 
 
 class JavaParser(BaseLanguageParser):
-    """AST parser for Java source files."""
+    """Parser for Java code using tree-sitter."""
 
-    def parse(self, source: str) -> List[CodeChunk]:
-        raise NotImplementedError("JavaParser.parse not yet implemented")
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+        super().__init__(chunk_size, chunk_overlap)
+        self._parser = None
+        self._ensure_parser()
+
+    def _ensure_parser(self):
+        """Lazy-load tree-sitter parser."""
+        if self._parser is None:
+            try:
+                import tree_sitter_java as tsjava
+                from tree_sitter import Language, Parser
+                self._language = Language(tsjava.language())
+                self._parser = Parser(self._language)
+            except ImportError:
+                raise ImportError(
+                    "tree-sitter-java not installed. Run: pip install tree-sitter-java"
+                )
+
+    def get_language_name(self) -> str:
+        return "java"
+
+    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+        """Parse Java source and return class/method/constructor chunks."""
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+        chunks = []
+        self._extract_entities(tree.root_node, source_code, file_path, chunks)
+        return chunks
+
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+        """Recursively extract classes, methods, constructors, interfaces."""
+        for child in node.children:
+            if child.type == "class_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "class")
+            elif child.type == "method_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "method")
+            elif child.type == "constructor_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "constructor")
+            elif child.type == "interface_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "interface")
+            else:
+                self._extract_entities(child, source_code, file_path, chunks)
+
+    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
+                                chunks: List[CodeChunk], entity_type: str):
+        """Create CodeChunk from tree-sitter node."""
+        start_byte = node.start_byte
+        end_byte = node.end_byte
+        code = source_code[start_byte:end_byte]
+
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        entity_name = name_node.text.decode("utf8") if name_node else "<anonymous>"
+
+        chunk = CodeChunk(
+            code=code,
+            language="java",
+            entity_name=entity_name,
+            entity_type=entity_type,
+            file_path=file_path,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1
+        )
+
+        split_chunks = self._split_if_needed(chunk)
+        chunks.extend(split_chunks)
+
+    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+        """Split Java chunk by internal blocks."""
+        source_code = chunk.code
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+
+        sub_chunks = []
+        self._split_by_control_flow(tree.root_node, source_code, chunk, sub_chunks)
+
+        if len(sub_chunks) <= 1:
+            return self._hard_split(chunk)
+
+        return sub_chunks
+
+    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
+                                sub_chunks: List[CodeChunk], offset: int = 0):
+        """Split by if/while/for blocks."""
+        for child in node.children:
+            if child.type in ("if_statement", "while_statement", "for_statement",
+                              "enhanced_for_statement", "do_statement"):
+                body_start = None
+                body_end = None
+                for c in child.children:
+                    if c.type == "block":
+                        body_start = c.start_byte
+                        body_end = c.end_byte
+                        break
+
+                if body_start is not None:
+                    body_code = source_code[body_start - offset:body_end - offset]
+                    if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
+                        sub_chunk = CodeChunk(
+                            code=body_code.strip(),
+                            language="java",
+                            entity_name=f"{parent_chunk.entity_name}_block",
+                            entity_type="block",
+                            file_path=parent_chunk.file_path,
+                            start_line=parent_chunk.start_line,
+                            end_line=parent_chunk.end_line
+                        )
+                        sub_chunks.extend(self._split_if_needed(sub_chunk))
+                        continue
+
+            self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
+
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+        """Hard split by lines when no semantic split possible."""
+        if max_tokens is None:
+            max_tokens = self.chunk_size
+
+        lines = chunk.code.split("\n")
+        chunks = []
+        current_lines = []
+        current_tokens = 0
+
+        for i, line in enumerate(lines):
+            line_tokens = self._estimate_tokens(line)
+            if current_tokens + line_tokens > max_tokens and current_lines:
+                code = "\n".join(current_lines)
+                chunks.append(CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1
+                ))
+                current_lines = [line]
+                current_tokens = line_tokens
+            else:
+                current_lines.append(line)
+                current_tokens += line_tokens
+
+        if current_lines:
+            code = "\n".join(current_lines)
+            chunks.append(CodeChunk(
+                code=code,
+                language=chunk.language,
+                entity_name=chunk.entity_name,
+                entity_type=chunk.entity_type,
+                file_path=chunk.file_path,
+                start_line=chunk.start_line,
+                end_line=chunk.start_line + len(current_lines) - 1
+            ))
+
+        return chunks
 
 
 class CppParser(BaseLanguageParser):
-    """AST parser for C and C++ source files."""
+    """Parser for C and C++ code using tree-sitter."""
 
-    def parse(self, source: str) -> List[CodeChunk]:
-        raise NotImplementedError("CppParser.parse not yet implemented")
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+        super().__init__(chunk_size, chunk_overlap)
+        self._parser = None
+        self._ensure_parser()
+
+    def _ensure_parser(self):
+        """Lazy-load tree-sitter parser."""
+        if self._parser is None:
+            try:
+                import tree_sitter_cpp as tscpp
+                from tree_sitter import Language, Parser
+                self._language = Language(tscpp.language())
+                self._parser = Parser(self._language)
+            except ImportError:
+                raise ImportError(
+                    "tree-sitter-cpp not installed. Run: pip install tree-sitter-cpp"
+                )
+
+    def get_language_name(self) -> str:
+        return "cpp"
+
+    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+        """Parse C/C++ source and return function/class/struct/namespace chunks."""
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+        chunks = []
+        self._extract_entities(tree.root_node, source_code, file_path, chunks)
+        return chunks
+
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+        """Recursively extract functions, classes, structs, namespaces."""
+        for child in node.children:
+            if child.type == "function_definition":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "function")
+            elif child.type == "class_specifier":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "class")
+            elif child.type == "struct_specifier":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "struct")
+            elif child.type == "namespace_specifier":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "namespace")
+            else:
+                self._extract_entities(child, source_code, file_path, chunks)
+
+    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
+                                chunks: List[CodeChunk], entity_type: str):
+        """Create CodeChunk from tree-sitter node."""
+        start_byte = node.start_byte
+        end_byte = node.end_byte
+        code = source_code[start_byte:end_byte]
+
+        name_node = None
+        for child in node.children:
+            if child.type in ("identifier", "type_identifier"):
+                name_node = child
+                break
+        entity_name = name_node.text.decode("utf8") if name_node else "<anonymous>"
+
+        chunk = CodeChunk(
+            code=code,
+            language="cpp",
+            entity_name=entity_name,
+            entity_type=entity_type,
+            file_path=file_path,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1
+        )
+
+        split_chunks = self._split_if_needed(chunk)
+        chunks.extend(split_chunks)
+
+    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+        """Split C/C++ chunk by internal blocks."""
+        source_code = chunk.code
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+
+        sub_chunks = []
+        self._split_by_control_flow(tree.root_node, source_code, chunk, sub_chunks)
+
+        if len(sub_chunks) <= 1:
+            return self._hard_split(chunk)
+
+        return sub_chunks
+
+    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
+                                sub_chunks: List[CodeChunk], offset: int = 0):
+        """Split by if/while/for/switch blocks."""
+        for child in node.children:
+            if child.type in ("if_statement", "while_statement", "for_statement",
+                              "switch_statement", "do_statement"):
+                body_start = None
+                body_end = None
+                for c in child.children:
+                    if c.type == "compound_statement":
+                        body_start = c.start_byte
+                        body_end = c.end_byte
+                        break
+
+                if body_start is not None:
+                    body_code = source_code[body_start - offset:body_end - offset]
+                    if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
+                        sub_chunk = CodeChunk(
+                            code=body_code.strip(),
+                            language="cpp",
+                            entity_name=f"{parent_chunk.entity_name}_block",
+                            entity_type="block",
+                            file_path=parent_chunk.file_path,
+                            start_line=parent_chunk.start_line,
+                            end_line=parent_chunk.end_line
+                        )
+                        sub_chunks.extend(self._split_if_needed(sub_chunk))
+                        continue
+
+            self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
+
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+        """Hard split by lines when no semantic split possible."""
+        if max_tokens is None:
+            max_tokens = self.chunk_size
+
+        lines = chunk.code.split("\n")
+        chunks = []
+        current_lines = []
+        current_tokens = 0
+
+        for i, line in enumerate(lines):
+            line_tokens = self._estimate_tokens(line)
+            if current_tokens + line_tokens > max_tokens and current_lines:
+                code = "\n".join(current_lines)
+                chunks.append(CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1
+                ))
+                current_lines = [line]
+                current_tokens = line_tokens
+            else:
+                current_lines.append(line)
+                current_tokens += line_tokens
+
+        if current_lines:
+            code = "\n".join(current_lines)
+            chunks.append(CodeChunk(
+                code=code,
+                language=chunk.language,
+                entity_name=chunk.entity_name,
+                entity_type=chunk.entity_type,
+                file_path=chunk.file_path,
+                start_line=chunk.start_line,
+                end_line=chunk.start_line + len(current_lines) - 1
+            ))
+
+        return chunks
 
 
 class GoParser(BaseLanguageParser):
-    """AST parser for Go source files."""
+    """Parser for Go code using tree-sitter."""
 
-    def parse(self, source: str) -> List[CodeChunk]:
-        raise NotImplementedError("GoParser.parse not yet implemented")
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+        super().__init__(chunk_size, chunk_overlap)
+        self._parser = None
+        self._ensure_parser()
+
+    def _ensure_parser(self):
+        """Lazy-load tree-sitter parser."""
+        if self._parser is None:
+            try:
+                import tree_sitter_go as tsgo
+                from tree_sitter import Language, Parser
+                self._language = Language(tsgo.language())
+                self._parser = Parser(self._language)
+            except ImportError:
+                raise ImportError(
+                    "tree-sitter-go not installed. Run: pip install tree-sitter-go"
+                )
+
+    def get_language_name(self) -> str:
+        return "go"
+
+    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+        """Parse Go source and return function/method/type chunks."""
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+        chunks = []
+        self._extract_entities(tree.root_node, source_code, file_path, chunks)
+        return chunks
+
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+        """Recursively extract functions, methods, type declarations."""
+        for child in node.children:
+            if child.type == "function_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "function")
+            elif child.type == "method_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "method")
+            elif child.type == "type_declaration":
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "type")
+            else:
+                self._extract_entities(child, source_code, file_path, chunks)
+
+    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
+                                chunks: List[CodeChunk], entity_type: str):
+        """Create CodeChunk from tree-sitter node."""
+        start_byte = node.start_byte
+        end_byte = node.end_byte
+        code = source_code[start_byte:end_byte]
+
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        entity_name = name_node.text.decode("utf8") if name_node else "<anonymous>"
+
+        chunk = CodeChunk(
+            code=code,
+            language="go",
+            entity_name=entity_name,
+            entity_type=entity_type,
+            file_path=file_path,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1
+        )
+
+        split_chunks = self._split_if_needed(chunk)
+        chunks.extend(split_chunks)
+
+    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+        """Split Go chunk by internal blocks."""
+        source_code = chunk.code
+        tree = self._parser.parse(bytes(source_code, "utf8"))
+
+        sub_chunks = []
+        self._split_by_control_flow(tree.root_node, source_code, chunk, sub_chunks)
+
+        if len(sub_chunks) <= 1:
+            return self._hard_split(chunk)
+
+        return sub_chunks
+
+    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
+                                sub_chunks: List[CodeChunk], offset: int = 0):
+        """Split by if/for/switch blocks."""
+        for child in node.children:
+            if child.type in ("if_statement", "for_statement", "switch_statement"):
+                body_start = None
+                body_end = None
+                for c in child.children:
+                    if c.type == "block":
+                        body_start = c.start_byte
+                        body_end = c.end_byte
+                        break
+
+                if body_start is not None:
+                    body_code = source_code[body_start - offset:body_end - offset]
+                    if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
+                        sub_chunk = CodeChunk(
+                            code=body_code.strip(),
+                            language="go",
+                            entity_name=f"{parent_chunk.entity_name}_block",
+                            entity_type="block",
+                            file_path=parent_chunk.file_path,
+                            start_line=parent_chunk.start_line,
+                            end_line=parent_chunk.end_line
+                        )
+                        sub_chunks.extend(self._split_if_needed(sub_chunk))
+                        continue
+
+            self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
+
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+        """Hard split by lines when no semantic split possible."""
+        if max_tokens is None:
+            max_tokens = self.chunk_size
+
+        lines = chunk.code.split("\n")
+        chunks = []
+        current_lines = []
+        current_tokens = 0
+
+        for i, line in enumerate(lines):
+            line_tokens = self._estimate_tokens(line)
+            if current_tokens + line_tokens > max_tokens and current_lines:
+                code = "\n".join(current_lines)
+                chunks.append(CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1
+                ))
+                current_lines = [line]
+                current_tokens = line_tokens
+            else:
+                current_lines.append(line)
+                current_tokens += line_tokens
+
+        if current_lines:
+            code = "\n".join(current_lines)
+            chunks.append(CodeChunk(
+                code=code,
+                language=chunk.language,
+                entity_name=chunk.entity_name,
+                entity_type=chunk.entity_type,
+                file_path=chunk.file_path,
+                start_line=chunk.start_line,
+                end_line=chunk.start_line + len(current_lines) - 1
+            ))
+
+        return chunks
 
 
 # ---------------------------------------------------------------------------
