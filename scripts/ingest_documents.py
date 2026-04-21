@@ -63,14 +63,7 @@ def apply_index_mode(config: RAGConfig, mode: str) -> RAGConfig:
     Returns:
         Modified RAGConfig with index mode applied
     """
-    if mode == "vector":
-        # Vector-only: use_hybrid=False
-        config.retrieval.use_hybrid = False
-        config.storage.config["index_mode"] = mode
-    else:  # hybrid
-        # Hybrid: use_hybrid=True
-        config.retrieval.use_hybrid = True
-        config.storage.config["index_mode"] = mode
+    config.storage.config["index_mode"] = mode
     return config
 
 

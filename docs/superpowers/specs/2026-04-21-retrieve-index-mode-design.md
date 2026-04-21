@@ -202,5 +202,4 @@ No interface changes required - the mode is handled internally by the LlamaIndex
 ## Out of Scope
 
 - Changes to `profirag_index_mode` (indexing remains unchanged)
-- BM25Index class modifications (using native Qdrant BM25 instead)
 - Local/Postgres store implementations (only Qdrant supports native sparse)

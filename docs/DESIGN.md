@@ -473,7 +473,6 @@ QueryBundle 列表
     ↓
 HybridRetriever.retrieve()
     ├── VectorStoreIndex.as_retriever()
-    ├── BM25Index.retrieve()
     └── RRF 融合
     ↓
 NodeWithScore 列表
