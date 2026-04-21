@@ -135,7 +135,6 @@ def ingest_directory(
         "documents_ingested": len(doc_ids),
         "elapsed_seconds": elapsed,
         "vector_store_count": stats["vector_store"]["count"],
-        "bm25_count": stats["bm25_index"]["count"],
     }
 
 
