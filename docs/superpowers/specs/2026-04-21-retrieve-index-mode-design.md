@@ -61,99 +61,80 @@ PROFIRAG_RETRIEVE_INDEX_MODE=hybrid  # hybrid (dense+BM25), sparse (BM25 only), 
 | `sparse` | Pure BM25/keyword search | No | Yes | Exact term matching, keyword-heavy queries |
 | `vector` | Pure semantic/dense search | Yes | No | Semantic similarity, conceptual queries |
 
+## Key Discovery: LlamaIndex Native Support
+
+LlamaIndex **already provides native support** for all three retrieval modes through `VectorStoreQueryMode`:
+
+```python
+from llama_index.core.vector_stores.types import VectorStoreQueryMode
+
+# Pure vector search (DEFAULT)
+VectorStoreQueryMode.DEFAULT
+
+# Pure sparse/BM25 search
+VectorStoreQueryMode.SPARSE
+
+# Hybrid search (dense + sparse fusion)
+VectorStoreQueryMode.HYBRID
+```
+
+**QdrantVectorStore.query()** already handles all three modes correctly:
+- `HYBRID`: Queries both dense and sparse vectors, applies fusion
+- `SPARSE`: Queries only sparse vectors via `using=sparse_vector_name`
+- `DEFAULT`: Queries only dense vectors
+
+This means **no custom implementation needed** in QdrantStore - we just need to pass the correct `VectorStoreQueryMode` when creating retrievers.
+
 ## Implementation
 
-### 1. QdrantStore Changes
+### 1. HybridRetriever Changes (Simplified)
 
-**Modify query method to accept retrieve_mode:**
-
-```python
-def query(
-    self,
-    query: QueryBundle,
-    similarity_top_k: int = 10,
-    retrieve_mode: str = "hybrid",
-    **kwargs
-) -> List[NodeWithScore]:
-```
-
-**Implementation per mode:**
-
-- **`hybrid`**: Use existing hybrid search (delegates to QdrantVectorStore with enable_hybrid=True)
-- **`vector`**: Query using only dense vectors (QueryBundle with embedding, no sparse)
-- **`sparse`**: Query using only sparse vectors via Qdrant's sparse query API
-
-**Sparse-only query implementation:**
-
-For sparse-only retrieval, we need to generate sparse embeddings manually since QdrantVectorStore handles this internally for hybrid mode. We'll use fastembed directly:
+**Add vector_store_query_mode parameter and use native LlamaIndex retriever:**
 
 ```python
-from fastembed.sparse.sparse_text_embedding import SparseTextEmbedding
+from llama_index.core.vector_stores.types import VectorStoreQueryMode
 
-# Initialize sparse embedding model (same as used by QdrantVectorStore)
-self._sparse_model = SparseTextEmbedding("Qdrant/bm42-all-minilm-l6-v2-attentions")
-
-def query_sparse(self, query: QueryBundle, similarity_top_k: int = 10) -> List[NodeWithScore]:
-    # Generate sparse embedding for query
-    sparse_embedding = list(self._sparse_model.embed(query.query_str))[0]
-
-    # Query using sparse vector
-    results = self._client.query_points(
-        collection_name=self.collection_name,
-        query=sparse_embedding.as_object(),
-        using=self.SPARSE_VECTOR_NAME,
-        limit=similarity_top_k,
-        with_payload=True,
-    )
-
-    # Convert to NodeWithScore
-    nodes = []
-    for point in results.points:
-        node = TextNode(
-            id_=str(point.id),
-            text=point.payload.get("text", ""),
-            metadata=point.payload.get("metadata", {}) or {},
-        )
-        nodes.append(NodeWithScore(node=node, score=point.score))
-    return nodes
-```
-
-### 2. HybridRetriever Changes
-
-**Add retrieve_mode parameter:**
-
-```python
 def __init__(
     self,
     vector_index: VectorStoreIndex,
     alpha: float = 0.5,
     rrf_k: int = 60,
     vector_store: Optional[Any] = None,
-    retrieve_mode: str = "hybrid",
+    retrieve_mode: str = "hybrid",  # New parameter
     **kwargs
 ):
+    self.vector_index = vector_index
+    self.alpha = alpha
+    self.rrf_k = rrf_k
+    self.vector_store = vector_store
     self.retrieve_mode = retrieve_mode
-```
 
-**Modify retrieve method:**
-```python
-def retrieve(self, query: str, top_k: int = 10, **kwargs) -> List[NodeWithScore]:
-    # Pass retrieve_mode to vector_store.query()
-    query_bundle = QueryBundle(query_str=query)
+    # Map retrieve_mode to VectorStoreQueryMode
+    self._query_mode = self._map_retrieve_mode(retrieve_mode)
 
-    if self.retrieve_mode in ("hybrid", "vector"):
-        # Generate dense embedding
-        query_bundle.embedding = self.vector_index._embed_model.get_text_embedding(query)
-
-    return self.vector_store.query(
-        query_bundle,
-        similarity_top_k=top_k,
-        retrieve_mode=self.retrieve_mode,
+    # Create retriever with native LlamaIndex support
+    self._vector_retriever = vector_index.as_retriever(
+        vector_store_query_mode=self._query_mode,
+        alpha=alpha,
         **kwargs
     )
+
+def _map_retrieve_mode(self, mode: str) -> VectorStoreQueryMode:
+    """Map retrieve_mode string to VectorStoreQueryMode enum."""
+    mode_map = {
+        "hybrid": VectorStoreQueryMode.HYBRID,
+        "sparse": VectorStoreQueryMode.SPARSE,
+        "vector": VectorStoreQueryMode.DEFAULT,
+    }
+    return mode_map.get(mode, VectorStoreQueryMode.HYBRID)
+
+def retrieve(self, query: str, top_k: int = 10, **kwargs) -> List[NodeWithScore]:
+    """Perform retrieval using configured mode."""
+    # Native LlamaIndex retriever handles everything
+    return self._vector_retriever.retrieve(query)
 ```
 
-### 3. RAGPipeline Changes
+### 2. RAGPipeline Changes
 
 **Pass retrieve_mode to HybridRetriever:**
 
@@ -162,62 +143,61 @@ self._hybrid_retriever = HybridRetriever(
     vector_index=self._index,
     alpha=config.retrieval.alpha,
     vector_store=self._vector_store,
-    retrieve_mode=config.retrieval.retrieve_mode,
+    retrieve_mode=config.retrieval.retrieve_mode,  # New parameter
 )
 ```
 
-### 4. BaseVectorStore Interface
+### 3. QdrantStore Changes (Minimal)
 
-**Add retrieve_mode to query signature:**
+**No changes needed to query method** - QdrantVectorStore already handles all modes correctly via `VectorStoreQuery.mode`.
 
-```python
-def query(
-    self,
-    query: QueryBundle,
-    similarity_top_k: int = 10,
-    retrieve_mode: str = "hybrid",
-    **kwargs
-) -> List[NodeWithScore]:
-```
+The only potential change is ensuring `enable_hybrid=True` is set during initialization when `index_mode="hybrid"` (already done in current code).
+
+### 4. BaseVectorStore Interface (Optional)
+
+No interface changes required - the mode is handled internally by the LlamaIndex retriever.
 
 ## Edge Cases & Error Handling
 
 1. **Sparse retrieval on vector-only indexed data:**
-   - Error: "Sparse retrieval requires data indexed with hybrid mode"
-   - Check: Verify sparse vectors exist before sparse query
+   - QdrantVectorStore will raise: "Hybrid search is not enabled. Please build the query with `enable_hybrid=True`"
+   - This is correct behavior - sparse vectors don't exist
 
 2. **Invalid retrieve_mode:**
    - Error: "Invalid retrieve_mode: {mode}. Must be hybrid, sparse, or vector"
-   - Validation in settings with Literal type
+   - Validation in `_map_retrieve_mode` method
 
-3. **Missing embedding for vector/sparse modes:**
-   - Dense embedding generated by embed_model for vector/hybrid
-   - Sparse embedding generated by fastembed model for sparse/hybrid
+3. **Dense embedding for sparse-only mode:**
+   - LlamaIndex handles this internally - no dense embedding generated for SPARSE mode
 
 ## Testing
 
 ### Unit Tests
 
 1. Test configuration loading of retrieve_mode
-2. Test HybridRetriever with each mode
-3. Test QdrantStore.query with each mode
-4. Test error handling for invalid modes
+2. Test `_map_retrieve_mode` mapping function
+3. Test HybridRetriever initialization with each mode
+4. Test that correct VectorStoreQueryMode is passed to retriever
 
 ### Integration Tests
 
 1. Index with hybrid mode, retrieve with each mode (hybrid, sparse, vector)
 2. Verify retrieval results differ by mode
-3. Verify sparse mode works for keyword-heavy queries
+3. Verify sparse mode works for keyword-heavy queries (exact term matching)
 4. Verify vector mode works for semantic queries
+5. Verify error when sparse retrieval on vector-only indexed data
 
 ## Files to Modify
 
 1. `src/profirag/config/settings.py` - Add retrieve_mode config
-2. `src/profirag/retrieval/hybrid.py` - Add retrieve_mode to HybridRetriever
-3. `src/profirag/storage/base.py` - Update query interface
-4. `src/profirag/storage/qdrant_store.py` - Implement mode-specific queries
-5. `src/profirag/pipeline/rag_pipeline.py` - Pass retrieve_mode to retriever
-6. `.env.example` - Add documentation for new env var
+2. `src/profirag/retrieval/hybrid.py` - Add retrieve_mode and use native LlamaIndex retriever
+3. `src/profirag/pipeline/rag_pipeline.py` - Pass retrieve_mode to retriever
+4. `.env.example` - Add documentation for new env var
+
+## Files NOT Modified (Simplified Approach)
+
+- `src/profirag/storage/base.py` - No interface changes needed
+- `src/profirag/storage/qdrant_store.py` - No changes needed (native support)
 
 ## Out of Scope
 
