@@ -85,3 +85,6 @@ markdown/
 # Evaluation results
 *_results.json
 chunking_results.json
+
+# HuggingFace models cache
+models/
