@@ -71,13 +71,6 @@ class HybridRetriever:
             "vector": VectorStoreQueryMode.DEFAULT,
         }
         return mode_map.get(mode, VectorStoreQueryMode.HYBRID)
-
-    @property
-    def _use_native_bm25(self) -> bool:
-        """Check if vector store handles BM25 natively."""
-        if self.vector_store is not None:
-            return getattr(self.vector_store, "has_native_bm25", lambda: False)()
-        return False
     
     def retrieve(
         self,
@@ -95,63 +88,19 @@ class HybridRetriever:
         Returns:
             List of NodeWithScore objects after RRF fusion
         """
-        # Check if vector store handles BM25 natively (Qdrant with use_bm25=True)
-        if self._use_native_bm25:
-            # Delegate to vector store which does hybrid search internally
-            from llama_index.core.schema import QueryBundle
-            query_embedding = kwargs.get("query_embedding")
-            # If no embedding provided, generate it from query text using the index's embed model
-            if query_embedding is None and self.vector_index is not None:
-                query_embedding = self.vector_index._embed_model.get_text_embedding(query)
-            query_bundle = QueryBundle(query_str=query, embedding=query_embedding)
-            return self.vector_store.query(query_bundle, similarity_top_k=top_k, **kwargs)
 
         # Vector retrieval (only if vector retriever is available)
-        vector_nodes = []
-        if self._vector_retriever is not None:
-            vector_nodes = self._vector_retriever.retrieve(query)
+        retriever_kwargs = kwargs.copy()
+        retriever_kwargs["vector_store_query_mode"] = self._query_mode
+        retriever_kwargs["alpha"] = self.alpha
+        retriever_kwargs["similarity_top_k"] = top_k
+        retriever_kwargs["sparse_top_k"] = top_k
+        retriever_kwargs["hybrid_top_k"] = top_k
+
+        vector_nodes = self.vector_index.as_retriever(**retriever_kwargs).retrieve(query)
 
         return vector_nodes[:top_k]
-
-    def _rrf_fusion(
-        self,
-        vector_nodes: List[NodeWithScore],
-        bm25_nodes: List[NodeWithScore]
-    ) -> List[NodeWithScore]:
-        """Apply Reciprocal Rank Fusion (RRF) to combine results.
-
-        RRF score = alpha / (k + rank_vector) + (1-alpha) / (k + rank_bm25)
-
-        Args:
-            vector_nodes: Results from vector search
-            bm25_nodes: Results from BM25 search
-
-        Returns:
-            Fused and sorted results
-        """
-        scores: Dict[str, float] = {}
-        node_map: Dict[str, NodeWithScore] = {}
-
-        # Process vector results
-        for rank, node_with_score in enumerate(vector_nodes):
-            node_id = node_with_score.node.node_id
-            rrf_score = self.alpha / (self.rrf_k + rank + 1)
-            scores[node_id] = scores.get(node_id, 0) + rrf_score
-            node_map[node_id] = node_with_score
-
-        # Process BM25 results
-        for rank, node_with_score in enumerate(bm25_nodes):
-            node_id = node_with_score.node.node_id
-            rrf_score = (1 - self.alpha) / (self.rrf_k + rank + 1)
-            scores[node_id] = scores.get(node_id, 0) + rrf_score
-            if node_id not in node_map:
-                node_map[node_id] = node_with_score
-
-        # Sort by fused score
-        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-
-        return [node_map[node_id] for node_id in sorted_ids]
-
+    
     def retrieve_with_images(
         self,
         query: str,

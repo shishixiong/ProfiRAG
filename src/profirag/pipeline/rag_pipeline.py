@@ -14,7 +14,6 @@ from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
 from ..retrieval.query_transform import PreRetrievalPipeline
 from ..retrieval.hybrid import HybridRetriever
-from ..retrieval.sparse_vectorizer import BM25Index
 from ..retrieval.reranker import Reranker
 from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter

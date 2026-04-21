@@ -141,7 +141,6 @@ class RetrievalConfig(BaseModel):
     """Retrieval configuration"""
     top_k: int = 10
     alpha: float = 0.5  # Vector search weight (1-alpha for BM25)
-    use_hybrid: bool = True
     retrieve_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
 
 
