@@ -21,9 +21,6 @@ Usage:
     # Use AST splitter for code files
     python scripts/ingest_documents.py --documents ./code --splitter ast --ast-language python
 
-    # BM25-only mode (no vectors)
-    python scripts/ingest_documents.py --file ./documents/example.pdf --mode bm25
-
     # Vector-only mode (no BM25)
     python scripts/ingest_documents.py --file ./documents/example.pdf --mode vector
 
@@ -31,8 +28,7 @@ Usage:
     python scripts/ingest_documents.py --file ./documents/example.pdf --mode hybrid
 
 Index modes:
-    - bm25: BM25/sparse index only (no dense vectors), best for keyword search
-    - vector: Dense vector index only (no BM25), best for semantic search
+    - vector: Dense vector index only, best for semantic search
     - hybrid: Both BM25 and vector indexes (default), best for mixed queries
 
 Splitter types:
@@ -62,29 +58,19 @@ def apply_index_mode(config: RAGConfig, mode: str) -> RAGConfig:
 
     Args:
         config: RAGConfig instance
-        mode: Index mode - "bm25", "vector", or "hybrid"
+        mode: Index mode - "vector" or "hybrid"
 
     Returns:
         Modified RAGConfig with index mode applied
     """
-    if mode == "bm25":
-        # BM25-only: use_bm25=True, use_hybrid=False, dense_vector_name=None
-        config.retrieval.use_bm25 = True
+    if mode == "vector":
+        # Vector-only: use_hybrid=False
         config.retrieval.use_hybrid = False
-        config.storage.config["use_bm25"] = True
-        config.storage.config["dense_vector_name"] = None
-    elif mode == "vector":
-        # Vector-only: use_bm25=False, use_hybrid=False
-        config.retrieval.use_bm25 = False
-        config.retrieval.use_hybrid = False
-        config.storage.config["use_bm25"] = False
-        config.storage.config["dense_vector_name"] = "dense"
+        config.storage.config["index_mode"] = mode
     else:  # hybrid
-        # Hybrid: use_bm25=True, use_hybrid=True
-        config.retrieval.use_bm25 = True
+        # Hybrid: use_hybrid=True
         config.retrieval.use_hybrid = True
-        config.storage.config["use_bm25"] = True
-        config.storage.config["dense_vector_name"] = "dense"
+        config.storage.config["index_mode"] = mode
     return config
 
 
@@ -110,7 +96,7 @@ def ingest_directory(
         chunk_size: Override chunk size
         chunk_overlap: Override chunk overlap
         ast_language: Language for AST splitter (python, java, cpp, go)
-        mode: Index mode - "bm25", "vector", or "hybrid"
+        mode: Index mode - "vector" or "hybrid"
 
     Returns:
         Dictionary with ingestion statistics
@@ -201,7 +187,7 @@ def ingest_file(
         file_path: Path to the file
         env_file: Path to .env configuration file
         show_progress: Show progress information
-        mode: Index mode - "bm25", "vector", or "hybrid"
+        mode: Index mode - "vector" or "hybrid"
 
     Returns:
         Dictionary with ingestion statistics
@@ -336,9 +322,9 @@ def main():
         "--mode",
         "-m",
         type=str,
-        choices=["bm25", "vector", "hybrid"],
+        choices=["vector", "hybrid"],
         default="hybrid",
-        help="Index mode: bm25 (keyword only), vector (semantic only), hybrid (both, default)",
+        help="Index mode: vector (semantic only), hybrid (both BM25 and vector, default)",
     )
 
     args = parser.parse_args()

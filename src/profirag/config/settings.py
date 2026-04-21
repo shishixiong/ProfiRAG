@@ -49,7 +49,7 @@ class EnvSettings(BaseSettings):
     qdrant_url: Optional[str] = None
 
     # Dense Vector Configuration
-    profirag_dense_vector_name: Optional[str] = "dense"  # Set to None for BM25-only
+    # profirag_dense_vector_name is deprecated - index_mode controls this
 
     # PostgreSQL Configuration
     postgres_host: str = "localhost"
@@ -72,7 +72,7 @@ class EnvSettings(BaseSettings):
     profirag_top_k: int = 10
     profirag_alpha: float = 0.5
     profirag_use_hybrid: bool = True
-    profirag_use_bm25: bool = True
+    profirag_index_mode: Literal["hybrid", "vector"] = "hybrid"
 
     # Reranking Configuration
     profirag_rerank_enabled: bool = True
@@ -141,7 +141,6 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     alpha: float = 0.5  # Vector search weight (1-alpha for BM25)
     use_hybrid: bool = True
-    use_bm25: bool = True
 
 
 class RerankingConfig(BaseModel):
@@ -265,8 +264,6 @@ class RAGConfig(BaseModel):
             retrieval=RetrievalConfig(
                 top_k=env_settings.profirag_top_k,
                 alpha=env_settings.profirag_alpha,
-                use_hybrid=env_settings.profirag_use_hybrid,
-                use_bm25=env_settings.profirag_use_bm25,
             ),
             reranking=RerankingConfig(
                 enabled=env_settings.profirag_rerank_enabled,
@@ -307,8 +304,7 @@ class RAGConfig(BaseModel):
                 "port": env.qdrant_port,
                 "collection_name": env.qdrant_collection_name,
                 "dimension": env.openai_embedding_dimension,
-                "use_bm25": env.profirag_use_bm25,
-                "dense_vector_name": env.profirag_dense_vector_name,
+                "index_mode": env.profirag_index_mode,
             }
             if env.qdrant_api_key:
                 config["api_key"] = env.qdrant_api_key

@@ -81,11 +81,6 @@ class RAGPipeline:
         # Initialize index
         self._index = self._create_index()
 
-        self._use_qdrant_native_bm25 = (
-            (config.retrieval.use_bm25 or config.retrieval.use_hybrid)
-            and config.storage.type == "qdrant"
-        )
-
         # Initialize components
         self._pre_retrieval = PreRetrievalPipeline(
             llm=self._llm,
@@ -99,7 +94,7 @@ class RAGPipeline:
         self._hybrid_retriever = HybridRetriever(
             vector_index=self._index,
             alpha=config.retrieval.alpha,
-            vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
+            vector_store=self._vector_store,
         )
 
         self._reranker = Reranker(
@@ -247,17 +242,8 @@ class RAGPipeline:
         if use_custom_splitter:
             # Split documents using configured splitter
             text_nodes = self._splitter.split_documents(documents)
-            # Insert nodes directly
-            if self._use_qdrant_native_bm25:
-                # Compute embeddings for nodes before storing
-                for node in text_nodes:
-                    if node.embedding is None:
-                        node.embedding = self._embed_model.get_text_embedding(node.text)
-                # Use vector_store.add() for sparse vector computation
-                self._vector_store.add(text_nodes, **kwargs)
-            else:
-                for node in text_nodes:
-                    self._index.insert_nodes([node], **kwargs)
+            for node in text_nodes:
+                self._index.insert_nodes([node], **kwargs)
         else:
             # Add documents to index (uses llama_index default chunking)
             for doc in documents:
@@ -266,10 +252,7 @@ class RAGPipeline:
         # Insert image nodes if any
         image_node_ids = []
         if image_nodes:
-            if self._use_qdrant_native_bm25:
-                self._vector_store.add(image_nodes, **kwargs)
-            else:
-                self._index.insert_nodes(image_nodes, **kwargs)
+            self._index.insert_nodes(image_nodes, **kwargs)
             image_node_ids = [node.node_id for node in image_nodes]
 
         return {
@@ -294,13 +277,9 @@ class RAGPipeline:
         Returns:
             List of node IDs
         """
-        if self._use_qdrant_native_bm25:
-            # Use QdrantStore.add() which computes and stores sparse vectors
-            node_ids = self._vector_store.add(nodes, **kwargs)
-        else:
-            # Use index to insert nodes (auto-generates embeddings)
-            self._index.insert_nodes(nodes, **kwargs)
-            node_ids = [node.node_id for node in nodes]
+        # Use index to insert nodes (auto-generates embeddings)
+        self._index.insert_nodes(nodes, **kwargs)
+        node_ids = [node.node_id for node in nodes]
 
         return node_ids
 
