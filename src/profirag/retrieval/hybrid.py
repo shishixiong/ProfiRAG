@@ -3,6 +3,7 @@
 from typing import List, Dict, Any, Optional
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeWithScore
+from llama_index.core.vector_stores.types import VectorStoreQueryMode
 
 from ..ingestion.image_processor import ImageResult, RetrievalResult
 
@@ -20,6 +21,7 @@ class HybridRetriever:
         alpha: float = 0.5,
         rrf_k: int = 60,
         vector_store: Optional[Any] = None,
+        retrieve_mode: str = "hybrid",
         **kwargs
     ):
         """Initialize hybrid retriever.
@@ -32,16 +34,43 @@ class HybridRetriever:
             vector_store: Optional BaseVectorStore reference.
                          If it has native BM25 (use_bm25=True), retrieval
                          is delegated to vector_store.query().
-            **kwargs: Additional arguments
+            retrieve_mode: Retrieval mode - "hybrid" (dense+BM25), "sparse" (BM25 only),
+                          or "vector" (dense only). Default is "hybrid".
+            **kwargs: Additional arguments passed to as_retriever
         """
         self.vector_index = vector_index
         self.alpha = alpha
         self.rrf_k = rrf_k
         self.vector_store = vector_store
+        self.retrieve_mode = retrieve_mode
         self.kwargs = kwargs
 
-        # Create vector retriever (only if vector_index is available)
-        self._vector_retriever = vector_index.as_retriever(**kwargs) if vector_index is not None else None
+        # Map retrieve_mode to VectorStoreQueryMode
+        self._query_mode = self._map_retrieve_mode(retrieve_mode)
+
+        # Create retriever with native LlamaIndex support
+        retriever_kwargs = kwargs.copy()
+        retriever_kwargs["vector_store_query_mode"] = self._query_mode
+        retriever_kwargs["alpha"] = alpha
+
+        self._vector_retriever = vector_index.as_retriever(**retriever_kwargs) if vector_index is not None else None
+
+    @staticmethod
+    def _map_retrieve_mode(mode: Optional[str]) -> VectorStoreQueryMode:
+        """Map retrieve_mode string to VectorStoreQueryMode enum.
+
+        Args:
+            mode: Retrieve mode string ("hybrid", "sparse", "vector")
+
+        Returns:
+            VectorStoreQueryMode enum value
+        """
+        mode_map = {
+            "hybrid": VectorStoreQueryMode.HYBRID,
+            "sparse": VectorStoreQueryMode.SPARSE,
+            "vector": VectorStoreQueryMode.DEFAULT,
+        }
+        return mode_map.get(mode, VectorStoreQueryMode.HYBRID)
 
     @property
     def _use_native_bm25(self) -> bool:
