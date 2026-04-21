@@ -95,6 +95,7 @@ class RAGPipeline:
             vector_index=self._index,
             alpha=config.retrieval.alpha,
             vector_store=self._vector_store,
+            retrieve_mode=config.retrieval.retrieve_mode,
         )
 
         self._reranker = Reranker(
