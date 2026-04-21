@@ -72,7 +72,7 @@ class EnvSettings(BaseSettings):
     profirag_top_k: int = 10
     profirag_alpha: float = 0.5
     profirag_use_hybrid: bool = True
-profirag_use_bm25: bool = True
+    profirag_use_bm25: bool = True
     profirag_index_mode: Literal["hybrid", "vector"] = "hybrid"
     profirag_retrieve_index_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
 
@@ -140,7 +140,7 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     alpha: float = 0.5  # Vector search weight (1-alpha for BM25)
     use_hybrid: bool = True
-use_bm25: bool = True
+    use_bm25: bool = True
     retrieve_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
 
 
