@@ -72,7 +72,9 @@ class EnvSettings(BaseSettings):
     profirag_top_k: int = 10
     profirag_alpha: float = 0.5
     profirag_use_hybrid: bool = True
-    profirag_use_bm25: bool = True
+profirag_use_bm25: bool = True
+    profirag_index_mode: Literal["hybrid", "vector"] = "hybrid"
+    profirag_retrieve_index_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
 
     # Reranking Configuration
     profirag_rerank_enabled: bool = True
@@ -138,7 +140,8 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     alpha: float = 0.5  # Vector search weight (1-alpha for BM25)
     use_hybrid: bool = True
-    use_bm25: bool = True
+use_bm25: bool = True
+    retrieve_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
 
 
 class RerankingConfig(BaseModel):
@@ -262,8 +265,9 @@ class RAGConfig(BaseModel):
             retrieval=RetrievalConfig(
                 top_k=env_settings.profirag_top_k,
                 alpha=env_settings.profirag_alpha,
-                use_hybrid=env_settings.profirag_use_hybrid,
+use_hybrid=env_settings.profirag_use_hybrid,
                 use_bm25=env_settings.profirag_use_bm25,
+                retrieve_mode=env_settings.profirag_retrieve_index_mode,
             ),
             reranking=RerankingConfig(
                 enabled=env_settings.profirag_rerank_enabled,
