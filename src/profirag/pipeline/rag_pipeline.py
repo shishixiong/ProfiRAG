@@ -99,7 +99,8 @@ class RAGPipeline:
         self._hybrid_retriever = HybridRetriever(
             vector_index=self._index,
             alpha=config.retrieval.alpha,
-            vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
+vector_store=self._vector_store if self._use_qdrant_native_bm25 else None,
+            retrieve_mode=config.retrieval.retrieve_mode,
         )
 
         self._reranker = Reranker(
