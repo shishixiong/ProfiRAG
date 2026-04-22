@@ -1,15 +1,170 @@
 """Qdrant vector store implementation with hybrid search support"""
 
-from typing import List, Optional, Dict, Any
-from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
+from typing import List, Optional, Dict, Any, Tuple, ClassVar
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode, MetadataMode, BaseNode
 from llama_index.core.storage.docstore.types import RefDocInfo
+from llama_index.core.utils import iter_batch
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, SparseVectorParams
+from qdrant_client.http.models import (
+    Distance, VectorParams, SparseVectorParams, PointStruct, SparseVector,
+    Filter, FieldCondition, MatchValue
+)
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
+from qdrant_client.http import models as rest
 
 from .base import BaseVectorStore
 from .registry import StorageRegistry
+
+
+class MinimalPayloadQdrantVectorStore(QdrantVectorStore):
+    """Custom QdrantVectorStore that stores minimal payload without _node_content.
+
+    This class inherits from LlamaIndex's QdrantVectorStore and overrides
+    the _build_points method to store only essential fields:
+    - text: The actual text content (for BM25 search)
+    - doc_id: Reference document ID
+    - _node_type: Node type for reconstruction
+    - Essential metadata fields (excluding large/redundant ones)
+    """
+
+    # Metadata keys to exclude from storage (too large or redundant)
+    LARGE_METADATA_KEYS: ClassVar[frozenset] = frozenset({
+        "image_map", "b64_image", "image_data", "original_image",
+        "combined_text", "_document", "page_content", "b64_json",
+        "base64", "embeddings", "text_vector", "content_vector",
+        "chunk_images",  # Image data can be large
+    })
+
+    # Maximum metadata value length (50KB per value)
+    MAX_METADATA_VALUE_LEN: ClassVar[int] = 50 * 1024
+
+    def _filter_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter metadata to exclude large/redundant fields.
+
+        Args:
+            metadata: Original metadata dict
+
+        Returns:
+            Filtered metadata dict safe for Qdrant storage
+        """
+        filtered = {}
+        for k, v in metadata.items():
+            # Skip known large field names
+            if k.lower() in {k.lower() for k in self.LARGE_METADATA_KEYS}:
+                continue
+            # Skip very large values
+            if isinstance(v, str) and len(v) > self.MAX_METADATA_VALUE_LEN:
+                continue
+            # Skip list/dict values that could be large
+            if isinstance(v, (dict, list)):
+                v_str = str(v)
+                if len(v_str) > self.MAX_METADATA_VALUE_LEN:
+                    continue
+            filtered[k] = v
+        return filtered
+
+    def _build_minimal_payload(self, node: BaseNode) -> Dict[str, Any]:
+        """Build minimal payload for Qdrant storage without _node_content.
+
+        Args:
+            node: BaseNode to build payload for
+
+        Returns:
+            Minimal payload dict with essential fields only
+        """
+        payload = {
+            "text": node.get_content(metadata_mode=MetadataMode.NONE),
+            "_node_type": node.class_name(),
+        }
+
+        # Add ref_doc_id if present (for document filtering)
+        if node.ref_doc_id:
+            payload["doc_id"] = node.ref_doc_id
+            payload["ref_doc_id"] = node.ref_doc_id
+
+        # Add filtered metadata directly to payload (not nested)
+        if node.metadata:
+            filtered_metadata = self._filter_metadata(node.metadata)
+            for k, v in filtered_metadata.items():
+                payload[k] = v
+
+        return payload
+
+    def _build_points(
+        self, nodes: List[BaseNode], sparse_vector_name: str
+    ) -> Tuple[List[Any], List[str]]:
+        """Build Qdrant points with minimal payload (no _node_content).
+
+        This overrides the parent method to store minimal payload instead of
+        the full node serialized in _node_content.
+
+        Args:
+            nodes: List of nodes to build points for
+            sparse_vector_name: Name of the sparse vector field
+
+        Returns:
+            Tuple of (points list, node IDs list)
+        """
+        ids = []
+        points = []
+
+        for node_batch in iter_batch(nodes, self.batch_size):
+            node_ids = []
+            vectors: List[Any] = []
+            sparse_vectors: List[List[float]] = []
+            sparse_indices: List[List[int]] = []
+            payloads = []
+
+            if self.enable_hybrid and self._sparse_doc_fn is not None:
+                sparse_indices, sparse_vectors = self._sparse_doc_fn(
+                    [
+                        node.get_content(metadata_mode=MetadataMode.EMBED)
+                        for node in node_batch
+                    ],
+                )
+
+            for i, node in enumerate(node_batch):
+                assert isinstance(node, BaseNode)
+                node_ids.append(node.node_id)
+
+                if self.enable_hybrid:
+                    if (
+                        len(sparse_vectors) > 0
+                        and len(sparse_indices) > 0
+                        and len(sparse_vectors) == len(sparse_indices)
+                    ):
+                        vectors.append(
+                            {
+                                sparse_vector_name: rest.SparseVector(
+                                    indices=sparse_indices[i],
+                                    values=sparse_vectors[i],
+                                ),
+                                self.dense_vector_name: node.get_embedding(),
+                            }
+                        )
+                    else:
+                        vectors.append(
+                            {
+                                self.dense_vector_name: node.get_embedding(),
+                            }
+                        )
+                else:
+                    vectors.append({self.dense_vector_name: node.get_embedding()})
+
+                # Use minimal payload instead of node_to_metadata_dict
+                payloads.append(self._build_minimal_payload(node))
+
+            points.extend(
+                [
+                    rest.PointStruct(id=node_id, payload=payload, vector=vector)
+                    for node_id, payload, vector in zip(node_ids, payloads, vectors)
+                ]
+            )
+
+            ids.extend(node_ids)
+
+        return points, ids
 
 
 @StorageRegistry.register("qdrant")
@@ -20,9 +175,14 @@ class QdrantStore(BaseVectorStore):
     Supports hybrid search (dense + sparse BM25) and pure vector search.
     """
 
+    # LlamaIndex compatibility properties
+    stores_text: ClassVar[bool] = True  # Indicates that text is stored in the vector store
+    flat_metadata: ClassVar[bool] = False  # Metadata is not flattened
+    is_embedding_query: ClassVar[bool] = True  # Requires embedding for query
+
     # Vector names for Qdrant collection
-    SPARSE_VECTOR_NAME = "text-sparse"
-    DENSE_VECTOR_NAME = "text-dense"
+    SPARSE_VECTOR_NAME: ClassVar[str] = "text-sparse"
+    DENSE_VECTOR_NAME: ClassVar[str] = "text-dense"
 
     def __init__(
         self,
@@ -57,10 +217,10 @@ class QdrantStore(BaseVectorStore):
         # Create collection if not exists
         self._ensure_collection_exists()
 
-        # Initialize LlamaIndex QdrantVectorStore
+        # Initialize minimal payload vector store (custom implementation)
         if self.index_mode == "hybrid":
             # Hybrid mode: dense vectors + BM25 sparse vectors
-            self._vector_store = QdrantVectorStore(
+            self._vector_store = MinimalPayloadQdrantVectorStore(
                 client=client,
                 collection_name=collection_name,
                 prefer_grpc=prefer_grpc,
@@ -71,7 +231,7 @@ class QdrantStore(BaseVectorStore):
             )
         else:
             # Vector-only mode: dense vectors only
-            self._vector_store = QdrantVectorStore(
+            self._vector_store = MinimalPayloadQdrantVectorStore(
                 client=client,
                 collection_name=collection_name,
                 prefer_grpc=prefer_grpc,
@@ -84,42 +244,6 @@ class QdrantStore(BaseVectorStore):
     def client(self) -> QdrantClient:
         """Get the underlying Qdrant client."""
         return self._client
-
-    # Metadata keys to exclude from storage (too large or redundant)
-    LARGE_METADATA_KEYS = frozenset({
-        "image_map", "b64_image", "image_data", "original_image",
-        "combined_text", "_document", "page_content", "b64_json",
-        "base64", "embeddings", "text_vector", "content_vector",
-    })
-
-    # Maximum metadata value length (50KB per value)
-    MAX_METADATA_VALUE_LEN = 50 * 1024
-
-    def _filter_metadata_for_storage(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Filter metadata to exclude large/redundant fields before storing in Qdrant.
-
-        Args:
-            metadata: Original metadata dict
-
-        Returns:
-            Filtered metadata dict safe for Qdrant storage
-        """
-        filtered = {}
-        for k, v in metadata.items():
-            # Skip known large field names
-            if k.lower() in self.LARGE_METADATA_KEYS:
-                continue
-            # Skip very large values
-            v_str = str(v) if not isinstance(v, (int, float, bool, type(None))) else ""
-            if len(v_str) > self.MAX_METADATA_VALUE_LEN:
-                continue
-            # Skip list/dict values that could be large
-            if isinstance(v, (dict, list)):
-                v_str = str(v)
-                if len(v_str) > self.MAX_METADATA_VALUE_LEN:
-                    continue
-            filtered[k] = v
-        return filtered
 
     def _ensure_collection_exists(self) -> None:
         """Ensure the collection exists, create if not."""
@@ -159,7 +283,7 @@ class QdrantStore(BaseVectorStore):
         """
         if not nodes:
             return []
-        # Use LlamaIndex vector store to add nodes (handles both hybrid and vector modes)
+        # Use the minimal payload vector store to add nodes
         ids = self._vector_store.add(nodes, **kwargs)
         return ids
 
@@ -175,15 +299,24 @@ class QdrantStore(BaseVectorStore):
             True if deletion was successful
         """
         if ref_doc_id:
-            # Get node IDs for this ref_doc_id and delete them
-            ref_info = self.get_ref_doc_info(ref_doc_id)
-            if ref_info:
-                self._client.delete(
-                    collection_name=self.collection_name,
-                    ref_doc_id=ref_doc_id,
-                )
+            # Delete by ref_doc_id using filter
+            self._client.delete(
+                collection_name=self.collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="ref_doc_id",
+                            match=MatchValue(value=ref_doc_id)
+                        )
+                    ]
+                ),
+            )
         elif node_ids:
-            self._vector_store.delete(node_ids)
+            # Delete by node IDs directly
+            self._client.delete(
+                collection_name=self.collection_name,
+                points_selector=node_ids,
+            )
         else:
             # Delete entire collection
             self._client.delete_collection(self.collection_name)
@@ -239,8 +372,6 @@ class QdrantStore(BaseVectorStore):
         Returns:
             RefDocInfo if found, None otherwise
         """
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-
         results = self._client.scroll(
             collection_name=self.collection_name,
             scroll_filter=Filter(
