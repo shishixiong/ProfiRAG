@@ -215,7 +215,7 @@ class QdrantStore(BaseVectorStore):
         self.index_mode = index_mode
 
         # Create collection if not exists
-        self._ensure_collection_exists()
+        # self._ensure_collection_exists()
 
         # Initialize minimal payload vector store (custom implementation)
         if self.index_mode == "hybrid":
@@ -372,25 +372,32 @@ class QdrantStore(BaseVectorStore):
         Returns:
             RefDocInfo if found, None otherwise
         """
-        results = self._client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=Filter(
-                must=[
-                    FieldCondition(
-                        key="ref_doc_id",
-                        match=MatchValue(value=ref_doc_id)
-                    )
-                ]
-            ),
-            limit=100,
-            with_payload=True
-        )[0]
+        try:
+            results = self._client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="ref_doc_id",
+                            match=MatchValue(value=ref_doc_id)
+                        )
+                    ]
+                ),
+                limit=100,
+                with_payload=True
+            )[0]
 
-        if not results:
-            return None
+            if not results:
+                return None
 
-        node_ids = [str(r.id) for r in results]
-        return RefDocInfo(node_ids=node_ids)
+            node_ids = [str(r.id) for r in results]
+            return RefDocInfo(node_ids=node_ids)
+        except Exception as ex:
+            if hasattr(ex, 'status_code') and ex.status_code == 404:
+                return None
+            if "404" in str(ex) or "Not found" in str(ex):
+                return None
+            raise
 
     def persist(self, persist_path: Optional[str] = None, **kwargs) -> None:
         """Persist Qdrant storage.
