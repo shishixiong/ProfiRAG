@@ -97,11 +97,7 @@ class RAGPipeline:
             retrieve_mode=config.retrieval.retrieve_mode,
         )
 
-        self._reranker = Reranker(
-            model=config.reranking.model,
-            top_n=config.reranking.top_n,
-            enabled=config.reranking.enabled,
-        )
+        self._reranker = Reranker(config=config.reranking)
 
         self._synthesizer = ResponseSynthesizer(
             llm=self._llm,
