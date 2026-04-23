@@ -1,12 +1,19 @@
 """Tests for retrieve_mode configuration"""
 
+import os
+from pathlib import Path
 from profirag.config.settings import EnvSettings, RetrievalConfig, RAGConfig
 
 
 def test_env_settings_retrieve_mode_default():
     """Test that retrieve_mode defaults to 'hybrid'."""
-    settings = EnvSettings()
+    # Clear any env var that might override the default
+    original = os.environ.pop("PROFIRAG_RETRIEVE_INDEX_MODE", None)
+    # Create EnvSettings without reading from .env file
+    settings = EnvSettings(_env_file=None)
     assert settings.profirag_retrieve_index_mode == "hybrid"
+    if original:
+        os.environ["PROFIRAG_RETRIEVE_INDEX_MODE"] = original
 
 
 def test_env_settings_retrieve_mode_values():

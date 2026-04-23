@@ -1,5 +1,6 @@
 """RAG Agent tools for ReAct Agent"""
 
+import os
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -55,7 +56,7 @@ class RAGTools:
             Returns:
                 格式化的检索结果
             """
-            nodes = self.retriever.retrieve(query, top_k=top_k)
+            nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode='vector')
             self._last_retrieved_nodes = nodes  # 保存供后续使用
             return self._format_nodes(nodes)
 
@@ -67,6 +68,9 @@ class RAGTools:
 
     def create_bm25_tool(self) -> FunctionTool:
         """创建BM25关键词搜索工具"""
+        # 从环境变量判断是否启用 BM25
+        index_mode = os.environ.get("PROFIRAG_INDEX_MODE", "hybrid")
+
         def keyword_search(query: str, top_k: int = 5) -> str:
             """使用BM25关键词搜索
 
@@ -77,11 +81,12 @@ class RAGTools:
             Returns:
                 格式化的检索结果
             """
-            if self.retriever.bm25_index:
-                nodes = self.retriever.bm25_index.retrieve(query, top_k=top_k)
+            # 如果不是 vector 模式，就可以使用 BM25 (sparse 检索)
+            if index_mode != "vector":
+                nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode='sparse')
                 self._last_retrieved_nodes = nodes
                 return self._format_nodes(nodes)
-            return "BM25索引未启用，请使用vector_search工具"
+            return "BM25索引未启用（当前为vector模式），请使用vector_search工具"
 
         return FunctionTool.from_defaults(
             fn=keyword_search,
@@ -252,7 +257,7 @@ class RAGTools:
         """创建所有工具列表"""
         tools = [
             self.create_retrieval_tool(),
-            # self.create_bm25_tool(),
+            self.create_bm25_tool(),
             self.create_multi_query_tool(),
             self.create_hyde_tool(),
             self.create_final_answer_tool(),

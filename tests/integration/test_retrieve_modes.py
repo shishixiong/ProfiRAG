@@ -49,12 +49,15 @@ class TestRetrieveModesIntegration:
         return store
 
     def test_hybrid_mode_creates_hybrid_retriever(self, mock_vector_index, mock_vector_store):
-        """Test that hybrid mode creates retriever with HYBRID query mode."""
+        """Test that hybrid mode uses HYBRID query mode when retrieve() is called."""
         retriever = HybridRetriever(
             vector_index=mock_vector_index,
             vector_store=mock_vector_store,
             retrieve_mode="hybrid",
         )
+
+        # Call retrieve to trigger as_retriever call
+        retriever.retrieve("test query", top_k=5)
 
         # Verify as_retriever was called with HYBRID mode
         mock_vector_index.as_retriever.assert_called_once()
@@ -62,12 +65,15 @@ class TestRetrieveModesIntegration:
         assert call_kwargs["vector_store_query_mode"] == VectorStoreQueryMode.HYBRID
 
     def test_sparse_mode_creates_sparse_retriever(self, mock_vector_index, mock_vector_store):
-        """Test that sparse mode creates retriever with SPARSE query mode."""
+        """Test that sparse mode uses SPARSE query mode when retrieve() is called."""
         retriever = HybridRetriever(
             vector_index=mock_vector_index,
             vector_store=mock_vector_store,
             retrieve_mode="sparse",
         )
+
+        # Call retrieve to trigger as_retriever call
+        retriever.retrieve("test query", top_k=5)
 
         # Verify as_retriever was called with SPARSE mode
         mock_vector_index.as_retriever.assert_called_once()
@@ -75,12 +81,15 @@ class TestRetrieveModesIntegration:
         assert call_kwargs["vector_store_query_mode"] == VectorStoreQueryMode.SPARSE
 
     def test_vector_mode_creates_default_retriever(self, mock_vector_index, mock_vector_store):
-        """Test that vector mode creates retriever with DEFAULT query mode."""
+        """Test that vector mode uses DEFAULT query mode when retrieve() is called."""
         retriever = HybridRetriever(
             vector_index=mock_vector_index,
             vector_store=mock_vector_store,
             retrieve_mode="vector",
         )
+
+        # Call retrieve to trigger as_retriever call
+        retriever.retrieve("test query", top_k=5)
 
         # Verify as_retriever was called with DEFAULT mode
         mock_vector_index.as_retriever.assert_called_once()
@@ -102,7 +111,7 @@ class TestRetrieveModesIntegration:
         assert results[0].node.text == "Result for test query"
 
     def test_retrieve_delegates_to_native_bm25(self, mock_vector_index, mock_vector_store):
-        """Test that retrieve() delegates to vector_store.query() when native BM25 is available."""
+        """Test that retrieve() delegates to vector_index.as_retriever() for hybrid mode."""
         retriever = HybridRetriever(
             vector_index=mock_vector_index,
             vector_store=mock_vector_store,
@@ -111,10 +120,10 @@ class TestRetrieveModesIntegration:
 
         results = retriever.retrieve("test query", top_k=5)
 
-        # Should have called vector_store.query
-        mock_vector_store.query.assert_called_once()
+        # Should have called vector_index.as_retriever, not vector_store.query directly
+        mock_vector_index.as_retriever.assert_called_once()
         assert len(results) == 1
-        assert results[0].node.text == "BM25 result"
+        assert results[0].node.text == "Result for test query"
 
     def test_config_integration(self):
         """Test that RAGConfig properly passes retrieve_mode."""

@@ -77,12 +77,14 @@ class TestHybridRetrieverRetrieveMode:
         assert retriever._query_mode == VectorStoreQueryMode.DEFAULT
 
     def test_init_passes_query_mode_to_as_retriever(self, mock_index):
-        """Test that vector_store_query_mode is passed to as_retriever."""
+        """Test that vector_store_query_mode is passed correctly when retrieve() is called."""
         retriever = HybridRetriever(
             vector_index=mock_index,
             retrieve_mode="sparse",
             alpha=0.7,
         )
+        # Call retrieve to trigger as_retriever call
+        retriever.retrieve("test query", top_k=5)
         mock_index.as_retriever.assert_called_once()
         call_kwargs = mock_index.as_retriever.call_args.kwargs
         assert call_kwargs["vector_store_query_mode"] == VectorStoreQueryMode.SPARSE

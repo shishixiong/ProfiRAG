@@ -48,13 +48,6 @@ class HybridRetriever:
         # Map retrieve_mode to VectorStoreQueryMode
         self._query_mode = self._map_retrieve_mode(retrieve_mode)
 
-        # Create retriever with native LlamaIndex support
-        retriever_kwargs = kwargs.copy()
-        retriever_kwargs["vector_store_query_mode"] = self._query_mode
-        retriever_kwargs["alpha"] = alpha
-
-        self._vector_retriever = vector_index.as_retriever(**retriever_kwargs) if vector_index is not None else None
-
     @staticmethod
     def _map_retrieve_mode(mode: Optional[str]) -> VectorStoreQueryMode:
         """Map retrieve_mode string to VectorStoreQueryMode enum.
@@ -76,6 +69,7 @@ class HybridRetriever:
         self,
         query: str,
         top_k: int = 10,
+        retrieve_mode = None,
         **kwargs
     ) -> List[NodeWithScore]:
         """Perform hybrid retrieval.
@@ -89,9 +83,12 @@ class HybridRetriever:
             List of NodeWithScore objects after RRF fusion
         """
 
+        query_mode = self._query_mode
+        if retrieve_mode:
+            query_mode = self._map_retrieve_mode(retrieve_mode)
         # Vector retrieval (only if vector retriever is available)
         retriever_kwargs = kwargs.copy()
-        retriever_kwargs["vector_store_query_mode"] = self._query_mode
+        retriever_kwargs["vector_store_query_mode"] = query_mode
         retriever_kwargs["alpha"] = self.alpha
         retriever_kwargs["similarity_top_k"] = top_k
         retriever_kwargs["sparse_top_k"] = top_k
