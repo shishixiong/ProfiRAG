@@ -7,6 +7,8 @@ from llama_index.core.node_parser import (
     SemanticSplitterNodeParser,
     TokenTextSplitter,
 )
+from llama_index.core.node_parser.relational.markdown_element import MarkdownElementNodeParser
+from llama_index.core.node_parser.relational.base_element import Element
 from llama_index.core.schema import TextNode, Document
 
 
@@ -15,6 +17,39 @@ IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
 # Pattern for markdown headings
 HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
+
+
+def extract_markdown_elements(text: str) -> List[Element]:
+    """Extract structured elements from Markdown text.
+
+    Uses LlamaIndex's MarkdownElementNodeParser.extract_elements().
+    Post-processes title elements to set title_level based on heading depth.
+
+    Args:
+        text: Markdown text content
+
+    Returns:
+        List of Element objects with types: title, code, table, text
+    """
+    parser = MarkdownElementNodeParser()
+    elements = parser.extract_elements(text)
+
+    # Post-process: set title_level for title elements
+    for element in elements:
+        if element.type == "title" and element.element:
+            # Find the heading in the original text to determine level
+            # Element text has leading space, e.g., " Title 1"
+            element_text = element.element.lstrip()
+            lines = text.split("\n")
+            for line in lines:
+                match = HEADING_PATTERN.match(line)
+                if match:
+                    heading_text = match.group(2).strip()
+                    if heading_text == element_text:
+                        element.title_level = len(match.group(1))
+                        break
+
+    return elements
 
 
 def extract_heading_chain(text: str) -> List[tuple]:
