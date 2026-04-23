@@ -206,11 +206,16 @@ class RAGTools:
 
     def create_retrieve_with_context_tool(self) -> FunctionTool:
         """创建带上下文信息的检索工具"""
-        def retrieve_for_answer(question: str, top_k: int = 5) -> str:
-            """检索文档并直接生成回答
+        def retrieve_for_answer(question: str, mode: str = "default", top_k: int = 5) -> str:
+            """检索文档并直接生成回答（一步完成）
 
             Args:
                 question: 用户问题
+                mode: 回答模式，可选值：
+                    - "simple": 简洁回答，直接回复不超过100字，无引用标注
+                    - "default": 默认回答，有引用标注和基本结构（推荐）
+                    - "professional": 专业回答，详细结构化，完整代码示例，参数说明
+                    - "technical": 技术规范回答，严格按照文档，包含版本差异说明
                 top_k: 检索数量
 
             Returns:
@@ -220,18 +225,36 @@ class RAGTools:
             nodes = self.retriever.retrieve(question, top_k=top_k)
             self._last_retrieved_nodes = nodes
 
-            # 格式化检索结果
-            context = self._format_nodes(nodes)
+            # 根据模式选择 prompt template
+            from ..generation.prompts import PromptTemplates
+            template = PromptTemplates.get_template_by_mode(mode)
 
-            # 生成回答
-            response = self.synthesizer.synthesize(question, nodes[:top_k])
+            # 使用自定义 prompt 生成回答
+            response = self.synthesizer.synthesize_custom(
+                question,
+                nodes[:top_k],
+                custom_prompt=template
+            )
 
-            return f"检索结果:\n{context}\n\n生成的回答:\n{response}"
+            # 添加来源信息（仅在非 simple 模式）
+            if mode != "simple" and nodes:
+                sources_summary = self._format_sources_summary(nodes[:top_k])
+                return f"{response}\n\n---\n**参考来源**: {sources_summary}"
+
+            return response
 
         return FunctionTool.from_defaults(
             fn=retrieve_for_answer,
             name="retrieve_and_answer",
-            description="一步完成检索和回答生成，适合简单问题。"
+            description="""一步完成检索和回答生成，适合简单问题。
+
+回答模式说明：
+- simple: 简洁回答，适合快速查询，直接回复无引用
+- default: 标准回答，有引用标注和基本结构（推荐大多数场景）
+- professional: 专业回答，详细结构化，适合技术文档深度问答
+- technical: 技术规范回答，严格按文档表述，包含版本差异和适用范围
+
+适用场景：问题明确、单次检索即可获取足够信息。"""
         )
 
     def create_table_lookup_tool(self) -> FunctionTool:
