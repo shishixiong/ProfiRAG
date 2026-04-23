@@ -24,7 +24,6 @@ class TestExtractMarkdownElements:
         assert elements[0].type == "code"
         assert "def hello()" in elements[0].element
 
-    @pytest.mark.skip(reason="Requires pandas dependency for table parsing")
     def test_extract_table(self):
         """Markdown tables are extracted intact."""
         text = "| A | B |\n|---|---|\n| 1 | 2 |\n\nText after"

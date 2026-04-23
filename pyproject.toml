@@ -26,6 +26,7 @@ dependencies = [
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0,<2.10.0",  # Limit torch version for macOS x86_64 compatibility
     "pymupdf4llm>=0.0.5",    # PDF to Markdown conversion preserving tables
+    "pandas>=2.0.0",         # Required for Markdown table parsing in LlamaIndex
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
     "tree-sitter-java>=0.20.0",
