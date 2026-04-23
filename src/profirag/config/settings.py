@@ -77,8 +77,12 @@ class EnvSettings(BaseSettings):
 
     # Reranking Configuration
     profirag_rerank_enabled: bool = True
+    profirag_rerank_provider: Literal["local", "cohere", "dashscope"] = "local"
     profirag_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     profirag_rerank_top_n: int = 5
+    profirag_rerank_api_key: Optional[str] = None
+    profirag_rerank_base_url: Optional[str] = None
+    profirag_rerank_timeout: int = 30
 
     # Pre-Retrieval Configuration
     profirag_use_hyde: bool = False
