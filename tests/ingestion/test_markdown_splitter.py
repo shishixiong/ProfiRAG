@@ -1,7 +1,8 @@
 """Tests for the Markdown splitter."""
 
 import pytest
-from profirag.ingestion.splitters import extract_markdown_elements, build_header_chain
+from profirag.ingestion.splitters import extract_markdown_elements, build_header_chain, Section
+from llama_index.core.node_parser.relational.base_element import Element
 
 
 class TestExtractMarkdownElements:
@@ -66,3 +67,35 @@ class TestBuildHeaderChain:
         result = build_header_chain(heading_stack)
         assert "## Section" in result
         assert "#### Subsubsection" in result
+
+
+class TestSection:
+    """Unit tests for Section dataclass."""
+
+    def test_section_creation(self):
+        """Section stores heading_stack and elements."""
+        section = Section(heading_stack=[(1, "Title")])
+        assert section.heading_stack == [(1, "Title")]
+        assert section.elements == []
+
+    def test_section_add_element(self):
+        """Elements can be added to section."""
+        section = Section(heading_stack=[(1, "Title")])
+        elem = Element(id="test", type="text", element="Content")
+        section.add_element(elem)
+        assert len(section.elements) == 1
+        assert section.elements[0].type == "text"
+
+    def test_section_has_content(self):
+        """has_content returns True when elements exist."""
+        section = Section(heading_stack=[(1, "Title")])
+        assert not section.has_content()
+        section.add_element(Element(id="test", type="text", element="x"))
+        assert section.has_content()
+
+    def test_section_heading_stack_copy(self):
+        """Heading stack is independent per section."""
+        section1 = Section(heading_stack=[(1, "A"), (2, "B")])
+        section2 = Section(heading_stack=[(1, "A")])
+        assert len(section1.heading_stack) == 2
+        assert len(section2.heading_stack) == 1

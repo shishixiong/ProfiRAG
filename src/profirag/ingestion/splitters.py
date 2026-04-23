@@ -1,6 +1,7 @@
 """Text splitters for chunking documents"""
 
 import re
+from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict
 from llama_index.core.node_parser import (
     SentenceSplitter,
@@ -17,6 +18,21 @@ IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
 # Pattern for markdown headings
 HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
+
+
+@dataclass
+class Section:
+    """Represents a section of Markdown content under a header hierarchy."""
+    heading_stack: List[tuple] = field(default_factory=list)
+    elements: List[Element] = field(default_factory=list)
+
+    def add_element(self, element: Element) -> None:
+        """Add an element to this section."""
+        self.elements.append(element)
+
+    def has_content(self) -> bool:
+        """Check if section has any content elements."""
+        return len(self.elements) > 0
 
 
 def extract_markdown_elements(text: str) -> List[Element]:
