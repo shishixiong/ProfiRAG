@@ -1,7 +1,7 @@
 """Tests for the Markdown splitter."""
 
 import pytest
-from profirag.ingestion.splitters import extract_markdown_elements, build_header_chain, Section
+from profirag.ingestion.splitters import extract_markdown_elements, build_header_chain, build_sections, Section
 from llama_index.core.node_parser.relational.base_element import Element
 
 
@@ -99,3 +99,67 @@ class TestSection:
         section2 = Section(heading_stack=[(1, "A")])
         assert len(section1.heading_stack) == 2
         assert len(section2.heading_stack) == 1
+
+
+class TestBuildSections:
+    """Unit tests for section building from elements."""
+
+    def test_single_section(self):
+        """Single header creates one section."""
+        elements = [
+            Element(id="0", type="title", element="Title", title_level=1),
+            Element(id="1", type="text", element="Content"),
+        ]
+        sections = build_sections(elements)
+        assert len(sections) == 1
+        assert sections[0].heading_stack == [(1, "Title")]
+
+    def test_multiple_sections(self):
+        """Multiple headers create multiple sections."""
+        elements = [
+            Element(id="0", type="title", element="A", title_level=1),
+            Element(id="1", type="text", element="Content A"),
+            Element(id="2", type="title", element="B", title_level=1),
+            Element(id="3", type="text", element="Content B"),
+        ]
+        sections = build_sections(elements)
+        assert len(sections) == 2
+        assert sections[0].heading_stack == [(1, "A")]
+        assert sections[1].heading_stack == [(1, "B")]
+
+    def test_nested_headers(self):
+        """Nested headers maintain hierarchy stack."""
+        elements = [
+            Element(id="0", type="title", element="API", title_level=1),
+            Element(id="1", type="text", element="Intro"),
+            Element(id="2", type="title", element="Users", title_level=2),
+            Element(id="3", type="text", element="User content"),
+            Element(id="4", type="title", element="Login", title_level=3),
+            Element(id="5", type="text", element="Login content"),
+        ]
+        sections = build_sections(elements)
+        assert len(sections) == 3
+        assert sections[0].heading_stack == [(1, "API")]
+        assert sections[1].heading_stack == [(1, "API"), (2, "Users")]
+        assert sections[2].heading_stack == [(1, "API"), (2, "Users"), (3, "Login")]
+
+    def test_header_level_jump(self):
+        """Jumping header levels (H1 to H3) pops intermediate levels."""
+        elements = [
+            Element(id="0", type="title", element="A", title_level=1),
+            Element(id="1", type="title", element="B", title_level=3),
+        ]
+        sections = build_sections(elements)
+        assert sections[0].heading_stack == [(1, "A")]
+        # H3 pops H2 (not in stack), keeps H1, adds H3
+        assert sections[1].heading_stack == [(1, "A"), (3, "B")]
+
+    def test_no_headers(self):
+        """No headers creates single section with empty heading_stack."""
+        elements = [
+            Element(id="0", type="text", element="Plain content"),
+            Element(id="1", type="text", element="More content"),
+        ]
+        sections = build_sections(elements)
+        assert len(sections) == 1
+        assert sections[0].heading_stack == []

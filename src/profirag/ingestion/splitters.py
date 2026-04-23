@@ -68,6 +68,44 @@ def extract_markdown_elements(text: str) -> List[Element]:
     return elements
 
 
+def build_sections(elements: List[Element]) -> List[Section]:
+    """Build sections from elements by grouping by title boundaries.
+
+    Args:
+        elements: List of Element objects from extract_markdown_elements
+
+    Returns:
+        List of Section objects with heading_stack and elements
+    """
+    sections = []
+    heading_stack: List[tuple] = []
+    current_section = Section(heading_stack=heading_stack.copy())
+
+    for element in elements:
+        if element.type == "title":
+            # Flush current section if non-empty OR has a heading
+            if current_section.has_content() or current_section.heading_stack:
+                sections.append(current_section)
+
+            # Update heading stack
+            level = element.title_level
+            # Pop headers of equal or higher level
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            heading_stack.append((level, element.element))
+
+            # Create new section with current heading stack
+            current_section = Section(heading_stack=heading_stack.copy())
+        else:
+            current_section.add_element(element)
+
+    # Add final section if non-empty OR has a heading
+    if current_section.has_content() or current_section.heading_stack:
+        sections.append(current_section)
+
+    return sections
+
+
 def build_header_chain(heading_stack: List[tuple]) -> str:
     """Build header chain from heading stack.
 
