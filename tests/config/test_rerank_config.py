@@ -51,3 +51,27 @@ def test_env_settings_rerank_timeout():
     assert settings.profirag_rerank_timeout == 30
     if original:
         os.environ["PROFIRAG_RERANK_TIMEOUT"] = original
+
+
+def test_reranking_config_provider_field():
+    """Test RerankingConfig has provider field."""
+    config = RerankingConfig(provider="cohere")
+    assert config.provider == "cohere"
+
+
+def test_reranking_config_api_key_field():
+    """Test RerankingConfig has api_key field."""
+    config = RerankingConfig(api_key="test-key")
+    assert config.api_key == "test-key"
+
+
+def test_reranking_config_base_url_field():
+    """Test RerankingConfig has base_url field."""
+    config = RerankingConfig(base_url="https://api.example.com")
+    assert config.base_url == "https://api.example.com"
+
+
+def test_reranking_config_timeout_field():
+    """Test RerankingConfig has timeout field."""
+    config = RerankingConfig(timeout=60)
+    assert config.timeout == 60

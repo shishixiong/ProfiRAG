@@ -151,8 +151,12 @@ class RetrievalConfig(BaseModel):
 class RerankingConfig(BaseModel):
     """Reranking configuration"""
     enabled: bool = True
+    provider: Literal["local", "cohere", "dashscope"] = "local"
     model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     top_n: int = 5
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    timeout: int = 30
 
 
 class GenerationConfig(BaseModel):
@@ -273,8 +277,12 @@ class RAGConfig(BaseModel):
             ),
             reranking=RerankingConfig(
                 enabled=env_settings.profirag_rerank_enabled,
+                provider=env_settings.profirag_rerank_provider,
                 model=env_settings.profirag_rerank_model,
                 top_n=env_settings.profirag_rerank_top_n,
+                api_key=env_settings.profirag_rerank_api_key,
+                base_url=env_settings.profirag_rerank_base_url,
+                timeout=env_settings.profirag_rerank_timeout,
             ),
             image_processing=ImageProcessingConfig(
                 enabled=env_settings.profirag_image_processing_enabled,
