@@ -52,6 +52,23 @@ def extract_markdown_elements(text: str) -> List[Element]:
     return elements
 
 
+def build_header_chain(heading_stack: List[tuple]) -> str:
+    """Build header chain from heading stack.
+
+    Args:
+        heading_stack: List of (level, text) tuples
+
+    Returns:
+        Markdown header chain string, e.g. "# API\\n## Users\\n### Login"
+    """
+    if not heading_stack:
+        return ""
+    lines = []
+    for level, text in heading_stack:
+        lines.append("#" * level + " " + text)
+    return "\n".join(lines)
+
+
 def extract_heading_chain(text: str) -> List[tuple]:
     """Extract hierarchical heading structure from markdown text.
 
