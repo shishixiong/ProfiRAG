@@ -4,26 +4,61 @@ from typing import Optional, List
 
 
 # Default RAG prompt template
-DEFAULT_PROMPT_TEMPLATE = """Below is a question followed by some relevant context.
-Please answer the question based on the provided context.
-If the context does not contain enough information to answer the question,
-say that you don't know or need more information.
+DEFAULT_PROMPT_TEMPLATE = """Please answer the question based on the provided reference documents.
+
+Answer requirements:
+1. **Document-based**: Only use information from the reference documents, do not fabricate or use external knowledge
+2. **Cite sources**: Mark information sources in your answer using [Document N] format, e.g., "According to [Document 1]..."
+3. **Clear structure**: Organize your answer using sections, lists, etc. for easy reading
+4. **Honest disclosure**: If the documents don't fully answer the question, clearly state "Based on the available documents, I cannot fully answer this question" and provide partial information if possible
+5. **Table handling**: If tables are involved, clearly present key data without omitting important information
+6. **Code handling**: For code-related questions, preserve code formatting completely
 
 Question: {query_str}
 
-Context:
+Reference Documents:
 {context_str}
 
 Answer:"""
 
 
 # Chinese prompt template
-CHINESE_PROMPT_TEMPLATE = """请根据以下相关内容回答问题。
-如果提供的内容不足以回答问题，请说明您不知道或需要更多信息。
+CHINESE_PROMPT_TEMPLATE = """请根据以下参考文档回答问题。
+
+回答要求：
+1. **基于文档回答**：只使用参考文档中的信息，不要编造或使用外部知识
+2. **标注引用**：在回答中标注信息来源，格式为 [文档N]，例如"根据[文档1]..."
+3. **结构清晰**：使用分段、列表等方式组织回答，便于阅读
+4. **如实说明**：如果文档信息不足以完整回答，明确说明"根据现有文档，我无法完全回答此问题"，并尽可能提供部分信息
+5. **表格处理**：如果涉及表格数据，清晰呈现关键数据，不要遗漏重要信息
+6. **代码处理**：如果是代码相关问题，保持代码格式完整
 
 问题: {query_str}
 
-相关内容:
+参考文档:
+{context_str}
+
+回答:"""
+
+
+# Technical documentation prompt (for technical manuals like GaussDB)
+TECHNICAL_PROMPT_TEMPLATE_ZH = """你是一个专业的技术文档助手，请根据参考文档回答用户的技术问题。
+
+回答规范：
+1. **准确性优先**：严格依据文档内容，不添加文档以外的假设或推断
+2. **引用标注**：关键信息必须标注来源，格式：[文档N] 或"根据文档N..."
+3. **结构化输出**：
+   - 简单问题：直接回答
+   - 复杂问题：使用"**标题**"分段，或列表形式
+   - 操作步骤：按步骤编号，1. 2. 3. ...
+4. **代码示例**：如果文档中有代码示例，完整保留格式，使用 ``` 代码块包裹
+5. **参数说明**：涉及参数时，说明参数名称、默认值、可选值
+6. **版本差异**：如果文档提到版本差异，明确指出适用版本
+7. **部分回答**：文档信息不足时，说明"文档中未详细说明XX部分"，提供已知信息
+
+问题: {query_str}
+
+参考文档:
 {context_str}
 
 回答:"""
@@ -62,21 +97,27 @@ class PromptTemplates:
 
         Args:
             language: Language code ("en" or "zh")
-            style: Style name ("default", "compact", "refine")
+            style: Style name ("default", "compact", "refine", "technical")
 
         Returns:
             Prompt template string
         """
         if language == "zh":
-            return CHINESE_PROMPT_TEMPLATE
+            templates_zh = {
+                "default": CHINESE_PROMPT_TEMPLATE,
+                "compact": COMPACT_PROMPT_TEMPLATE,
+                "refine": REFINE_PROMPT_TEMPLATE,
+                "technical": TECHNICAL_PROMPT_TEMPLATE_ZH,
+            }
+            return templates_zh.get(style, CHINESE_PROMPT_TEMPLATE)
 
-        templates = {
+        templates_en = {
             "default": DEFAULT_PROMPT_TEMPLATE,
             "compact": COMPACT_PROMPT_TEMPLATE,
             "refine": REFINE_PROMPT_TEMPLATE,
         }
 
-        return templates.get(style, DEFAULT_PROMPT_TEMPLATE)
+        return templates_en.get(style, DEFAULT_PROMPT_TEMPLATE)
 
     @staticmethod
     def format_context(nodes: List, max_length: Optional[int] = None) -> str:
