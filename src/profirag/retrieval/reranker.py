@@ -1,9 +1,35 @@
 """Re-ranking component for post-retrieval processing"""
 
+from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
+
+
+class BaseReranker(ABC):
+    """Abstract base class for reranker implementations."""
+
+    top_n: int = 5
+
+    @abstractmethod
+    def rerank(
+        self,
+        query: str,
+        nodes: List[NodeWithScore],
+        **kwargs
+    ) -> List[NodeWithScore]:
+        """Rerank nodes by relevance to query.
+
+        Args:
+            query: Query string
+            nodes: List of NodeWithScore objects
+            **kwargs: Additional arguments
+
+        Returns:
+            Reranked list of NodeWithScore objects
+        """
+        pass
 
 
 class CrossEncoderReranker(BaseNodePostprocessor):
