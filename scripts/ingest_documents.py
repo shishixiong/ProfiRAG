@@ -37,6 +37,7 @@ Splitter types:
     - semantic: Split by semantic similarity (requires embedding)
     - chinese: Optimized for Chinese text
     - ast: AST-based splitter for code files (Python, Java, C++, Go)
+    - markdown: Structured splitter for Markdown (preserves headers, code blocks, tables)
 """
 
 import argparse
@@ -282,7 +283,7 @@ def main():
         "--splitter",
         "-s",
         type=str,
-        choices=["sentence", "token", "semantic", "chinese", "ast"],
+        choices=["sentence", "token", "semantic", "chinese", "ast", "markdown"],
         default=None,
         help="Splitter type (default: from .env or 'sentence')",
     )

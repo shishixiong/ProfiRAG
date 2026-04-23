@@ -133,6 +133,12 @@ class RAGPipeline:
                 chunk_overlap=chunking.chunk_overlap,
                 language=chunking.ast_language,
             )
+        elif chunking.splitter_type == "markdown":
+            from profirag.ingestion.splitters import MarkdownSplitter
+            return MarkdownSplitter(
+                chunk_size=chunking.chunk_size,
+                chunk_overlap=chunking.chunk_overlap,
+            )
         elif chunking.splitter_type == "chinese" or chunking.language == "zh":
             return ChineseTextSplitter(
                 chunk_size=chunking.chunk_size,

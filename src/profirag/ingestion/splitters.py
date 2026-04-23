@@ -1,6 +1,7 @@
 """Text splitters for chunking documents"""
 
 import re
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict
 from llama_index.core.node_parser import (
@@ -30,6 +31,9 @@ IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
 # Pattern for markdown headings
 HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
+
+# Logger for chunking operations
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -161,22 +165,71 @@ def create_chunk_node(text: str, section: Section) -> TextNode:
     )
 
 
+def split_text_by_chars(text: str, max_chars: int, overlap: int = 100) -> List[str]:
+    """Split text by character count with overlap.
+
+    Args:
+        text: Text to split
+        max_chars: Maximum characters per chunk
+        overlap: Overlap between chunks
+
+    Returns:
+        List of text chunks
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + max_chars
+
+        # Try to find a good break point (newline or space)
+        if end < len(text):
+            # Look for newline within last 200 chars
+            newline_pos = text.rfind('\n', start, end)
+            if newline_pos > start + max_chars // 2:
+                end = newline_pos + 1
+            else:
+                # Look for space within last 100 chars
+                space_pos = text.rfind(' ', start, end)
+                if space_pos > start + max_chars // 2:
+                    end = space_pos + 1
+
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        # Move start with overlap
+        new_start = end - overlap
+        # Ensure we advance forward (avoid infinite loop)
+        if new_start <= start:
+            new_start = end
+        start = new_start
+
+    return chunks
+
+
 def chunk_sections(
     sections: List[Section],
     chunk_size: int = 512,
-    chunk_overlap: int = 50
+    chunk_overlap: int = 50,
+    max_chars: int = 3500,
 ) -> List[TextNode]:
     """Assemble chunks from sections with chunk_size constraints.
 
     Args:
         sections: List of Section objects
-        chunk_size: Maximum tokens per chunk
-        chunk_overlap: Overlap between chunks (not yet implemented)
+        chunk_size: Maximum estimated tokens per chunk (chars/4)
+        chunk_overlap: Overlap between chunks (used for secondary splitting)
+        max_chars: Maximum characters per chunk (for embedding API limits)
 
     Returns:
         List of TextNode objects
     """
     chunks = []
+
     for section in sections:
         if not section.has_content():
             continue
@@ -198,17 +251,36 @@ def chunk_sections(
                     chunks.append(create_chunk_node(current_text, section))
                     current_text = header_chain
                     current_tokens = header_tokens if header_chain else 0
-                # Add atomic element (may exceed chunk_size, but preserved intact)
+                # Add atomic element with header chain (may exceed max_chars, but preserved intact)
+                # Note: header chain length is already accounted in current_text
                 if current_text:
-                    current_text += "\n" + element_text
+                    chunk_text = current_text + "\n" + element_text
                 else:
-                    current_text = element_text
-                current_tokens += element_tokens
-                # Flush atomic element immediately to isolate it
-                chunks.append(create_chunk_node(current_text, section))
+                    chunk_text = element_text
+                chunks.append(create_chunk_node(chunk_text, section))
                 # Start fresh for next element
                 current_text = header_chain
                 current_tokens = header_tokens if header_chain else 0
+                continue
+
+            # Check if element itself exceeds max_chars - needs secondary splitting
+            if len(element_text) > max_chars:
+                # Flush current chunk first
+                if current_text.strip() and current_text != header_chain:
+                    chunks.append(create_chunk_node(current_text, section))
+                    current_text = header_chain
+                    current_tokens = header_tokens if header_chain else 0
+
+                # Split oversized text element by characters
+                # Reserve space for header chain (+1 for newline)
+                header_len = len(header_chain) + 1 if header_chain else 0
+                effective_max_chars = max_chars - header_len
+                if effective_max_chars > 0:
+                    sub_chunks = split_text_by_chars(element_text, effective_max_chars, chunk_overlap)
+                    for sub_chunk in sub_chunks:
+                        # Add header chain to each sub-chunk
+                        chunk_text = header_chain + "\n" + sub_chunk if header_chain else sub_chunk
+                        chunks.append(create_chunk_node(chunk_text, section))
                 continue
 
             # Regular text elements: check chunk_size
@@ -230,7 +302,23 @@ def chunk_sections(
         if current_text.strip() and current_text != header_chain:
             chunks.append(create_chunk_node(current_text, section))
 
-    return chunks
+    # Filter out chunks that exceed max_chars (for atomic elements like large code blocks)
+    filtered_chunks = []
+    skipped_count = 0
+    for chunk in chunks:
+        if len(chunk.text) > max_chars:
+            logger.warning(
+                f"Skipping oversized chunk ({len(chunk.text)} chars > {max_chars} limit): "
+                f"header_path={chunk.metadata.get('header_path', 'unknown')}"
+            )
+            skipped_count += 1
+        else:
+            filtered_chunks.append(chunk)
+
+    if skipped_count > 0:
+        logger.warning(f"Total {skipped_count} oversized chunks skipped (atomic elements)")
+
+    return filtered_chunks
 
 
 def extract_heading_chain(text: str) -> List[tuple]:
@@ -494,19 +582,26 @@ class MarkdownSplitter:
         nodes = splitter.split_text("# Title\\nContent")
     """
 
+    # Default max chars safely under embedding API limit (8192)
+# Account for metadata added to embed content
+    DEFAULT_MAX_CHARS = 3500
+
     def __init__(
         self,
         chunk_size: int = 512,
         chunk_overlap: int = 50,
+        max_chars: int = DEFAULT_MAX_CHARS,
     ):
         """Initialize the Markdown splitter.
 
         Args:
             chunk_size: Maximum estimated tokens per chunk
             chunk_overlap: Overlap between adjacent chunks
+            max_chars: Maximum characters per chunk (embedding API limit, default 8000)
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.max_chars = max_chars
 
     def split_text(self, text: str) -> List[TextNode]:
         """Split Markdown text into nodes.
@@ -519,7 +614,7 @@ class MarkdownSplitter:
         """
         elements = extract_markdown_elements(text)
         sections = build_sections(elements)
-        return chunk_sections(sections, self.chunk_size, self.chunk_overlap)
+        return chunk_sections(sections, self.chunk_size, self.chunk_overlap, self.max_chars)
 
     def split_document(self, document: Document) -> List[TextNode]:
         """Split a Document into nodes.
@@ -532,9 +627,16 @@ class MarkdownSplitter:
         """
         nodes = self.split_text(document.text)
 
-        # Copy base metadata to each node
+        # Create reduced metadata (without large fields like image_map)
+        # image_map can be very large and would exceed embedding API limits
+        reduced_metadata = {
+            k: v for k, v in document.metadata.items()
+            if k not in ("image_map", "image_count")  # Skip large metadata fields
+        }
+
+        # Copy reduced metadata to each node
         for node in nodes:
-            node.metadata.update(document.metadata)
+            node.metadata.update(reduced_metadata)
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
 
