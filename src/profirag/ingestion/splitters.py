@@ -88,7 +88,7 @@ def build_sections(elements: List[Element]) -> List[Section]:
                 sections.append(current_section)
 
             # Update heading stack
-            level = element.title_level
+            level = element.title_level or 1  # Default to H1 if not set
             # Pop headers of equal or higher level
             while heading_stack and heading_stack[-1][0] >= level:
                 heading_stack.pop()
