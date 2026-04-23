@@ -326,3 +326,92 @@ class TestMarkdownSplitter:
         ]
         nodes = splitter.split_documents(docs)
         assert len(nodes) >= 2
+
+
+class TestMarkdownSplitterEdgeCases:
+    """Edge case tests for MarkdownSplitter."""
+
+    def test_no_headers_plain_text(self):
+        """Document without headers has correct metadata."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=100)
+        text = "Plain text paragraph one. " * 20 + "\n" + "Plain text paragraph two. " * 20
+        nodes = splitter.split_text(text)
+        # Headerless docs produce nodes with root path metadata
+        assert len(nodes) >= 1
+        for node in nodes:
+            assert node.metadata["header_path"] in ("/", "//")  # Root path (may have trailing/leading variations)
+            assert node.metadata["current_heading"] == ""
+            assert node.metadata["heading_level"] == 0
+
+    def test_no_headers_with_code_block(self):
+        """Code block in headerless doc is preserved."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=100)
+        text = "Some intro text.\n```python\ndef foo(): pass\n```"
+        nodes = splitter.split_text(text)
+        code_nodes = [n for n in nodes if n.metadata.get("has_code_block")]
+        assert len(code_nodes) >= 1
+
+
+class TestMarkdownSplitterIntegration:
+    """Integration tests for realistic Markdown documents."""
+
+    def test_full_api_document(self):
+        """Test realistic API documentation structure."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=300)
+        text = """
+# API Documentation
+
+This document describes the API endpoints.
+
+## User Module
+
+### Login Endpoint
+
+POST /api/login
+
+Request body:
+```json
+{
+    "username": "string",
+    "password": "string"
+}
+```
+
+Response:
+| Field | Type | Description |
+|-------|------|-------------|
+| token | string | Auth token |
+| expires | int | Expiry timestamp |
+
+### Logout Endpoint
+
+POST /api/logout
+
+## Admin Module
+
+### List Users
+
+GET /api/admin/users
+
+Returns a list of all users.
+"""
+        nodes = splitter.split_text(text)
+
+        assert len(nodes) >= 3
+
+        # Check code block and table metadata
+        code_nodes = [n for n in nodes if n.metadata.get("has_code_block")]
+        table_nodes = [n for n in nodes if n.metadata.get("has_table")]
+        assert len(code_nodes) >= 1
+        assert len(table_nodes) >= 1
+
+        # Header chain should appear in nodes
+        login_nodes = [n for n in nodes if "Login" in n.metadata.get("current_heading", "") or "Login" in n.text]
+        assert len(login_nodes) >= 1
+        for node in login_nodes:
+            # Should have header chain from parent headers
+            if node.metadata.get("header_path"):
+                assert "API Documentation" in node.metadata["header_path"] or "User Module" in node.metadata["header_path"]
