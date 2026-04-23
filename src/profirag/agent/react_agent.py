@@ -65,10 +65,11 @@ class RAGReActAgent:
         # 默认系统提示词
         self._system_prompt = system_prompt or self._default_system_prompt()
 
-        # 创建ReAct Agent
+        # 创建ReAct Agent（传递系统提示词）
         self._agent = ReActAgent(
             tools=self._tools_list,
             llm=llm,
+            system_prompt=self._system_prompt,
             max_iterations=max_iterations,
             verbose=verbose,
         )
