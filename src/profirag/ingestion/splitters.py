@@ -130,8 +130,8 @@ def estimate_tokens(text: str) -> int:
 
 def create_chunk_node(text: str, section: Section) -> TextNode:
     """Create a TextNode from chunk text with metadata."""
-    header_path = "/" + "/".join(h[1] for h in section.heading_stack) + "/"
-    current_heading = section.heading_stack[-1][1] if section.heading_stack else ""
+    header_path = "/" + "/".join(h[1].strip() for h in section.heading_stack) + "/"
+    current_heading = section.heading_stack[-1][1].strip() if section.heading_stack else ""
     heading_level = section.heading_stack[-1][0] if section.heading_stack else 0
 
     has_code = any(e.type == "code" for e in section.elements)
@@ -468,6 +468,80 @@ class TextSplitter:
         """
         self.chunk_overlap = chunk_overlap
         self._splitter = self._create_splitter()
+
+
+class MarkdownSplitter:
+    """Markdown splitter for structured chunking.
+
+    Preserves header hierarchy, keeps code blocks and tables intact,
+    and repeats header chains in each chunk for RAG retrieval.
+
+    Usage::
+
+        splitter = MarkdownSplitter()
+        nodes = splitter.split_text("# Title\\nContent")
+    """
+
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+    ):
+        """Initialize the Markdown splitter.
+
+        Args:
+            chunk_size: Maximum estimated tokens per chunk
+            chunk_overlap: Overlap between adjacent chunks
+        """
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    def split_text(self, text: str) -> List[TextNode]:
+        """Split Markdown text into nodes.
+
+        Args:
+            text: Markdown text content
+
+        Returns:
+            List of TextNode objects
+        """
+        elements = extract_markdown_elements(text)
+        sections = build_sections(elements)
+        return chunk_sections(sections, self.chunk_size, self.chunk_overlap)
+
+    def split_document(self, document: Document) -> List[TextNode]:
+        """Split a Document into nodes.
+
+        Args:
+            document: Document with Markdown text
+
+        Returns:
+            List of TextNode objects
+        """
+        nodes = self.split_text(document.text)
+
+        # Copy base metadata to each node
+        for node in nodes:
+            node.metadata.update(document.metadata)
+            if document.doc_id:
+                node.metadata["source_doc_id"] = document.doc_id
+
+        return nodes
+
+    def split_documents(self, documents: List[Document]) -> List[TextNode]:
+        """Split multiple Documents into nodes.
+
+        Args:
+            documents: List of Documents
+
+        Returns:
+            List of TextNode objects
+        """
+        all_nodes = []
+        for doc in documents:
+            nodes = self.split_document(doc)
+            all_nodes.extend(nodes)
+        return all_nodes
 
 
 class ChineseTextSplitter:

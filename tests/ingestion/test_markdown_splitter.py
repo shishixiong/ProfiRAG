@@ -266,3 +266,63 @@ class TestChunkSectionsRepetition:
         for chunk in chunks:
             assert "# API" in chunk.text
             assert "## Users" in chunk.text
+
+
+class TestMarkdownSplitter:
+    """Unit tests for MarkdownSplitter class."""
+
+    def test_splitter_init_defaults(self):
+        """Default constructor sets sensible values."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter()
+        assert splitter.chunk_size == 512
+        assert splitter.chunk_overlap == 50
+
+    def test_splitter_init_custom(self):
+        """Custom constructor values are stored."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=256, chunk_overlap=20)
+        assert splitter.chunk_size == 256
+        assert splitter.chunk_overlap == 20
+
+    def test_split_text_returns_nodes(self):
+        """split_text returns list of TextNode."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter()
+        text = "# Title\nContent here"
+        nodes = splitter.split_text(text)
+        assert isinstance(nodes, list)
+        assert len(nodes) >= 1
+        assert all(hasattr(n, "text") for n in nodes)
+
+    def test_split_text_with_headers(self):
+        """split_text handles headers correctly."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter()
+        text = "# API\n## Users\nUser content here"
+        nodes = splitter.split_text(text)
+        assert len(nodes) >= 1
+        assert nodes[0].metadata["header_path"] == "/API/Users/"
+        assert nodes[0].metadata["current_heading"] == "Users"
+
+    def test_split_document(self):
+        """split_document handles Document objects."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        from llama_index.core.schema import Document
+        splitter = MarkdownSplitter()
+        doc = Document(text="# Title\nContent", metadata={"file_path": "/test.md"})
+        nodes = splitter.split_document(doc)
+        assert len(nodes) >= 1
+        assert "source_doc_id" in nodes[0].metadata or "file_path" in nodes[0].metadata
+
+    def test_split_documents(self):
+        """split_documents handles multiple Documents."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        from llama_index.core.schema import Document
+        splitter = MarkdownSplitter()
+        docs = [
+            Document(text="# A\nContent A"),
+            Document(text="# B\nContent B"),
+        ]
+        nodes = splitter.split_documents(docs)
+        assert len(nodes) >= 2
