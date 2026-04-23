@@ -128,10 +128,8 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def create_chunk_node(text: str, section: Section) -> "TextNode":
+def create_chunk_node(text: str, section: Section) -> TextNode:
     """Create a TextNode from chunk text with metadata."""
-    from llama_index.core.schema import TextNode
-
     header_path = "/" + "/".join(h[1] for h in section.heading_stack) + "/"
     current_heading = section.heading_stack[-1][1] if section.heading_stack else ""
     heading_level = section.heading_stack[-1][0] if section.heading_stack else 0
@@ -155,7 +153,7 @@ def chunk_sections(
     sections: List[Section],
     chunk_size: int = 512,
     chunk_overlap: int = 50
-) -> List["TextNode"]:
+) -> List[TextNode]:
     """Assemble chunks from sections with chunk_size constraints.
 
     Args:
