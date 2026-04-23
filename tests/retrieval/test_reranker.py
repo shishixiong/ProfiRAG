@@ -211,3 +211,54 @@ def test_cross_encoder_reranker_rerank_method(mock_ce):
 
     assert hasattr(reranker, 'rerank')
     assert len(result) == 2
+
+
+# Reranker factory tests
+
+from profirag.config.settings import RerankingConfig
+from profirag.retrieval.reranker import Reranker, CohereReranker, DashScopeReranker, CrossEncoderReranker
+
+
+def test_reranker_factory_local():
+    """Test Reranker factory creates local reranker."""
+    config = RerankingConfig(provider="local", model="test-model", top_n=5)
+    reranker = Reranker(config)
+    assert isinstance(reranker._impl, CrossEncoderReranker)
+
+
+def test_reranker_factory_cohere():
+    """Test Reranker factory creates Cohere reranker."""
+    config = RerankingConfig(
+        provider="cohere",
+        api_key="test-key",
+        base_url="https://api.cohere.ai",
+        top_n=5
+    )
+    reranker = Reranker(config)
+    assert isinstance(reranker._impl, CohereReranker)
+
+
+def test_reranker_factory_dashscope():
+    """Test Reranker factory creates DashScope reranker."""
+    config = RerankingConfig(
+        provider="dashscope",
+        api_key="test-key",
+        base_url="https://dashscope.aliyuncs.com",
+        top_n=5
+    )
+    reranker = Reranker(config)
+    assert isinstance(reranker._impl, DashScopeReranker)
+
+
+def test_reranker_factory_disabled():
+    """Test Reranker with enabled=False."""
+    config = RerankingConfig(enabled=False, provider="local")
+    reranker = Reranker(config)
+    assert reranker.enabled == False
+
+
+def test_reranker_factory_cohere_missing_key():
+    """Test Reranker raises error for Cohere without api_key."""
+    config = RerankingConfig(provider="cohere", base_url="https://api.cohere.ai")
+    with pytest.raises(ValueError):
+        Reranker(config)

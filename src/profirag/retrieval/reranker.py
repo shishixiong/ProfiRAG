@@ -1,9 +1,11 @@
 """Re-ranking component for post-retrieval processing"""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 import httpx
 from llama_index.core.schema import NodeWithScore, QueryBundle
+
+from profirag.config.settings import RerankingConfig
 
 
 class BaseReranker(ABC):
@@ -328,36 +330,74 @@ class CrossEncoderReranker(BaseReranker):
 class Reranker:
     """Flexible reranker supporting multiple reranking strategies.
 
-    Provides a unified interface for different reranking backends.
+    Factory class that creates the appropriate reranker implementation
+    based on the provider configuration.
     """
 
     def __init__(
         self,
-        model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        top_n: int = 5,
-        enabled: bool = True,
-        **kwargs
+        config: RerankingConfig,
     ):
-        """Initialize reranker.
+        """Initialize reranker from configuration.
 
         Args:
-            model: Reranker model name
-            top_n: Number of results to return
-            enabled: Whether reranking is enabled
-            **kwargs: Additional arguments for the reranker
-        """
-        self.model = model
-        self.top_n = top_n
-        self.enabled = enabled
-        self.kwargs = kwargs
-        self._reranker: Optional[CrossEncoderReranker] = None
+            config: RerankingConfig object specifying provider and settings
 
-        if enabled:
-            self._reranker = CrossEncoderReranker(
-                model=model,
-                top_n=top_n,
-                **kwargs
+        Raises:
+            ValueError: If API provider is selected but api_key is missing
+        """
+        self.config = config
+        self.enabled = config.enabled
+        self.top_n = config.top_n
+        self.model = config.model
+        self._impl: Optional[BaseReranker] = None
+
+        if self.enabled:
+            self._impl = self._create_impl(config)
+
+    def _create_impl(self, config: RerankingConfig) -> BaseReranker:
+        """Create the appropriate reranker implementation based on provider.
+
+        Args:
+            config: RerankingConfig object
+
+        Returns:
+            Appropriate BaseReranker implementation
+
+        Raises:
+            ValueError: If API provider is selected but api_key is missing
+        """
+        if config.provider == "local":
+            return CrossEncoderReranker(
+                model=config.model,
+                top_n=config.top_n,
             )
+        elif config.provider == "cohere":
+            if not config.api_key:
+                raise ValueError("api_key is required for Cohere reranker")
+            if not config.base_url:
+                raise ValueError("base_url is required for Cohere reranker")
+            return CohereReranker(
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model=config.model,
+                top_n=config.top_n,
+                timeout=config.timeout,
+            )
+        elif config.provider == "dashscope":
+            if not config.api_key:
+                raise ValueError("api_key is required for DashScope reranker")
+            if not config.base_url:
+                raise ValueError("base_url is required for DashScope reranker")
+            return DashScopeReranker(
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model=config.model,
+                top_n=config.top_n,
+                timeout=config.timeout,
+            )
+        else:
+            raise ValueError(f"Unknown reranker provider: {config.provider}")
 
     def rerank(
         self,
@@ -375,13 +415,13 @@ class Reranker:
         Returns:
             Reranked list of NodeWithScore objects
         """
-        if not self.enabled or not self._reranker:
+        if not self.enabled or not self._impl:
             return nodes[:self.top_n]
 
         if not nodes:
             return nodes
 
-        return self._reranker.rerank(query, nodes, **kwargs)
+        return self._impl.rerank(query, nodes, **kwargs)
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable reranking.
@@ -390,12 +430,8 @@ class Reranker:
             enabled: Whether to enable reranking
         """
         self.enabled = enabled
-        if enabled and self._reranker is None:
-            self._reranker = CrossEncoderReranker(
-                model=self.model,
-                top_n=self.top_n,
-                **self.kwargs
-            )
+        if enabled and self._impl is None:
+            self._impl = self._create_impl(self.config)
 
     def set_top_n(self, top_n: int) -> None:
         """Update number of results to return.
@@ -404,8 +440,8 @@ class Reranker:
             top_n: New top_n value
         """
         self.top_n = top_n
-        if self._reranker:
-            self._reranker.top_n = top_n
+        if self._impl:
+            self._impl.top_n = top_n
 
 
 class LLMReranker:
