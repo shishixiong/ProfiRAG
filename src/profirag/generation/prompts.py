@@ -41,6 +41,44 @@ CHINESE_PROMPT_TEMPLATE = """请根据以下参考文档回答问题。
 回答:"""
 
 
+# Simple/concise response prompt template
+SIMPLE_PROMPT_TEMPLATE_ZH = """请根据参考文档简洁回答问题。
+
+回答要求：
+1. 直接回答，不超过100字
+2. 不需要引用标注
+3. 如果文档信息不足，简单说明"文档未提供相关信息"
+
+问题: {query_str}
+
+参考文档:
+{context_str}
+
+简洁回答:"""
+
+
+# Professional/detailed response prompt template
+PROFESSIONAL_PROMPT_TEMPLATE_ZH = """你是技术文档专家，请根据参考文档提供专业、详细的回答。
+
+回答规范：
+1. **引用标注**：每个关键信息标注来源 [文档N]
+2. **结构清晰**：
+   - 概述：1-2句总结
+   - 详情：分点详细说明（用 **标题** 或列表）
+   - 示例：如有代码/命令，完整呈现（用 ``` 代码块）
+3. **参数完整**：涉及参数时列出名称、默认值、范围
+4. **版本说明**：如涉及版本差异，明确适用版本
+5. **关联信息**：如有相关功能或注意事项，简要提及
+6. **信息不足处理**：说明具体缺失部分，提供已知信息
+
+问题: {query_str}
+
+参考文档:
+{context_str}
+
+专业回答:"""
+
+
 # Technical documentation prompt (for technical manuals like GaussDB)
 TECHNICAL_PROMPT_TEMPLATE_ZH = """你是一个专业的技术文档助手，请根据参考文档回答用户的技术问题。
 
@@ -91,25 +129,27 @@ Refined Answer:"""
 class PromptTemplates:
     """Collection of prompt templates for different RAG scenarios."""
 
+    # Response mode templates mapping
+    MODE_TEMPLATES_ZH = {
+        "simple": SIMPLE_PROMPT_TEMPLATE_ZH,
+        "default": CHINESE_PROMPT_TEMPLATE,
+        "professional": PROFESSIONAL_PROMPT_TEMPLATE_ZH,
+        "technical": TECHNICAL_PROMPT_TEMPLATE_ZH,
+    }
+
     @staticmethod
     def get_template(language: str = "en", style: str = "default") -> str:
         """Get appropriate prompt template.
 
         Args:
             language: Language code ("en" or "zh")
-            style: Style name ("default", "compact", "refine", "technical")
+            style: Style name ("default", "compact", "refine", "technical", "simple", "professional")
 
         Returns:
             Prompt template string
         """
         if language == "zh":
-            templates_zh = {
-                "default": CHINESE_PROMPT_TEMPLATE,
-                "compact": COMPACT_PROMPT_TEMPLATE,
-                "refine": REFINE_PROMPT_TEMPLATE,
-                "technical": TECHNICAL_PROMPT_TEMPLATE_ZH,
-            }
-            return templates_zh.get(style, CHINESE_PROMPT_TEMPLATE)
+            return PromptTemplates.MODE_TEMPLATES_ZH.get(style, CHINESE_PROMPT_TEMPLATE)
 
         templates_en = {
             "default": DEFAULT_PROMPT_TEMPLATE,
@@ -118,6 +158,28 @@ class PromptTemplates:
         }
 
         return templates_en.get(style, DEFAULT_PROMPT_TEMPLATE)
+
+    @staticmethod
+    def get_template_by_mode(mode: str = "default", language: str = "zh") -> str:
+        """Get prompt template by response mode.
+
+        Args:
+            mode: Response mode - "simple", "default", "professional", "technical"
+            language: Language code ("en" or "zh")
+
+        Returns:
+            Prompt template string
+        """
+        if language == "zh":
+            return PromptTemplates.MODE_TEMPLATES_ZH.get(mode, CHINESE_PROMPT_TEMPLATE)
+        else:
+            # English modes (simple uses compact, professional uses default)
+            mode_map_en = {
+                "simple": COMPACT_PROMPT_TEMPLATE,
+                "default": DEFAULT_PROMPT_TEMPLATE,
+                "professional": DEFAULT_PROMPT_TEMPLATE,
+            }
+            return mode_map_en.get(mode, DEFAULT_PROMPT_TEMPLATE)
 
     @staticmethod
     def format_context(nodes: List, max_length: Optional[int] = None) -> str:

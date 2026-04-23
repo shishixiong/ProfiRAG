@@ -151,11 +151,16 @@ class RAGTools:
 
     def create_final_answer_tool(self) -> FunctionTool:
         """创建最终回答生成工具"""
-        def generate_answer(question: str) -> str:
+        def generate_answer(question: str, mode: str = "default", top_k: int = 5) -> str:
             """基于检索到的上下文生成最终回答
 
             Args:
                 question: 用户的问题
+                mode: 回答模式，可选值：
+                    - "simple": 简洁回答，直接回复不超过100字，无引用标注
+                    - "default": 默认回答，有引用标注和基本结构（推荐）
+                    - "professional": 专业回答，详细结构化，完整代码示例，参数说明
+                top_k: 使用前N个检索结果（默认5）
 
             Returns:
                 生成的回答
@@ -163,17 +168,38 @@ class RAGTools:
             if not self._last_retrieved_nodes:
                 return "错误：请先使用检索工具（vector_search/keyword_search）获取相关文档"
 
-            # 使用最近的检索结果生成回答
-            response = self.synthesizer.synthesize(
+            # 获取指定数量的检索结果
+            nodes = self._last_retrieved_nodes[:top_k]
+
+            # 根据模式选择 prompt template
+            from ..generation.prompts import PromptTemplates
+            template = PromptTemplates.get_template_by_mode(mode)
+
+            # 使用自定义 prompt 生成回答
+            response = self.synthesizer.synthesize_custom(
                 question,
-                self._last_retrieved_nodes[:5]
+                nodes,
+                custom_prompt=template
             )
+
+            # 添加来源信息（仅在非 simple 模式）
+            if mode != "simple":
+                sources_summary = self._format_sources_summary(nodes)
+                return f"{response}\n\n---\n**参考来源**: {sources_summary}"
+
             return response
 
         return FunctionTool.from_defaults(
             fn=generate_answer,
             name="generate_answer",
-            description="基于检索到的文档生成最终回答。必须先使用检索工具获取文档。"
+            description="""基于检索到的文档生成最终回答。
+
+回答模式说明：
+- simple: 简洁回答，适合快速查询，直接回复无引用
+- default: 标准回答，有引用标注和基本结构（推荐大多数场景）
+- professional: 专业回答，详细结构化，适合技术文档深度问答
+
+必须先使用检索工具获取文档。"""
         )
 
     def create_retrieve_with_context_tool(self) -> FunctionTool:
@@ -395,6 +421,26 @@ class RAGTools:
                 seen_ids.add(node_id)
                 unique.append(n)
         return unique
+
+    def _format_sources_summary(self, nodes: List[NodeWithScore]) -> str:
+        """格式化来源摘要（用于回答末尾）
+
+        Args:
+            nodes: 检索结果列表
+
+        Returns:
+            简洁的来源摘要字符串
+        """
+        sources = []
+        for i, n in enumerate(nodes[:5]):
+            metadata = n.node.metadata if hasattr(n, 'node') else {}
+            source_file = metadata.get('source_file', metadata.get('source_path', '未知'))
+            # 简化来源名称
+            if '/' in source_file:
+                source_file = source_file.split('/')[-1]
+            sources.append(f"[{i+1}] {source_file}")
+
+        return ", ".join(sources)
 
 
 class ToolResultFormatter:
