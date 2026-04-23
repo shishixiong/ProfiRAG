@@ -22,7 +22,7 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from profirag.ingestion.loaders import DocumentLoader
-from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
+from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter, MarkdownSplitter
 from profirag.ingestion.ast_splitter import ASTSplitter
 from llama_index.core.schema import TextNode
 
@@ -47,7 +47,7 @@ def chunk_documents(
     Args:
         input_dir: Path to input documents directory
         output_dir: Path to output directory for chunks
-        splitter_type: Type of splitter ("sentence", "token", "semantic", "chinese", "ast")
+        splitter_type: Type of splitter ("sentence", "token", "semantic", "chinese", "ast", "markdown")
         chunk_size: Maximum chunk size
         chunk_overlap: Overlap between chunks
         language: Document language ("auto", "en", "zh")
@@ -105,6 +105,11 @@ def chunk_documents(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             language=ast_language,
+        )
+    elif splitter_type == "markdown":
+        splitter = MarkdownSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
     elif splitter_type == "chinese" or (language == "zh" and splitter_type == "sentence"):
         splitter = ChineseTextSplitter(
@@ -292,7 +297,7 @@ def main():
     parser.add_argument(
         "--splitter", "-s",
         type=str,
-        choices=["sentence", "token", "semantic", "chinese", "ast"],
+        choices=["sentence", "token", "semantic", "chinese", "ast", "markdown"],
         default="sentence",
         help="Splitter type (default: sentence)",
     )
