@@ -50,6 +50,12 @@ PROFIRAG_STORAGE_TYPE=qdrant        # qdrant, local, or postgres
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION_NAME=profirag
+
+# Index Mode (controls storage mode)
+PROFIRAG_INDEX_MODE=hybrid          # hybrid (dense + BM25) or vector (dense only)
+
+# Retrieve Mode (controls query mode)
+PROFIRAG_RETRIEVE_INDEX_MODE=hybrid # hybrid, sparse (BM25 only), or vector (dense only)
 ```
 
 ## Quick Start

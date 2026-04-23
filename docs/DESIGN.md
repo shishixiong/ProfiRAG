@@ -64,7 +64,7 @@ RAGConfig (完整配置)
 ├── PreRetrievalConfig (预检索配置)
 │   ├── use_hyde, use_rewrite, multi_query
 ├── RetrievalConfig (检索配置)
-│   ├── top_k, alpha, use_hybrid, use_bm25
+│   ├── top_k, alpha, retrieve_mode
 ├── RerankingConfig (重排序配置)
 │   ├── enabled, model, top_n
 └── GenerationConfig (生成配置)
@@ -162,24 +162,56 @@ BaseVectorStore (ABC)
 
 ##### Qdrant
 
-**BM25-Only Mode**
+**Index Mode**
 
-当设置 `dense_vector_name=None` 时，Qdrant collection 仅使用稀疏向量创建：
+QdrantStore 通过 `index_mode` 参数控制存储模式：
+
+| 模式 | 说明 |
+|------|------|
+| **hybrid** | 密集向量 + BM25 稀疏向量（默认） |
+| **vector** | 仅密集向量 |
 
 ```python
-# Example: BM25-only ingestion
+# Hybrid mode (default): dense vectors + BM25 sparse vectors
 store = QdrantStore(
-    collection_name="bm25_only_collection",
+    collection_name="hybrid_collection",
     client=client,
-    use_bm25=True,
-    dense_vector_name=None,  # No dense vectors stored
+    dimension=1536,
+    index_mode="hybrid",  # 默认值
+)
+
+# Vector-only mode: dense vectors only, no BM25
+store = QdrantStore(
+    collection_name="vector_collection",
+    client=client,
+    dimension=1536,
+    index_mode="vector",
 )
 ```
 
-此模式：
-- 减少存储占用（无密集向量）
-- 启用纯关键字/BM25检索
-- 适用于不需要向量搜索的文本密集型工作负载
+**Retrieve Mode**
+
+`HybridRetriever` 通过 `retrieve_mode` 参数控制查询模式：
+
+| 模式 | 说明 |
+|------|------|
+| **hybrid** | 密集向量 + BM25 稀疏向量混合检索 |
+| **sparse** | 仅 BM25 稀疏向量检索 |
+| **vector** | 仅密集向量检索 |
+
+```python
+# Hybrid retrieval (default)
+retriever = HybridRetriever(vector_index=index, retrieve_mode="hybrid")
+
+# BM25-only retrieval
+retriever = HybridRetriever(vector_index=index, retrieve_mode="sparse")
+
+# Vector-only retrieval
+retriever = HybridRetriever(vector_index=index, retrieve_mode="vector")
+
+# Dynamic retrieve_mode in query
+nodes = retriever.retrieve(query, top_k=10, retrieve_mode="sparse")
+```
 
 #### 3.3.3 存储注册器 (`registry.py`)
 
@@ -251,11 +283,17 @@ SparseVectorizer (别名: BM25Index)
 
 HybridRetriever
 ├── 组合: VectorStoreIndex + Qdrant native BM25 (或 SparseVectorizer)
+├── retrieve_mode: "hybrid" | "sparse" | "vector"
 ├── 融合: Reciprocal Rank Fusion (RRF)
 │   score = α/(k + rank_vector) + (1-α)/(k + rank_bm25)
 ├── 方法:
-│   ├── retrieve(query, top_k) → List[NodeWithScore]
+│   ├── retrieve(query, top_k, retrieve_mode=None) → List[NodeWithScore]
+│   │   # retrieve_mode 可动态指定，覆盖初始化时的模式
 │   └── _rrf_fusion(vector_nodes, bm25_nodes)
+├── 模式映射:
+│   ├── "hybrid" → VectorStoreQueryMode.HYBRID
+│   ├── "sparse" → VectorStoreQueryMode.SPARSE (BM25 only)
+│   └── "vector" → VectorStoreQueryMode.DEFAULT (dense only)
 ```
 
 #### 3.5.3 重排序 (`reranker.py`)
@@ -599,11 +637,15 @@ QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION_NAME=profirag
 
+# Index Mode (存储模式)
+PROFIRAG_INDEX_MODE=hybrid          # hybrid (dense+BM25) 或 vector (dense only)
+
+# Retrieve Mode (查询模式)
+PROFIRAG_RETRIEVE_INDEX_MODE=hybrid # hybrid, sparse, 或 vector
+
 # 检索配置
 PROFIRAG_TOP_K=10
 PROFIRAG_ALPHA=0.5
-PROFIRAG_USE_HYBRID=true
-PROFIRAG_USE_BM25=true
 
 # 重排序配置
 PROFIRAG_RERANK_ENABLED=true
