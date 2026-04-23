@@ -123,6 +123,86 @@ def build_header_chain(heading_stack: List[tuple]) -> str:
     return "\n".join(lines)
 
 
+def estimate_tokens(text: str) -> int:
+    """Estimate token count from text (chars / 4)."""
+    return len(text) // 4
+
+
+def create_chunk_node(text: str, section: Section) -> "TextNode":
+    """Create a TextNode from chunk text with metadata."""
+    from llama_index.core.schema import TextNode
+
+    header_path = "/" + "/".join(h[1] for h in section.heading_stack) + "/"
+    current_heading = section.heading_stack[-1][1] if section.heading_stack else ""
+    heading_level = section.heading_stack[-1][0] if section.heading_stack else 0
+
+    has_code = any(e.type == "code" for e in section.elements)
+    has_table = any(e.type == "table" for e in section.elements)
+
+    return TextNode(
+        text=text,
+        metadata={
+            "header_path": header_path,
+            "current_heading": current_heading,
+            "heading_level": heading_level,
+            "has_code_block": has_code,
+            "has_table": has_table,
+        }
+    )
+
+
+def chunk_sections(
+    sections: List[Section],
+    chunk_size: int = 512,
+    chunk_overlap: int = 50
+) -> List["TextNode"]:
+    """Assemble chunks from sections with chunk_size constraints.
+
+    Args:
+        sections: List of Section objects
+        chunk_size: Maximum tokens per chunk
+        chunk_overlap: Overlap between chunks (not yet implemented)
+
+    Returns:
+        List of TextNode objects
+    """
+    chunks = []
+    for section in sections:
+        if not section.has_content():
+            continue
+
+        header_chain = build_header_chain(section.heading_stack)
+        header_tokens = estimate_tokens(header_chain)
+
+        current_text = header_chain
+        current_tokens = header_tokens if header_chain else 0
+
+        for element in section.elements:
+            element_text = element.element
+            element_tokens = estimate_tokens(element_text)
+
+            # Check if adding element would exceed chunk_size
+            if current_tokens + element_tokens + 1 > chunk_size:
+                # Flush current chunk if it has content beyond header
+                if current_text.strip() and current_text != header_chain:
+                    chunks.append(create_chunk_node(current_text, section))
+                    current_text = header_chain
+                    current_tokens = header_tokens if header_chain else 0
+
+            # Add element to current chunk
+            if current_text:
+                current_text += "\n" + element_text
+            else:
+                current_text = element_text
+            current_tokens += element_tokens
+
+        # Flush remaining chunk
+        if current_text.strip():
+            chunks.append(create_chunk_node(current_text, section))
+
+    return chunks
+
+
 def extract_heading_chain(text: str) -> List[tuple]:
     """Extract hierarchical heading structure from markdown text.
 

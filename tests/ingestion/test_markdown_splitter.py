@@ -1,7 +1,13 @@
 """Tests for the Markdown splitter."""
 
 import pytest
-from profirag.ingestion.splitters import extract_markdown_elements, build_header_chain, build_sections, Section
+from profirag.ingestion.splitters import (
+    extract_markdown_elements,
+    build_header_chain,
+    build_sections,
+    Section,
+    chunk_sections,
+)
 from llama_index.core.node_parser.relational.base_element import Element
 
 
@@ -163,3 +169,45 @@ class TestBuildSections:
         sections = build_sections(elements)
         assert len(sections) == 1
         assert sections[0].heading_stack == []
+
+
+class TestChunkSections:
+    """Unit tests for chunking sections into TextNode chunks."""
+
+    def test_small_section_single_chunk(self):
+        """Small section produces single chunk."""
+        section = Section(
+            heading_stack=[(1, "Title")],
+            elements=[Element(id="0", type="text", element="Short content")]
+        )
+        chunks = chunk_sections([section], chunk_size=512)
+        assert len(chunks) == 1
+        assert "# Title" in chunks[0].text
+        assert "Short content" in chunks[0].text
+
+    def test_header_chain_included(self):
+        """Each chunk starts with header chain."""
+        section = Section(
+            heading_stack=[(1, "API"), (2, "Users")],
+            elements=[Element(id="0", type="text", element="Content")]
+        )
+        chunks = chunk_sections([section], chunk_size=512)
+        assert "# API" in chunks[0].text
+        assert "## Users" in chunks[0].text
+
+    def test_empty_section_no_chunks(self):
+        """Empty section produces no chunks."""
+        section = Section(heading_stack=[(1, "Title")], elements=[])
+        chunks = chunk_sections([section], chunk_size=512)
+        assert len(chunks) == 0
+
+    def test_metadata_header_path(self):
+        """Chunk has header_path metadata."""
+        section = Section(
+            heading_stack=[(1, "API"), (2, "Users")],
+            elements=[Element(id="0", type="text", element="Content")]
+        )
+        chunks = chunk_sections([section], chunk_size=512)
+        assert chunks[0].metadata["header_path"] == "/API/Users/"
+        assert chunks[0].metadata["current_heading"] == "Users"
+        assert chunks[0].metadata["heading_level"] == 2
