@@ -311,22 +311,33 @@ class RAGTools:
         Returns:
             查询变体列表
         """
-        prompt = f"""请生成3个不同的查询变体，用于搜索文档库。每个变体应该表达相同意图但使用不同措辞。
+        prompt = f"""请生成3个查询变体，用于在技术文档库中检索相关信息。
+
+要求：
+1. 保持原问题的核心意图不变
+2. 使用不同的措辞和关键词
+3. 可以从不同角度表述（如：功能描述、使用场景、技术参数等）
+4. 变体应适合关键词搜索，使用文档中可能出现的术语
 
 原问题: {query}
 
-请直接输出3个变体，每行一个:"""
+输出格式（每行一个变体，不需要编号）:
+变体1
+变体2
+变体3"""
 
         try:
             response = self.llm.complete(prompt)
             variants = []
             for line in response.text.strip().split("\n"):
                 line = line.strip()
-                # 跳过编号前缀
-                if line and not line.startswith(("原问题", "变体", "Query")):
-                    # 移除数字前缀如 "1. " 或 "1: "
+                # 跳过编号前缀和说明性文字
+                if line and not line.startswith(("原问题", "变体", "Query", "要求", "输出")):
+                    # 移除数字前缀如 "1. " 或 "1: " 或 "变体1: "
                     if len(line) > 2 and line[0].isdigit() and line[1] in ".: ":
                         line = line[2:].strip()
+                    elif line.startswith("变体") and ":" in line:
+                        line = line.split(":")[1].strip()
                     if line:
                         variants.append(line)
 
@@ -348,7 +359,14 @@ class RAGTools:
         Returns:
             假设文档内容
         """
-        prompt = f"""请写一段假设性的文档内容，这段内容应该能够完美回答以下问题。
+        prompt = f"""请撰写一段假设性的技术文档内容，这段内容应该能够完整回答以下问题。
+
+要求：
+1. 内容风格应类似技术手册（如产品文档、API说明）
+2. 包含问题中涉及的关键概念、参数或操作步骤
+3. 使用专业术语和规范表述
+4. 如果涉及代码或命令，给出具体示例
+5. 内容长度约200-500字
 
 问题: {query}
 

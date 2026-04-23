@@ -31,11 +31,18 @@ class HyDEQueryTransform(BaseQueryTransform):
 
     def _default_prompt(self) -> str:
         """Default HyDE prompt template."""
-        return """Please write a passage that would answer the following question.
+        return """请撰写一段假设性的技术文档段落，用于回答以下问题。
 
-Question: {query_str}
+要求：
+1. 内容风格类似产品技术文档或API说明
+2. 包含问题描述中涉及的关键概念和操作
+3. 使用专业术语和规范表述
+4. 如涉及代码或命令，给出具体示例
+5. 段落长度约200-400字
 
-Passage:"""
+问题: {query_str}
+
+假设文档段落:"""
 
     def _run_query(self, query_str: str, **kwargs) -> str:
         """Generate hypothetical document."""
@@ -82,12 +89,17 @@ class QueryRewriter:
 
     def _default_prompt(self) -> str:
         """Default rewrite prompt template."""
-        return """Please rewrite the following query to make it more suitable for document retrieval.
-Keep the core meaning but make it clearer and more specific.
+        return """请将以下查询重写，使其更适合在技术文档库中检索相关信息。
 
-Original query: {query_str}
+重写要求：
+1. 保持原问题的核心意图
+2. 使用更具体、更清晰的关键词
+3. 如果问题模糊，添加可能的技术术语
+4. 保持查询简洁，适合关键词匹配
 
-Rewritten query:"""
+原问题: {query_str}
+
+重写后的查询:"""
 
     def rewrite(self, query_str: str) -> str:
         """Rewrite the query.
@@ -127,12 +139,17 @@ class MultiQueryGenerator:
 
     def _default_prompt(self) -> str:
         """Default multi-query prompt template."""
-        return """Generate {num_queries} different versions of the following query to improve document retrieval.
-Each version should express the same intent but use different wording.
+        return """请生成 {num_queries} 个查询变体，用于在技术文档库中检索相关信息。
 
-Original query: {query_str}
+要求：
+1. 每个变体表达相同的核心意图
+2. 使用不同的关键词和措辞
+3. 从不同角度表述问题（功能、参数、用法、场景等）
+4. 变体应适合关键词搜索，使用文档中可能出现的术语
 
-Generate {num_queries} alternative queries (one per line):"""
+原问题: {query_str}
+
+输出格式（每行一个变体，无需编号）:"""
 
     def generate(self, query_str: str) -> List[str]:
         """Generate query variants.
