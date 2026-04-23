@@ -211,3 +211,58 @@ class TestChunkSections:
         assert chunks[0].metadata["header_path"] == "/API/Users/"
         assert chunks[0].metadata["current_heading"] == "Users"
         assert chunks[0].metadata["heading_level"] == 2
+
+
+class TestChunkSectionsAtomic:
+    """Tests for atomic element preservation."""
+
+    def test_code_block_preserved_intact(self):
+        """Code blocks are preserved intact even when chunk splits."""
+        long_text = "x" * 1000  # ~250 tokens
+        section = Section(
+            heading_stack=[(1, "Title")],
+            elements=[
+                Element(id="0", type="text", element="Intro"),
+                Element(id="1", type="code", element=f"```python\n{long_text}\n```"),
+            ]
+        )
+        chunks = chunk_sections([section], chunk_size=100)
+        assert len(chunks) >= 2
+        code_chunks = [c for c in chunks if "```python" in c.text]
+        assert len(code_chunks) >= 1
+        for c in code_chunks:
+            assert long_text in c.text  # Code is intact
+
+    def test_table_preserved_intact(self):
+        """Tables are preserved intact."""
+        section = Section(
+            heading_stack=[(1, "Title")],
+            elements=[
+                Element(id="0", type="table", element="| A | B |\n|---|---|\n| 1 | 2 |"),
+            ]
+        )
+        chunks = chunk_sections([section], chunk_size=50)
+        assert len(chunks) == 1
+        assert "| A | B |" in chunks[0].text
+        assert chunks[0].metadata["has_table"] == True
+
+
+class TestChunkSectionsRepetition:
+    """Tests for header chain repetition."""
+
+    def test_header_chain_repeats_in_split_chunks(self):
+        """When section splits, header chain repeats in each chunk."""
+        long_content = "Paragraph one with enough text. " * 50  # ~400 tokens
+        long_content2 = "Paragraph two with more text. " * 50  # ~400 tokens
+        section = Section(
+            heading_stack=[(1, "API"), (2, "Users")],
+            elements=[
+                Element(id="0", type="text", element=long_content),
+                Element(id="1", type="text", element=long_content2),
+            ]
+        )
+        chunks = chunk_sections([section], chunk_size=300)
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            assert "# API" in chunk.text
+            assert "## Users" in chunk.text

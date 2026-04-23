@@ -179,7 +179,27 @@ def chunk_sections(
             element_text = element.element
             element_tokens = estimate_tokens(element_text)
 
-            # Check if adding element would exceed chunk_size
+            # Atomic elements (code/table): always add intact and isolate
+            if element.type in ("code", "table"):
+                # Flush current chunk first if has content beyond header
+                if current_text.strip() and current_text != header_chain:
+                    chunks.append(create_chunk_node(current_text, section))
+                    current_text = header_chain
+                    current_tokens = header_tokens if header_chain else 0
+                # Add atomic element (may exceed chunk_size, but preserved intact)
+                if current_text:
+                    current_text += "\n" + element_text
+                else:
+                    current_text = element_text
+                current_tokens += element_tokens
+                # Flush atomic element immediately to isolate it
+                chunks.append(create_chunk_node(current_text, section))
+                # Start fresh for next element
+                current_text = header_chain
+                current_tokens = header_tokens if header_chain else 0
+                continue
+
+            # Regular text elements: check chunk_size
             if current_tokens + element_tokens + 1 > chunk_size:
                 # Flush current chunk if it has content beyond header
                 if current_text.strip() and current_text != header_chain:
@@ -194,8 +214,8 @@ def chunk_sections(
                 current_text = element_text
             current_tokens += element_tokens
 
-        # Flush remaining chunk
-        if current_text.strip():
+        # Flush remaining chunk (only if has content beyond header)
+        if current_text.strip() and current_text != header_chain:
             chunks.append(create_chunk_node(current_text, section))
 
     return chunks
