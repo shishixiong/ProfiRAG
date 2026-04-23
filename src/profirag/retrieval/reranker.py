@@ -130,6 +130,106 @@ class CohereReranker(BaseReranker):
         return reranked
 
 
+class DashScopeReranker(BaseReranker):
+    """Alibaba Cloud DashScope reranker.
+
+    Uses DashScope's specific API format with nested input structure.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str],
+        base_url: Optional[str],
+        model: str = "rerank-v1",
+        top_n: int = 5,
+        timeout: int = 30,
+        **kwargs
+    ):
+        """Initialize DashScope reranker.
+
+        Args:
+            api_key: DashScope API key (required)
+            base_url: DashScope API base URL (required)
+            model: Model name (e.g., "rerank-v1")
+            top_n: Number of results to return
+            timeout: Request timeout in seconds
+            **kwargs: Additional arguments
+
+        Raises:
+            ValueError: If api_key or base_url is not provided
+        """
+        if not api_key:
+            raise ValueError("api_key is required for DashScope reranker")
+        if not base_url:
+            raise ValueError("base_url is required for DashScope reranker")
+
+        self.api_key = api_key
+        self.base_url = base_url.rstrip('/')
+        self.model = model
+        self.top_n = top_n
+        self.timeout = timeout
+        self.kwargs = kwargs
+
+    def rerank(
+        self,
+        query: str,
+        nodes: List[NodeWithScore],
+        **kwargs
+    ) -> List[NodeWithScore]:
+        """Rerank nodes using DashScope API.
+
+        Args:
+            query: Query string
+            nodes: List of NodeWithScore objects
+            **kwargs: Additional arguments
+
+        Returns:
+            Reranked list of NodeWithScore objects
+
+        Raises:
+            RuntimeError: If API call fails
+        """
+        if not nodes:
+            return nodes
+
+        documents = [node.node.text for node in nodes]
+
+        # Build request - DashScope uses nested input structure
+        url = f"{self.base_url}/api/v1/services/rerank"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "input": {
+                "query": query,
+                "documents": documents,
+                "top_n": self.top_n,
+            }
+        }
+
+        try:
+            response = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"DashScope API error: {e.response.text}")
+        except httpx.RequestError as e:
+            raise RuntimeError(f"DashScope API request failed: {str(e)}")
+
+        # Parse results - DashScope wraps in "output"
+        output = data.get("output", {})
+        results = output.get("results", [])
+        reranked = []
+        for r in results:
+            idx = r["index"]
+            score = r["relevance_score"]
+            reranked.append(NodeWithScore(node=nodes[idx].node, score=score))
+
+        return reranked
+
+
 class CrossEncoderReranker(BaseNodePostprocessor):
     """Cross-encoder based reranker using sentence-transformers.
 
