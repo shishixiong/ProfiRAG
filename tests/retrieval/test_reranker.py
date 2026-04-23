@@ -182,3 +182,32 @@ def test_dashscope_reranker_request_format(mock_post):
     assert payload["input"]["query"] == "query"
     assert payload["input"]["documents"] == ["doc"]
     assert payload["input"]["top_n"] == 5
+
+
+# CrossEncoderReranker tests
+
+from profirag.retrieval.reranker import CrossEncoderReranker
+
+
+def test_cross_encoder_reranker_extends_base():
+    """Test CrossEncoderReranker extends BaseReranker."""
+    assert issubclass(CrossEncoderReranker, BaseReranker)
+
+
+@patch("sentence_transformers.CrossEncoder")
+def test_cross_encoder_reranker_rerank_method(mock_ce):
+    """Test CrossEncoderReranker has rerank method from BaseReranker."""
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.9, 0.5]
+    mock_ce.return_value = mock_model
+
+    reranker = CrossEncoderReranker(model="test-model", top_n=2)
+    nodes = [
+        NodeWithScore(node=TextNode(text="doc1"), score=0.5),
+        NodeWithScore(node=TextNode(text="doc2"), score=0.6)
+    ]
+
+    result = reranker.rerank("query", nodes)
+
+    assert hasattr(reranker, 'rerank')
+    assert len(result) == 2

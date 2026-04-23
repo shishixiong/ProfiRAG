@@ -4,8 +4,6 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 import httpx
 from llama_index.core.schema import NodeWithScore, QueryBundle
-from llama_index.core.postprocessor.types import BaseNodePostprocessor
-from llama_index.core.bridge.pydantic import Field, PrivateAttr
 
 
 class BaseReranker(ABC):
@@ -230,22 +228,12 @@ class DashScopeReranker(BaseReranker):
         return reranked
 
 
-class CrossEncoderReranker(BaseNodePostprocessor):
+class CrossEncoderReranker(BaseReranker):
     """Cross-encoder based reranker using sentence-transformers.
 
     Uses a cross-encoder model to compute relevance scores for
     query-document pairs and reorder results.
     """
-
-    model: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="Cross-encoder model name or path"
-    )
-    top_n: int = Field(default=5, description="Number of results to return")
-    batch_size: int = Field(default=32, description="Batch size for encoding")
-    device: Optional[str] = Field(default=None, description="Device to use")
-
-    _model: Any = PrivateAttr(default=None)
 
     def __init__(
         self,
@@ -266,20 +254,56 @@ class CrossEncoderReranker(BaseNodePostprocessor):
             device: Device to use ("cuda", "cpu", None for auto)
             **kwargs: Additional arguments
         """
-        super().__init__(
-            model=model,
-            top_n=top_n,
-            batch_size=batch_size,
-            device=device,
-            **kwargs
-        )
-        self._model = None
+        self.model = model
+        self.top_n = top_n
+        self.batch_size = batch_size
+        self.device = device
+        self.kwargs = kwargs
+        self._model: Any = None
 
     def _load_model(self) -> None:
         """Load cross-encoder model."""
         if self._model is None:
             from sentence_transformers import CrossEncoder
             self._model = CrossEncoder(self.model, device=self.device)
+
+    def rerank(
+        self,
+        query: str,
+        nodes: List[NodeWithScore],
+        **kwargs
+    ) -> List[NodeWithScore]:
+        """Rerank nodes based on cross-encoder scores.
+
+        Args:
+            query: Query string
+            nodes: List of NodeWithScore objects
+            **kwargs: Additional arguments
+
+        Returns:
+            Reranked list of NodeWithScore objects
+        """
+        if not nodes:
+            return nodes
+
+        self._load_model()
+
+        # Prepare query-document pairs
+        pairs = [(query, node.node.text) for node in nodes]
+
+        # Compute relevance scores
+        scores = self._model.predict(pairs, batch_size=self.batch_size)
+
+        # Create reranked results
+        reranked = [
+            NodeWithScore(node=nodes[i].node, score=float(scores[i]))
+            for i in range(len(nodes))
+        ]
+
+        # Sort by score and limit to top_n
+        reranked.sort(key=lambda x: x.score, reverse=True)
+
+        return reranked[:self.top_n]
 
     def _postprocess_nodes(
         self,
@@ -295,28 +319,10 @@ class CrossEncoderReranker(BaseNodePostprocessor):
         Returns:
             Reranked list of NodeWithScore objects
         """
-        if not nodes or not query_bundle:
+        if not query_bundle:
             return nodes
 
-        query_str = query_bundle.query_str
-        self._load_model()
-
-        # Prepare query-document pairs
-        pairs = [(query_str, node.node.text) for node in nodes]
-
-        # Compute relevance scores
-        scores = self._model.predict(pairs, batch_size=self.batch_size)
-
-        # Create reranked results
-        reranked = [
-            NodeWithScore(node=nodes[i].node, score=float(scores[i]))
-            for i in range(len(nodes))
-        ]
-
-        # Sort by score and limit to top_n
-        reranked.sort(key=lambda x: x.score, reverse=True)
-
-        return reranked[:self.top_n]
+        return self.rerank(query_bundle.query_str, nodes)
 
 
 class Reranker:
@@ -375,7 +381,7 @@ class Reranker:
         if not nodes:
             return nodes
 
-        return self._reranker.postprocess_nodes(nodes, query_str=query, **kwargs)
+        return self._reranker.rerank(query, nodes, **kwargs)
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable reranking.
