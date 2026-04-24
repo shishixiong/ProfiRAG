@@ -175,13 +175,24 @@ class ImageProcessingConfig(BaseModel):
     minimax_api_host: str = "https://api.minimax.chat"
 
 
+class PlanAgentConfig(BaseModel):
+    """PlanAgent specific configuration"""
+    require_approval: bool = True       # 计划确认
+    max_replan_attempts: int = 3        # 失败重规划上限
+    show_plan: bool = True              # 显示计划
+    verbose_steps: bool = True          # 详细日志
+    auto_approve_simple: bool = True    # 简单问题自动批准
+
+
 class AgentConfig(BaseModel):
     """Agent configuration for ReAct-based question answering"""
     enabled: bool = False  # 默认关闭，使用Pipeline模式
-    mode: str = "react"  # "react" or "pipeline"
+    mode: str = "react"  # "react", "plan", or "pipeline"
     max_iterations: int = 10
     verbose: bool = True
     markdown_base_path: Optional[str] = None  # Markdown文件目录路径（用于表格索引解析）
+    # PlanAgent 配置
+    plan_config: PlanAgentConfig = PlanAgentConfig()
     # 可用的工具列表
     tools: List[str] = [
         "vector_search",

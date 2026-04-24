@@ -345,3 +345,52 @@ class AgentFactory:
             max_iterations=max_iterations,
             verbose=verbose,
         )
+
+    @staticmethod
+    def create_plan_agent(
+        retriever: Any,
+        synthesizer: Any,
+        llm: Any,
+        verbose: bool = True,
+        show_plan: bool = True,
+        require_approval: bool = True,
+        max_replan_attempts: int = 3,
+        markdown_base_path: Optional[str] = None,
+        pre_retrieval: Any = None,
+        approval_callback: Optional[Any] = None,
+    ):
+        """创建Plan-based Agent
+
+        Args:
+            retriever: 检索器实例
+            synthesizer: 合成器实例
+            llm: LLM实例
+            verbose: 是否显示详细日志
+            show_plan: 是否显示执行计划
+            require_approval: 是否需要用户确认计划
+            max_replan_attempts: 失败重规划最大次数
+            markdown_base_path: Markdown文件目录路径（用于表格索引解析）
+            pre_retrieval: PreRetrievalPipeline实例（可选）
+            approval_callback: 计划批准回调函数（可选）
+
+        Returns:
+            RAGPlanAgent实例
+        """
+        from .plan_agent import RAGPlanAgent
+
+        tools = RAGTools(
+            retriever=retriever,
+            synthesizer=synthesizer,
+            llm=llm,
+            markdown_base_path=markdown_base_path,
+            pre_retrieval=pre_retrieval,
+        )
+        return RAGPlanAgent(
+            tools=tools,
+            llm=llm,
+            verbose=verbose,
+            show_plan=show_plan,
+            require_approval=require_approval,
+            max_replan_attempts=max_replan_attempts,
+            approval_callback=approval_callback,
+        )

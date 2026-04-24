@@ -119,8 +119,9 @@ class RAGPipeline:
                 generate_descriptions=config.image_processing.generate_descriptions,
             )
 
-        # Initialize Agent if enabled (lazy initialization)
+        # Initialize Agents if enabled (lazy initialization)
         self._agent: Optional[RAGReActAgent] = None
+        self._plan_agent: Optional[Any] = None  # RAGPlanAgent
         self._agent_config = config.agent
 
     def _create_splitter(self):
@@ -438,14 +439,16 @@ class RAGPipeline:
         self,
         query_str: str,
         mode: Optional[str] = None,
+        auto_approve: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """Execute query using Agent or Pipeline mode.
 
         Args:
             query_str: Query string
-            mode: Query mode ("agent", "react", "pipeline")
+            mode: Query mode ("agent", "react", "plan", "pipeline")
                   If None, uses config.agent.enabled setting
+            auto_approve: Auto approve plan for PlanAgent (bypass approval prompt)
             **kwargs: Additional arguments
 
         Returns:
@@ -454,7 +457,13 @@ class RAGPipeline:
         # Determine mode
         query_mode = mode or (self._agent_config.mode if self._agent_config.enabled else "pipeline")
 
-        if query_mode in ("agent", "react"):
+        if query_mode == "plan":
+            # Use Plan Agent
+            if self._plan_agent is None:
+                self._init_plan_agent()
+            return self._plan_agent.query(query_str, auto_approve=auto_approve)
+
+        elif query_mode in ("agent", "react"):
             # Use ReAct Agent
             if self._agent is None:
                 self._init_agent()
@@ -465,13 +474,28 @@ class RAGPipeline:
             return self.query(query_str, **kwargs)
 
     def _init_agent(self) -> None:
-        """Initialize Agent lazily."""
+        """Initialize ReAct Agent lazily."""
         self._agent = AgentFactory.create_react_agent(
             retriever=self._hybrid_retriever,
             synthesizer=self._synthesizer,
             llm=self._llm,
             max_iterations=self._agent_config.max_iterations,
             verbose=self._agent_config.verbose,
+            markdown_base_path=self._agent_config.markdown_base_path,
+            pre_retrieval=self._pre_retrieval,
+        )
+
+    def _init_plan_agent(self) -> None:
+        """Initialize Plan Agent lazily."""
+        plan_config = self._agent_config.plan_config
+        self._plan_agent = AgentFactory.create_plan_agent(
+            retriever=self._hybrid_retriever,
+            synthesizer=self._synthesizer,
+            llm=self._llm,
+            verbose=plan_config.verbose_steps,
+            show_plan=plan_config.show_plan,
+            require_approval=plan_config.require_approval,
+            max_replan_attempts=plan_config.max_replan_attempts,
             markdown_base_path=self._agent_config.markdown_base_path,
             pre_retrieval=self._pre_retrieval,
         )
