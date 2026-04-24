@@ -26,7 +26,7 @@ class ResponseSynthesizer:
         response_mode: str = "compact",
         streaming: bool = False,
         template: Optional[str] = None,
-        max_context_length: Optional[int] = 8000,
+        max_context_length: Optional[int] = 80000,
         **kwargs
     ):
         """Initialize response synthesizer.

@@ -308,7 +308,7 @@ class RAGPipeline:
         all_nodes, all_images = self._retrieve(query_bundles, top_k, include_images=False)
         unique_nodes = self._deduplicate_nodes(all_nodes)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-        response = self._synthesizer.synthesize(query_str, reranked_nodes[:top_k])
+        response = self._synthesizer.synthesize_custom(query_str, reranked_nodes[:top_k])
 
         return {
             "response": response,
@@ -347,7 +347,7 @@ class RAGPipeline:
         unique_nodes = self._deduplicate_nodes(all_nodes)
         unique_images = self._deduplicate_images(all_images)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-        response = self._synthesizer.synthesize(query_str, reranked_nodes[:top_k])
+        response = self._synthesizer.synthesize_custom(query_str, reranked_nodes[:top_k])
 
         return ResponseFormatter.format_with_sources_and_images(
             response,
