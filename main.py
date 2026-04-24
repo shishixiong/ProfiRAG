@@ -39,7 +39,7 @@ class InteractiveSession:
         Args:
             config: RAGConfig instance
             show_images: Whether to show images in responses
-            query_mode: Query mode ("pipeline" or "agent")
+            query_mode: Query mode ("pipeline", "react", or "plan")
         """
         print("=" * 60)
         print("  ProfiRAG Interactive Q&A System")
@@ -79,8 +79,12 @@ class InteractiveSession:
         print("-" * 60)
 
         try:
-            if self.query_mode == "agent":
-                # Agent模式
+            if self.query_mode == "plan":
+                # Plan Agent 模式
+                result = self.pipeline.query_with_agent(query, mode="plan", auto_approve=True)
+                self._display_plan_agent_result(result)
+            elif self.query_mode == "agent":
+                # ReAct Agent 模式
                 result = self.pipeline.query_with_agent(query, mode="agent")
                 self._display_agent_result(result)
             elif self.show_images:
@@ -202,6 +206,41 @@ class InteractiveSession:
                 print(f"  {i}. {tool_name}")
             print()
 
+    def _display_plan_agent_result(self, result: dict) -> None:
+        """Display PlanAgent query result.
+
+        Args:
+            result: PlanAgent query result dictionary
+        """
+        print()
+        print("【回答】")
+        print(result.get("response", "无回答"))
+        print()
+
+        # Show plan info
+        plan = result.get("plan")
+        if plan:
+            complexity = plan.complexity if hasattr(plan, 'complexity') else "unknown"
+            reasoning = plan.reasoning if hasattr(plan, 'reasoning') else ""
+            step_count = len(plan.steps) if hasattr(plan, 'steps') else 0
+            print(f"【Plan信息】")
+            print(f"  复杂度: {complexity}")
+            print(f"  步骤数: {step_count}")
+            print(f"  重规划次数: {result.get('replan_count', 0)}")
+            if reasoning:
+                print(f"  计划原因: {reasoning[:100]}...")
+            print()
+
+        # Show step results
+        step_results = result.get("step_results", [])
+        if step_results:
+            print("【执行步骤】")
+            for i, sr in enumerate(step_results):
+                status = "✅" if sr.success else "❌"
+                duration = sr.duration_ms or 0
+                print(f"  {i+1}. {status} {sr.tool_name} ({duration}ms)")
+            print()
+
     def handle_command(self, command: str) -> bool:
         """Handle special commands.
 
@@ -224,6 +263,7 @@ class InteractiveSession:
             print("  /stats       - 显示系统统计")
             print("  /mode pipeline - 使用Pipeline模式（固定流程）")
             print("  /mode agent    - 使用Agent模式（ReAct动态决策）")
+            print("  /mode plan     - 使用PlanAgent模式（先规划后执行）")
             print("  /images on   - 启用图片检索")
             print("  /images off  - 禁用图片检索")
             print("  /clear       - 清屏")
@@ -246,11 +286,14 @@ class InteractiveSession:
                 if parts[1] == "pipeline":
                     self.query_mode = "pipeline"
                     print("已切换到Pipeline模式")
-                elif parts[1] in ("agent", "react"):
+                elif parts[1] == "agent":
                     self.query_mode = "agent"
-                    print("已切换到Agent模式")
+                    print("已切换到ReAct Agent模式")
+                elif parts[1] == "plan":
+                    self.query_mode = "plan"
+                    print("已切换到Plan Agent模式")
                 else:
-                    print("用法: /mode pipeline 或 /mode agent")
+                    print("用法: /mode pipeline | /mode agent | /mode plan")
             else:
                 print(f"当前查询模式: {self.query_mode}")
 
@@ -311,11 +354,23 @@ def single_query(query: str, config, show_images: bool = True, query_mode: str =
         query: Query string
         config: RAGConfig instance
         show_images: Whether to include images
-        query_mode: Query mode ("pipeline" or "agent")
+        query_mode: Query mode ("pipeline", "agent", or "plan")
     """
     pipeline = RAGPipeline(config)
 
-    if query_mode == "agent":
+    if query_mode == "plan":
+        result = pipeline.query_with_agent(query, mode="plan", auto_approve=True)
+        # Convert Pydantic models to dict for JSON serialization
+        if "plan" in result and hasattr(result["plan"], "model_dump"):
+            result["plan"] = result["plan"].model_dump()
+        if "execution_result" in result and hasattr(result["execution_result"], "model_dump"):
+            result["execution_result"] = result["execution_result"].model_dump()
+        if "step_results" in result:
+            result["step_results"] = [
+                sr.model_dump() if hasattr(sr, "model_dump") else sr
+                for sr in result["step_results"]
+            ]
+    elif query_mode == "agent":
         result = pipeline.query_with_agent(query, mode="agent")
     elif show_images:
         result = pipeline.query_with_images(query, top_k=5)
@@ -354,9 +409,9 @@ def main():
     parser.add_argument(
         "--mode", "-m",
         type=str,
-        choices=["pipeline", "agent"],
+        choices=["pipeline", "agent", "plan"],
         default=None,
-        help="Query mode: pipeline (fixed flow) or agent (ReAct dynamic)",
+        help="Query mode: pipeline (fixed flow), agent (ReAct dynamic), or plan (PlanAgent)",
     )
     parser.add_argument(
         "--markdown-base-path",
