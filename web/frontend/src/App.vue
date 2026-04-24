@@ -18,6 +18,10 @@
           <span class="icon">📥</span>
           <span class="label">Import</span>
         </router-link>
+        <router-link to="/chat" class="nav-item" active-class="active">
+          <span class="icon">💬</span>
+          <span class="label">Chat</span>
+        </router-link>
       </nav>
     </aside>
 

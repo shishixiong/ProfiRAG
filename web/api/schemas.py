@@ -149,3 +149,36 @@ class FileInfo(BaseModel):
     file_type: str
     size_bytes: int
     temp_path: str
+
+
+# Chat Models
+class ChatRequest(BaseModel):
+    """Request for RAG chat query."""
+    query: str = Field(..., description="User question")
+    top_k: int = Field(10, ge=1, le=50, description="Number of results to retrieve")
+    env_file: str = Field(".env", description="Path to .env config file")
+
+
+class SourceNode(BaseModel):
+    """Source node from RAG retrieval."""
+    node_id: str
+    text: str
+    score: float
+    source_file: Optional[str] = None
+    header_path: Optional[str] = None
+
+
+class ImageInfo(BaseModel):
+    """Image information from RAG retrieval."""
+    path: str
+    description: str
+    node_id: str
+
+
+class ChatResponse(BaseModel):
+    """Response for RAG chat query."""
+    query: str
+    response: str
+    source_nodes: List[SourceNode] = Field(default_factory=list)
+    images: List[ImageInfo] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)

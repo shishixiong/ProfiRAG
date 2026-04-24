@@ -81,3 +81,10 @@ export const importApi = {
 }
 
 export default api
+
+// Chat endpoints
+export const chatApi = {
+  query: async (query, topK = 10) => {
+    return api.post('/chat/query', { query, top_k: topK })
+  },
+}

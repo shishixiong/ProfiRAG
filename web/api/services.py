@@ -441,3 +441,52 @@ class ImportService:
                 "elapsed_seconds": job.get("elapsed_seconds", 0),
             }
         return None
+
+
+class ChatService:
+    """Handle RAG chat queries."""
+
+    @staticmethod
+    def query(
+        query_str: str,
+        top_k: int = 10,
+        env_file: str = ".env",
+    ) -> Dict[str, Any]:
+        """Execute RAG query and return response with images."""
+        # Load configuration
+        config_path = PROJECT_ROOT / env_file
+        config = load_config(str(config_path))
+
+        # Initialize pipeline
+        pipeline = RAGPipeline(config)
+
+        # Execute query with images
+        result = pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
+
+        # Format source nodes - sources is a list, not a dict
+        source_nodes = []
+        for source in result.get("sources", []):
+            source_nodes.append({
+                "node_id": source.get("node_id", ""),
+                "text": source.get("text", "")[:300] if len(source.get("text", "")) > 300 else source.get("text", ""),
+                "score": source.get("score", 0.0),
+                "source_file": source.get("metadata", {}).get("source_file"),
+                "header_path": source.get("metadata", {}).get("header_path"),
+            })
+
+        # Format images
+        images = []
+        for img in result.get("images", []):
+            images.append({
+                "path": img.get("path", ""),
+                "description": img.get("description", ""),
+                "node_id": img.get("source_chunk", ""),
+            })
+
+        return {
+            "query": query_str,
+            "response": result.get("response", ""),
+            "source_nodes": source_nodes,
+            "images": images,
+            "metadata": result.get("metadata", {}),
+        }

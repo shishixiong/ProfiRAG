@@ -6,6 +6,7 @@ import App from './App.vue'
 import PdfConvert from './views/PdfConvert.vue'
 import DocSplitter from './views/DocSplitter.vue'
 import DocImport from './views/DocImport.vue'
+import ChatView from './views/ChatView.vue'
 
 // Router
 const routes = [
@@ -13,6 +14,7 @@ const routes = [
   { path: '/pdf', name: 'PdfConvert', component: PdfConvert },
   { path: '/split', name: 'DocSplitter', component: DocSplitter },
   { path: '/import', name: 'DocImport', component: DocImport },
+  { path: '/chat', name: 'ChatView', component: ChatView },
 ]
 
 const router = createRouter({
