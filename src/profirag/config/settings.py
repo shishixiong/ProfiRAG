@@ -199,6 +199,9 @@ class AgentConfig(BaseModel):
         "keyword_search",
         "multi_query_search",
         "hyde_search",
+        "rewrite_query",
+        "rerank_results",
+        "filter_results",
         "generate_answer",
         "retrieve_and_answer",
     ]

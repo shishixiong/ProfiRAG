@@ -1,24 +1,57 @@
 # ProfiRAG
 
-Advanced RAG (Retrieval-Augmented Generation) framework built with LlamaIndex.
+Advanced RAG (Retrieval-Augmented Generation) framework built with LlamaIndex, supporting three query modes: Pipeline (fixed flow), ReAct Agent (dynamic reasoning), and PlanAgent (plan-then-execute).
+
+~11,500 lines of Python, MIT licensed.
 
 ## Features
 
-- **Pluggable Vector Storage**: Abstract storage layer supporting multiple backends
-  - Qdrant
-  - PostgreSQL/pgvector
-  - Local file storage
+### Core RAG Pipeline
 
-- **Advanced RAG Pipeline**:
-  - Pre-Retrieval: HyDE, query rewriting, multi-query generation
-  - Hybrid Retrieval: Vector + BM25 with RRF fusion
-  - Re-ranking: Cross-encoder models
-  - Generation: Multiple response synthesis modes
+| Stage | Components | Description |
+|-------|-----------|-------------|
+| Pre-Retrieval | HyDE, Query Rewriting, Multi-Query | Transform/normalize queries before retrieval |
+| Retrieval | Hybrid (Vector + BM25), RRF fusion | Multi-strategy dense + sparse retrieval |
+| Post-Retrieval | Reranker (CrossEncoder/Cohere/DashScope) | Precision reranking of retrieved results |
+| Generation | Multiple response modes, streaming | Customizable answer synthesis |
 
-- **Chinese Support**:
-  - jieba tokenization for BM25
-  - Chinese text splitter
-  - Chinese prompt templates
+### Agent Modes
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| **Pipeline** | Fixed flow: transform → retrieve → rerank → synthesize | Simple, predictable queries |
+| **ReAct Agent** | Think → Act → Observe loop, dynamic tool selection | Complex multi-step reasoning |
+| **PlanAgent** | Plan → Approve → Execute → Answer, with auto-replanning | Complex queries, production workflows |
+
+### Agent Tools (10 tools)
+
+**Retrieval Tools:**
+- `vector_search` — Vector similarity search
+- `keyword_search` — BM25 keyword search
+- `multi_query_search` — Multi-variant query expansion
+- `hyde_search` — Hypothetical document retrieval
+
+**Optimization Tools:**
+- `rewrite_query` — Query rewriting for vague inputs
+- `rerank_results` — Post-retrieval reranking (requires Reranker config)
+- `filter_results` — Filter by source file, score range
+
+**Generation Tools:**
+- `generate_answer` — Answer from collected context
+- `retrieve_and_answer` — One-step retrieval + answer
+- `table_lookup` — Table content lookup (requires markdown_base_path)
+
+### Storage Backends
+
+- Qdrant (vector + BM25 native support)
+- PostgreSQL/pgvector
+- Local file storage
+
+### Chinese Support
+
+- jieba tokenization for BM25
+- Chinese text splitter
+- Chinese prompt templates (4 modes: simple/default/professional/technical)
 
 ## Installation
 
@@ -56,37 +89,57 @@ PROFIRAG_INDEX_MODE=hybrid          # hybrid (dense + BM25) or vector (dense onl
 
 # Retrieve Mode (controls query mode)
 PROFIRAG_RETRIEVE_INDEX_MODE=hybrid # hybrid, sparse (BM25 only), or vector (dense only)
+
+# Agent Configuration
+PROFIRAG_AGENT_ENABLED=false        # Enable Agent mode
+PROFIRAG_AGENT_MODE=react           # react, plan, or pipeline
+PROFIRAG_AGENT_MAX_ITERATIONS=10
+PROFIRAG_AGENT_MARKDOWN_BASE_PATH=  # Optional: for table_lookup tool
+
+# Reranking Configuration
+PROFIRAG_RERANK_ENABLED=true
+PROFIRAG_RERANK_PROVIDER=local      # local, cohere, or dashscope
+PROFIRAG_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 ```
 
 ## Quick Start
 
-```python
-from profirag import RAGPipeline
-from profirag.config import load_config
+### Interactive Q&A
 
-# Load configuration from .env
+```bash
+# Pipeline mode (default)
+python main.py
+
+# ReAct Agent mode
+python main.py --mode agent
+
+# Plan Agent mode
+python main.py --mode plan
+
+# Single query
+python main.py --query "What is GaussDB?" --mode agent
+```
+
+### Programmatic Usage
+
+```python
+from profirag.config import load_config
+from profirag.pipeline import RAGPipeline
+
 config = load_config()
 pipeline = RAGPipeline(config)
 
-# Ingest documents
-from profirag.ingestion import DocumentLoader
-loader = DocumentLoader()
-documents = loader.load_directory("./documents")
-pipeline.ingest_documents(documents)
+# Pipeline mode
+result = pipeline.query("Your question here", top_k=10)
 
-# Query
-result = pipeline.query("What is GaussDB?")
-print(result["response"])
+# Agent mode
+result = pipeline.query_with_agent("Complex multi-step question", mode="agent")
+
+# Plan mode
+result = pipeline.query_with_agent("Complex question", mode="plan", auto_approve=True)
 ```
 
-## Usage
-
-## convert pdf to markdown
-```bash
-python scripts/pdf_to_markdown.py --write-images --pages "2914-3393" --exclude-header-footer --extract-tables
-```
-
-### Ingest Documents
+### Document Ingestion
 
 ```bash
 # Ingest from directory
@@ -96,35 +149,50 @@ uv run python scripts/ingest_documents.py --documents ./documents
 uv run python scripts/ingest_documents.py --file ./documents/example.pdf
 ```
 
-### Run Queries
-
-```python
-from profirag import RAGPipeline
-
-pipeline = RAGPipeline.from_env()
-
-# Standard query
-result = pipeline.query("Your question here", top_k=10)
-
-# Streaming query
-for chunk in pipeline.query_stream("Your question here"):
-    print(chunk, end="", flush=True)
-```
-
 ## Project Structure
 
 ```
 ProfiRAG/
+├── main.py                     # Interactive CLI entry point
 ├── src/profirag/
-│   ├── config/          # Configuration management
-│   ├── storage/         # Vector store abstraction
-│   ├── ingestion/       # Document loaders and splitters
-│   ├── retrieval/       # Query transform, hybrid retrieval, reranking
-│   ├── generation/      # Response synthesis
-│   └── pipeline/        # Main RAG pipeline
-├── scripts/             # Utility scripts
-└── tests/               # Test suite
+│   ├── config/settings.py      # Pydantic config (env vars, model configs)
+│   ├── agent/                   # Agent system
+│   │   ├── tools.py             # RAGTools — 10 agent tools
+│   │   ├── react_agent.py       # RAGReActAgent + AgentFactory
+│   │   └── plan_agent.py        # RAGPlanAgent (Plan → Execute → Replan)
+│   ├── pipeline/
+│   │   └── rag_pipeline.py      # RAGPipeline — orchestration layer
+│   ├── ingestion/               # Document loaders, splitters (AST, markdown, Chinese)
+│   ├── retrieval/               # HybridRetriever, QueryTransform, Reranker
+│   ├── generation/              # ResponseSynthesizer, PromptTemplates
+│   ├── embedding/               # Custom OpenAI embedding wrapper
+│   ├── storage/                 # Storage abstraction (Qdrant, PG, Local)
+│   └── evaluation/              # Retrieval, response, chunking, dataset eval
+└── scripts/                     # Utility scripts (PDF conversion, ingestion)
 ```
+
+## Key Architecture Decisions
+
+### Pipeline Flow (Standard Mode)
+```
+User Query → PreRetrievalPipeline → HybridRetriever → Reranker → ResponseSynthesizer → Answer
+```
+
+### ReAct Agent Flow
+```
+User Query → Think → Tool Selection → Execute → Observe → Think ... → Final Answer
+```
+
+### PlanAgent Flow
+```
+User Query → PlanGenerator (LLM) → User Approval → PlanExecutor → Replan(on failure) → Finalize
+```
+
+### Tools Design
+- All tools are `FunctionTool` instances from LlamaIndex
+- `_last_retrieved_nodes` acts as shared context between tools
+- Optimization tools (rerank, filter) require prior retrieval
+- `rewrite_query` has LLM fallback when QueryRewriter not configured
 
 ## Development
 
@@ -137,9 +205,6 @@ uv run ruff format src scripts tests
 
 # Lint code
 uv run ruff check src scripts tests --fix
-
-# Type check
-uv run mypy src --ignore-missing-imports
 ```
 
 ## License

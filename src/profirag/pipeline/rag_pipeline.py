@@ -483,6 +483,7 @@ class RAGPipeline:
             verbose=self._agent_config.verbose,
             markdown_base_path=self._agent_config.markdown_base_path,
             pre_retrieval=self._pre_retrieval,
+            reranker=self._reranker,
         )
 
     def _init_plan_agent(self) -> None:
@@ -498,6 +499,7 @@ class RAGPipeline:
             max_replan_attempts=plan_config.max_replan_attempts,
             markdown_base_path=self._agent_config.markdown_base_path,
             pre_retrieval=self._pre_retrieval,
+            reranker=self._reranker,
         )
 
     def _deduplicate_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
