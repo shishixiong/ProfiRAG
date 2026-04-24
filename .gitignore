@@ -88,3 +88,5 @@ chunking_results.json
 
 # HuggingFace models cache
 models/
+web/api/temp/
+web/frontend/node_modules/

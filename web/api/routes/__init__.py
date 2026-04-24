@@ -1,0 +1,14 @@
+"""API routes."""
+
+import sys
+from pathlib import Path
+
+# Add the routes directory to Python path
+routes_dir = Path(__file__).parent
+sys.path.insert(0, str(routes_dir))
+
+from pdf import router as pdf_router
+from split import router as split_router
+from doc_import import router as import_router
+
+__all__ = ["pdf_router", "split_router", "import_router"]
