@@ -20,14 +20,14 @@ COMPLEXITY_ANALYSIS_PROMPT = """分析用户问题复杂度，制定最优检索
 - **中等**: 需1-2步检索、可能需要评估结果质量、有明确范围 → vector_search → generate_answer
 - **复杂**: 多角度问题、涉及多个概念、需要多轮检索、可能涉及表格 → multi_query_search → table_lookup? → generate_answer
 
-可用工具：
-- vector_search: 向量相似度检索
-- keyword_search: BM25关键词检索
-- multi_query_search: 多变体检索扩大覆盖
-- hyde_search: 假设文档检索
-- generate_answer: 基于检索结果生成回答
-- retrieve_and_answer: 检索+回答一步完成
-- table_lookup: 查看表格完整内容
+可用工具及其参数：
+- vector_search(query, top_k=5): 向量相似度检索
+- keyword_search(query, top_k=5): BM25关键词检索
+- multi_query_search(query): 多变体检索扩大覆盖
+- hyde_search(query): 假设文档检索
+- generate_answer(question, mode="default", top_k=5): 基于检索结果生成回答，mode可选simple/default/professional/technical
+- retrieve_and_answer(question, mode="default", top_k=5): 检索+回答一步完成，mode可选simple/default/professional/technical
+- table_lookup(table_reference): 查看表格完整内容
 
 输出格式（JSON）：
 {{"complexity": "simple|medium|complex", "reasoning": "复杂度判断原因", "requires_approval": true或false, "steps": [{{"tool_name": "工具名", "parameters": {{}}, "expected_output": "预期输出描述"}}]}}
