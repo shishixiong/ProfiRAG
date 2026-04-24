@@ -25,6 +25,8 @@ class RAGTools:
         llm: Any,
         pre_retrieval: Any = None,
         markdown_base_path: Optional[str] = None,
+        reranker: Any = None,
+        query_rewriter: Any = None,
     ):
         """初始化工具集
 
@@ -34,12 +36,16 @@ class RAGTools:
             llm: LLM实例
             pre_retrieval: PreRetrievalPipeline实例（可选）
             markdown_base_path: Markdown文件目录路径（用于表格索引解析）
+            reranker: Reranker实例（可选，用于结果重排序）
+            query_rewriter: QueryRewriter实例（可选，用于查询重写）
         """
         self.retriever = retriever
         self.synthesizer = synthesizer
         self.llm = llm
         self.pre_retrieval = pre_retrieval
         self.markdown_base_path = Path(markdown_base_path) if markdown_base_path else None
+        self.reranker = reranker
+        self.query_rewriter = query_rewriter
 
         # 存储最近检索的结果（供answer工具使用）
         self._last_retrieved_nodes: List[NodeWithScore] = []
@@ -147,6 +153,117 @@ class RAGTools:
             fn=hyde_search,
             name="hyde_search",
             description="生成假设文档进行检索，适合问题表述不清晰的情况。"
+        )
+
+    def create_rerank_tool(self) -> FunctionTool:
+        """创建结果重排序工具"""
+        def rerank_results(query: str, top_n: int = 5) -> str:
+            """对最近检索的结果进行重排序，提高相关性
+
+            Args:
+                query: 原查询字符串（用于相关性计算）
+                top_n: 重排序后返回的结果数量
+
+            Returns:
+                重排序后的格式化结果
+            """
+            if not self._last_retrieved_nodes:
+                return "错误：没有可重排序的结果，请先使用检索工具"
+            if not self.reranker:
+                return "错误：Reranker未配置，无法进行重排序"
+
+            reranked = self.reranker.rerank(query, self._last_retrieved_nodes, top_n=top_n)
+            self._last_retrieved_nodes = reranked
+            return self._format_nodes(reranked)
+
+        return FunctionTool.from_defaults(
+            fn=rerank_results,
+            name="rerank_results",
+            description="对检索结果进行重排序优化。适合检索结果质量不满意时使用，能显著提升结果相关性。必须先使用检索工具获取结果。"
+        )
+
+    def create_filter_tool(self) -> FunctionTool:
+        """创建元数据过滤工具"""
+        def filter_results(
+            source_file: str = "",
+            min_score: float = 0.0,
+            max_score: float = 1.0,
+            top_k: int = 10
+        ) -> str:
+            """按元数据过滤检索结果
+
+            Args:
+                source_file: 来源文件名（部分匹配）
+                min_score: 最小相关度分数（默认0）
+                max_score: 最大相关度分数（默认1）
+                top_k: 返回结果数量上限
+
+            Returns:
+                过滤后的格式化结果
+            """
+            if not self._last_retrieved_nodes:
+                return "错误：没有可过滤的结果，请先使用检索工具"
+
+            filtered = []
+            for n in self._last_retrieved_nodes:
+                # Score filter
+                if n.score < min_score or n.score > max_score:
+                    continue
+                # Source file filter
+                if source_file:
+                    src = n.node.metadata.get('source_file', '') or n.node.metadata.get('source_path', '')
+                    if source_file.lower() not in src.lower():
+                        continue
+                filtered.append(n)
+
+            if not filtered:
+                return "过滤后无结果，请调整过滤条件"
+            return self._format_nodes(filtered[:top_k])
+
+        return FunctionTool.from_defaults(
+            fn=filter_results,
+            name="filter_results",
+            description="按来源文件或相关度分数过滤检索结果。适合缩小结果范围或聚焦特定文档。必须先使用检索工具获取结果。"
+        )
+
+    def create_query_rewrite_tool(self) -> FunctionTool:
+        """创建查询重写工具"""
+        def rewrite_query(query: str) -> str:
+            """重写查询以提高检索效果
+
+            Args:
+                query: 原始查询字符串
+
+            Returns:
+                重写后的查询字符串和说明
+            """
+            if not self.query_rewriter:
+                # 如果没有配置 QueryRewriter，使用内置LLM进行简单重写
+                prompt = f"""请将以下查询重写，使其更适合在技术文档库中检索相关信息。
+
+要求：
+1. 保持原问题的核心意图
+2. 使用更具体、更清晰的关键词
+3. 如果问题模糊，添加可能的技术术语
+4. 保持查询简洁，适合关键词匹配
+
+原问题: {query}
+
+重写后的查询:"""
+                try:
+                    response = self.llm.complete(prompt)
+                    rewritten = response.text.strip()
+                    return f"原查询: {query}\n重写后: {rewritten}\n建议使用重写后的查询进行检索"
+                except Exception as e:
+                    return f"原查询: {query}\n错误：查询重写失败 - {str(e)}"
+
+            rewritten = self.query_rewriter.rewrite(query)
+            return f"原查询: {query}\n重写后: {rewritten}\n建议使用重写后的查询进行检索"
+
+        return FunctionTool.from_defaults(
+            fn=rewrite_query,
+            name="rewrite_query",
+            description="重写模糊或不清晰的查询，使其更适合文档检索。适合用户表述不精确的情况。"
         )
 
     def create_final_answer_tool(self) -> FunctionTool:
@@ -314,6 +431,13 @@ class RAGTools:
             self.create_final_answer_tool(),
             self.create_retrieve_with_context_tool(),
         ]
+        # 添加查询重写工具（始终可用，因为内置LLM可fallback）
+        tools.append(self.create_query_rewrite_tool())
+        # 添加重排序工具（仅当配置了 reranker）
+        if self.reranker:
+            tools.append(self.create_rerank_tool())
+        # 添加过滤工具（始终可用）
+        tools.append(self.create_filter_tool())
         # 添加表格查询工具（仅当配置了 markdown_base_path）
         if self.markdown_base_path:
             tools.append(self.create_table_lookup_tool())

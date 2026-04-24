@@ -17,14 +17,17 @@ COMPLEXITY_ANALYSIS_PROMPT = """分析用户问题复杂度，制定最优检索
 
 问题复杂度判断标准：
 - **简单**: 单概念查询、一步可完成、无歧义 → 直接用 retrieve_and_answer
-- **中等**: 需1-2步检索、可能需要评估结果质量、有明确范围 → vector_search → generate_answer
-- **复杂**: 多角度问题、涉及多个概念、需要多轮检索、可能涉及表格 → multi_query_search → table_lookup? → generate_answer
+- **中等**: 需1-2步检索、可能需要评估结果质量、有明确范围 → vector_search → rerank_results? → generate_answer
+- **复杂**: 多角度问题、涉及多个概念、需要多轮检索、可能涉及表格 → rewrite_query? → multi_query_search → filter_results? → table_lookup? → generate_answer
 
 可用工具及其参数：
 - vector_search(query, top_k=5): 向量相似度检索
 - keyword_search(query, top_k=5): BM25关键词检索
 - multi_query_search(query): 多变体检索扩大覆盖
 - hyde_search(query): 假设文档检索
+- rewrite_query(query): 重写查询使其更清晰，适合模糊问题
+- rerank_results(query, top_n=5): 对检索结果重排序，提高相关性（需先检索）
+- filter_results(source_file="", min_score=0, max_score=1, top_k=10): 按来源或分数过滤结果（需先检索）
 - generate_answer(question, mode="default", top_k=5): 基于检索结果生成回答，mode可选simple/default/professional/technical
 - retrieve_and_answer(question, mode="default", top_k=5): 检索+回答一步完成，mode可选simple/default/professional/technical
 - table_lookup(table_reference): 查看表格完整内容
@@ -46,7 +49,13 @@ REPLAN_PROMPT = """执行计划第{failed_step_index}步失败，请调整计划
 错误信息: {error_message}
 已执行步骤结果摘要: {context_summary}
 
-请生成新的执行计划（JSON格式），跳过或替换失败步骤。如果检索结果不足，可以尝试其他检索工具。"""
+可用的替代策略：
+1. 检索失败 → 尝试 rewrite_query 后重新检索
+2. 检索结果质量差 → 使用 rerank_results 重排序
+3. 结果过多/无关 → 使用 filter_results 过滤
+4. 特定检索工具失败 → 换用其他检索工具（vector_search/keyword_search/multi_query_search）
+
+请生成新的执行计划（JSON格式），跳过或替换失败步骤。"""
 
 
 MODIFY_PLAN_PROMPT = """根据用户反馈修改执行计划。

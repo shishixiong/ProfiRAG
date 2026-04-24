@@ -104,25 +104,43 @@ class RAGReActAgent:
 | 精确术语/命令 | keyword_search | BM25关键词匹配更精准 |
 | 语义描述/模糊问题 | vector_search | 语义相似度更灵活 |
 | 复杂/多角度问题 | multi_query_search | 多变体扩大覆盖 |
-| 表述不清的问题 | hyde_search | 假设文档补充语义 |
+| 表述不清的问题 | hyde_search 或 rewrite_query | 重写查询或假设文档补充语义 |
 | 代码/参数问题 | keyword_search | 关键词匹配代码片段 |
+
+## 结果优化工具
+
+检索后可使用以下工具优化结果：
+
+| 工具 | 适用场景 | 说明 |
+|-----|---------|------|
+| rerank_results | 检索结果相关性低 | 对结果重排序，提高相关性（需先检索） |
+| filter_results | 结果过多/需聚焦特定文档 | 按来源文件或分数过滤（需先检索） |
+
+**使用时机**：
+- 检索后发现结果相关度分数普遍较低（<0.5）→ 使用 rerank_results(query, top_n=5)
+- 用户指定了特定文档或需要高置信度结果 → 使用 filter_results(source_file="xxx.md", min_score=0.3)
+- 过滤后结果太少 → 可重新检索或放宽过滤条件
 
 ## 工作流程
 
 1. **分析问题**：判断问题类型（概念、操作、参数、代码等）
-2. **选择策略**：
+2. **预处理（可选）**：
+   - 问题表述模糊 → 先用 rewrite_query 重写查询
+3. **选择策略**：
    - 简单问题 → 直接用 retrieve_and_answer
    - 复杂问题 → 先用检索工具，评估结果，再用 generate_answer
-3. **执行检索**：调用工具获取文档片段
-4. **评估结果**：
+4. **执行检索**：调用工具获取文档片段
+5. **评估结果**：
    - 相关度分数 > 0.5：结果较好
+   - 相关度分数偏低：使用 rerank_results 优化
+   - 结果过多或需聚焦：使用 filter_results 过滤
    - 结果包含表格索引：使用 table_lookup 获取完整表格
    - 结果与问题不相关：换用其他工具重新检索
-5. **判断终止**：
+6. **判断终止**：
    - 已获得足够信息 → 生成回答
    - 尝试3种工具仍无结果 → 说明信息不足
    - 已达 max_iterations → 说明超时
-6. **生成回答**：选择合适的回答模式生成最终回答
+7. **生成回答**：选择合适的回答模式生成最终回答
 
 ## 表格处理
 
@@ -134,6 +152,9 @@ class RAGReActAgent:
 ## 失败处理
 
 当检索结果不足时：
+- **查询问题**：先用 rewrite_query 重写，再重新检索
+- **结果质量问题**：使用 rerank_results 重排序优化
+- **范围问题**：使用 filter_results 过滤无关结果
 - 换用其他检索工具（vector_search → keyword_search → multi_query_search）
 - 调整 top_k 参数（默认5，可尝试10）
 - 如果所有工具都无结果，如实说明"文档库中未找到相关信息"
@@ -152,7 +173,8 @@ class RAGReActAgent:
 - 禁止编造文档库中不存在的信息
 - 禁止跳过表格索引而不查看完整表格
 - 禁止在没有检索结果的情况下直接回答
-- 禁止过度迭代（超过5轮仍未终止）"""
+- 禁止过度迭代（超过5轮仍未终止）
+- 禁止在未检索的情况下使用 rerank_results 或 filter_results"""
 
     def query(self, question: str) -> Dict[str, Any]:
         """执行Agent问答
@@ -317,6 +339,8 @@ class AgentFactory:
         verbose: bool = True,
         markdown_base_path: Optional[str] = None,
         pre_retrieval: Any = None,
+        reranker: Any = None,
+        query_rewriter: Any = None,
     ) -> RAGReActAgent:
         """创建ReAct Agent
 
@@ -328,6 +352,8 @@ class AgentFactory:
             verbose: 是否显示详细日志
             markdown_base_path: Markdown文件目录路径（用于表格索引解析）
             pre_retrieval: PreRetrievalPipeline实例（可选）
+            reranker: Reranker实例（可选，用于结果重排序）
+            query_rewriter: QueryRewriter实例（可选，用于查询重写）
 
         Returns:
             RAGReActAgent实例
@@ -338,6 +364,8 @@ class AgentFactory:
             llm=llm,
             markdown_base_path=markdown_base_path,
             pre_retrieval=pre_retrieval,
+            reranker=reranker,
+            query_rewriter=query_rewriter,
         )
         return RAGReActAgent(
             tools=tools,
@@ -358,6 +386,8 @@ class AgentFactory:
         markdown_base_path: Optional[str] = None,
         pre_retrieval: Any = None,
         approval_callback: Optional[Any] = None,
+        reranker: Any = None,
+        query_rewriter: Any = None,
     ):
         """创建Plan-based Agent
 
@@ -372,6 +402,8 @@ class AgentFactory:
             markdown_base_path: Markdown文件目录路径（用于表格索引解析）
             pre_retrieval: PreRetrievalPipeline实例（可选）
             approval_callback: 计划批准回调函数（可选）
+            reranker: Reranker实例（可选，用于结果重排序）
+            query_rewriter: QueryRewriter实例（可选，用于查询重写）
 
         Returns:
             RAGPlanAgent实例
@@ -384,6 +416,8 @@ class AgentFactory:
             llm=llm,
             markdown_base_path=markdown_base_path,
             pre_retrieval=pre_retrieval,
+            reranker=reranker,
+            query_rewriter=query_rewriter,
         )
         return RAGPlanAgent(
             tools=tools,
