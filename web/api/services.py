@@ -480,7 +480,10 @@ class ChatService:
             return ChatService._format_agent_response(result)
         else:
             # Pipeline mode - default behavior
-            return pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
+            result = pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
+            # Add query field to match ChatResponse schema
+            result["query"] = query_str
+            return result
 
     @staticmethod
     def _format_agent_response(result: Dict) -> Dict:
