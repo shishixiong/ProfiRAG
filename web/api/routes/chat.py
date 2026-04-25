@@ -15,6 +15,7 @@ async def query(request: schemas.ChatRequest):
         result = services.ChatService.query(
             query_str=request.query,
             top_k=request.top_k,
+            mode=request.mode.value,  # Convert enum to string
             env_file=request.env_file,
         )
         return schemas.ChatResponse(**result)
