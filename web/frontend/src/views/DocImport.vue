@@ -51,6 +51,19 @@
           <label>.env 配置文件路径</label>
           <input v-model="config.env_file" placeholder=".env" />
         </div>
+
+        <div class="form-group">
+          <label>自定义元数据 (JSON格式)</label>
+          <textarea
+            v-model="config.metadata"
+            placeholder='{"category": "docs", "version": "1.0"}'
+            rows="3"
+            style="width: 100%; resize: vertical;"
+          ></textarea>
+          <p style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+            可选，导入的文档将携带这些元数据
+          </p>
+        </div>
       </div>
 
       <!-- Upload -->
@@ -152,12 +165,13 @@ const jobId = ref(null)
 const importResult = ref(null)
 
 const config = ref({
-  splitter_type: 'chinese',
+  splitter_type: 'markdown',
   chunk_size: 1024,
   chunk_overlap: 100,
   ast_language: 'python',
   index_mode: 'hybrid',
   env_file: '.env',
+  metadata: '',
 })
 
 const progressPercent = computed(() => {
@@ -200,7 +214,25 @@ async function startImport() {
 
   try {
     const fileIds = uploadedFiles.value.map(f => f.file_id)
-    const res = await importApi.start(fileIds, config.value)
+
+    // Parse metadata if provided
+    let metadata = {}
+    if (config.value.metadata && config.value.metadata.trim()) {
+      try {
+        metadata = JSON.parse(config.value.metadata)
+      } catch (e) {
+        alert('元数据格式错误，请输入有效的 JSON 格式')
+        importing.value = false
+        return
+      }
+    }
+
+    const configPayload = {
+      ...config.value,
+      metadata,
+    }
+
+    const res = await importApi.start(fileIds, configPayload)
 
     jobId.value = res.data.job_id
     progress.value = res.data

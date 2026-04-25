@@ -113,12 +113,13 @@ class SplitDownloadRequest(BaseModel):
 # Import Models
 class ImportConfig(BaseModel):
     """Configuration for document import."""
-    splitter_type: SplitterType = SplitterType.CHINESE
+    splitter_type: SplitterType = SplitterType.MARKDOWN
     chunk_size: int = Field(1024, ge=50, le=4000)
     chunk_overlap: int = Field(100, ge=0, le=500)
     ast_language: ASTLanguage = ASTLanguage.PYTHON
     index_mode: IndexMode = IndexMode.HYBRID
     env_file: str = Field(".env", description="Path to .env config file")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for imported documents")
 
 
 class ImportStartRequest(BaseModel):

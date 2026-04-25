@@ -326,12 +326,13 @@ class ImportService:
     @staticmethod
     def start_import(
         file_paths: List[str],
-        splitter_type: str = "chinese",
+        splitter_type: str = "markdown",
         chunk_size: int = 1024,
         chunk_overlap: int = 100,
         ast_language: str = "python",
         index_mode: str = "hybrid",
         env_file: str = ".env",
+        metadata: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """Start import process asynchronously."""
         job_id = generate_file_id()
@@ -350,7 +351,7 @@ class ImportService:
         # Start import in background thread
         thread = threading.Thread(
             target=ImportService._run_import,
-            args=(job_id, file_paths, splitter_type, chunk_size, chunk_overlap, ast_language, index_mode, env_file),
+            args=(job_id, file_paths, splitter_type, chunk_size, chunk_overlap, ast_language, index_mode, env_file, metadata or {}),
         )
         thread.daemon = True
         thread.start()
@@ -370,6 +371,7 @@ class ImportService:
         ast_language: str,
         index_mode: str,
         env_file: str,
+        metadata: Dict[str, Any],
     ):
         """Run import in background thread."""
         try:
@@ -394,6 +396,9 @@ class ImportService:
             all_documents = []
             for fp in file_paths:
                 docs = loader.load_file(fp)
+                # Apply custom metadata to each document
+                for doc in docs:
+                    doc.metadata.update(metadata)
                 all_documents.extend(docs)
                 ImportService.active_jobs[job_id]["documents_processed"] += 1
 

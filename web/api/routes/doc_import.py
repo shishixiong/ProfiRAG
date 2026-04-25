@@ -43,6 +43,7 @@ async def start_import(request: schemas.ImportStartRequest):
         ast_language=request.config.ast_language.value,
         index_mode=request.config.index_mode.value,
         env_file=request.config.env_file,
+        metadata=request.config.metadata,
     )
 
     return schemas.ImportProgress(
