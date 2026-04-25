@@ -83,3 +83,74 @@ class QueryEnrichmentResult(BaseModel):
     injected_context: bool = False
     reference_detected: bool = False
     context_source: str = "none"  # "summary" | "recent_turns" | "none"
+
+
+class ConversationManager:
+    """Stateful wrapper for multi-turn conversations with any Agent."""
+
+    def __init__(
+        self,
+        agent: Any,
+        llm: Any,
+        max_history_turns: int = 6,
+        keep_recent_turns: int = 2,
+        enable_auto_context: bool = True,
+        verbose: bool = False,
+    ):
+        """
+        Args:
+            agent: RAGReActAgent or RAGPlanAgent instance
+            llm: LLM instance for summarization and context decision
+            max_history_turns: Maximum turns before summarization triggers
+            keep_recent_turns: Number of recent turns kept verbatim
+            enable_auto_context: Enable LLM-based context decision
+            verbose: Print enrichment details
+        """
+        self.agent = agent
+        self.llm = llm
+        self.max_history_turns = max_history_turns
+        self.keep_recent_turns = keep_recent_turns
+        self.enable_auto_context = enable_auto_context
+        self.verbose = verbose
+
+        self.state = ConversationState(
+            session_id=str(uuid.uuid4())[:8],
+            created_at=datetime.now(),
+            last_activity=datetime.now(),
+        )
+
+    def reset(self) -> None:
+        """Clear conversation state for new session."""
+        self.state = ConversationState(
+            session_id=str(uuid.uuid4())[:8],
+            created_at=datetime.now(),
+            last_activity=datetime.now(),
+        )
+
+    def get_history(self) -> List[ConversationTurn]:
+        """Return full conversation history."""
+        return self.state.turns.copy()
+
+    def get_summary(self) -> str:
+        """Return current conversation summary."""
+        return self.state.summary
+
+    def export_state(self) -> Dict:
+        """Export state for debugging/testing."""
+        return {
+            "session_id": self.state.session_id,
+            "turns": [t.model_dump() for t in self.state.turns],
+            "summary": self.state.summary,
+            "created_at": self.state.created_at.isoformat(),
+            "last_activity": self.state.last_activity.isoformat(),
+        }
+
+    def import_state(self, state_dict: Dict) -> None:
+        """Import previous state for testing/debugging."""
+        self.state = ConversationState(
+            session_id=state_dict.get("session_id", str(uuid.uuid4())[:8]),
+            turns=[ConversationTurn(**t) for t in state_dict.get("turns", [])],
+            summary=state_dict.get("summary", ""),
+            created_at=datetime.fromisoformat(state_dict["created_at"]) if "created_at" in state_dict else datetime.now(),
+            last_activity=datetime.fromisoformat(state_dict["last_activity"]) if "last_activity" in state_dict else datetime.now(),
+        )
