@@ -53,15 +53,19 @@
         </div>
 
         <div class="form-group">
-          <label>自定义元数据 (JSON格式)</label>
-          <textarea
-            v-model="config.metadata"
-            placeholder='{"category": "docs", "version": "1.0"}'
-            rows="3"
-            style="width: 100%; resize: vertical;"
-          ></textarea>
-          <p style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
-            可选，导入的文档将携带这些元数据
+          <label>
+            自定义元数据
+            <button class="btn-add-meta" @click="addMetadataItem" type="button">+</button>
+          </label>
+          <div v-if="metadataItems.length > 0" class="metadata-list">
+            <div v-for="(item, index) in metadataItems" :key="index" class="metadata-item">
+              <input v-model="item.key" placeholder="键" class="meta-key" />
+              <input v-model="item.value" placeholder="值" class="meta-value" />
+              <button class="btn-remove-meta" @click="removeMetadataItem(index)" type="button">×</button>
+            </div>
+          </div>
+          <p v-if="metadataItems.length === 0" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+            点击 + 添加元数据条目（可选）
           </p>
         </div>
       </div>
@@ -171,8 +175,27 @@ const config = ref({
   ast_language: 'python',
   index_mode: 'hybrid',
   env_file: '.env',
-  metadata: '',
 })
+
+const metadataItems = ref([])
+
+function addMetadataItem() {
+  metadataItems.value.push({ key: '', value: '' })
+}
+
+function removeMetadataItem(index) {
+  metadataItems.value.splice(index, 1)
+}
+
+function buildMetadata() {
+  const metadata = {}
+  for (const item of metadataItems.value) {
+    if (item.key && item.key.trim()) {
+      metadata[item.key.trim()] = item.value || ''
+    }
+  }
+  return metadata
+}
 
 const progressPercent = computed(() => {
   if (!progress.value.documents_total) return 0
@@ -215,17 +238,8 @@ async function startImport() {
   try {
     const fileIds = uploadedFiles.value.map(f => f.file_id)
 
-    // Parse metadata if provided
-    let metadata = {}
-    if (config.value.metadata && config.value.metadata.trim()) {
-      try {
-        metadata = JSON.parse(config.value.metadata)
-      } catch (e) {
-        alert('元数据格式错误，请输入有效的 JSON 格式')
-        importing.value = false
-        return
-      }
-    }
+    // Build metadata from KV items
+    const metadata = buildMetadata()
 
     const configPayload = {
       ...config.value,
@@ -287,5 +301,60 @@ async function pollProgress() {
 .files-list li {
   padding: 4px 0;
   color: var(--text-secondary);
+}
+
+.btn-add-meta {
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  cursor: pointer;
+  margin-left: 8px;
+  line-height: 1;
+}
+
+.btn-add-meta:hover {
+  opacity: 0.9;
+}
+
+.metadata-list {
+  margin-top: 8px;
+}
+
+.metadata-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.meta-key {
+  flex: 1;
+  min-width: 80px;
+}
+
+.meta-value {
+  flex: 2;
+  min-width: 120px;
+}
+
+.btn-remove-meta {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.btn-remove-meta:hover {
+  background: #fee;
+  color: #c00;
 }
 </style>
