@@ -18,7 +18,7 @@ EXPLICIT_PATTERNS = [
     r"关于(这|那)(个|些)",
     r"进一步",
     r"还有(什么|哪些)",
-    r"(更多|更详细)(的|地)",
+    r"(更多|更详细)(的|地)?",
 ]
 
 # Prompts
@@ -154,3 +154,17 @@ class ConversationManager:
             created_at=datetime.fromisoformat(state_dict["created_at"]) if "created_at" in state_dict else datetime.now(),
             last_activity=datetime.fromisoformat(state_dict["last_activity"]) if "last_activity" in state_dict else datetime.now(),
         )
+
+    def _detect_explicit_reference(self, query: str) -> bool:
+        """Detect explicit reference patterns in query.
+
+        Args:
+            query: User query string
+
+        Returns:
+            True if explicit reference pattern found
+        """
+        for pattern in EXPLICIT_PATTERNS:
+            if re.search(pattern, query):
+                return True
+        return False
