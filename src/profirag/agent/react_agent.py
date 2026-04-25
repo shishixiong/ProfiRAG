@@ -428,3 +428,57 @@ class AgentFactory:
             max_replan_attempts=max_replan_attempts,
             approval_callback=approval_callback,
         )
+
+    @staticmethod
+    def create_conversation_agent(
+        agent_type: str,  # "react" or "plan"
+        retriever: Any,
+        synthesizer: Any,
+        llm: Any,
+        max_history_turns: int = 6,
+        keep_recent_turns: int = 2,
+        enable_auto_context: bool = True,
+        verbose: bool = False,
+        **kwargs
+    ):
+        """Create ConversationManager wrapping specified agent type.
+
+        Args:
+            agent_type: "react" or "plan"
+            retriever: Retriever instance
+            synthesizer: Synthesizer instance
+            llm: LLM instance
+            max_history_turns: Max turns before summarization
+            keep_recent_turns: Turns kept verbatim
+            enable_auto_context: Enable LLM context decision
+            verbose: Print enrichment details
+            **kwargs: Additional args for underlying agent
+
+        Returns:
+            ConversationManager instance
+        """
+        from .conversation import ConversationManager
+
+        if agent_type == "plan":
+            agent = AgentFactory.create_plan_agent(
+                retriever=retriever,
+                synthesizer=synthesizer,
+                llm=llm,
+                **kwargs
+            )
+        else:
+            agent = AgentFactory.create_react_agent(
+                retriever=retriever,
+                synthesizer=synthesizer,
+                llm=llm,
+                **kwargs
+            )
+
+        return ConversationManager(
+            agent=agent,
+            llm=llm,
+            max_history_turns=max_history_turns,
+            keep_recent_turns=keep_recent_turns,
+            enable_auto_context=enable_auto_context,
+            verbose=verbose,
+        )
