@@ -344,3 +344,56 @@ def test_should_inject_context_disabled():
     # Should return False when disabled
     needs = manager._should_inject_context_llm("任何问题")
     assert needs is False
+
+
+def test_summarize_history():
+    """Test history summarization with LLM."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = "用户询问了Qdrant配置、混合检索原理。讨论了向量数据库、BM25等概念。"
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+
+    turns = [
+        ConversationTurn(query="Qdrant如何配置?", response="...", timestamp=datetime.now(), mode="react"),
+        ConversationTurn(query="混合检索是什么?", response="...", timestamp=datetime.now(), mode="react"),
+        ConversationTurn(query="BM25怎么用?", response="...", timestamp=datetime.now(), mode="react"),
+    ]
+
+    summary = manager._summarize_history(turns)
+    assert "Qdrant" in summary or "配置" in summary
+
+
+def test_summarize_history_empty():
+    """Test summarization with empty turns."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+    summary = manager._summarize_history([])
+    assert summary == ""
+
+
+def test_trigger_summarization():
+    """Test triggering summarization after threshold."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = "用户询问了多个问题。"
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, max_history_turns=3, keep_recent_turns=1)
+
+    # Add turns exceeding threshold
+    for i in range(5):
+        manager.state.turns.append(ConversationTurn(
+            query=f"query{i}",
+            response=f"response{i}",
+            timestamp=datetime.now(),
+            mode="react",
+        ))
+
+    manager._maybe_summarize()
+
+    # Should have summary
+    assert manager.state.summary != ""
+    # Should keep recent turns
+    assert len(manager.state.turns) == manager.keep_recent_turns

@@ -242,3 +242,54 @@ class ConversationManager:
             pass  # Fallback to False on any error
 
         return False
+
+    def _summarize_history(self, turns: List[ConversationTurn]) -> str:
+        """Generate summary from conversation turns.
+
+        Args:
+            turns: List of turns to summarize
+
+        Returns:
+            Summary string
+        """
+        if not turns:
+            return ""
+
+        # Build turns text
+        turns_text = []
+        for turn in turns:
+            turns_text.append(f"问: {turn.query}")
+            turns_text.append(f"答: {turn.response[:100]}")
+
+        prompt = SUMMARIZATION_PROMPT.format(turns_text="\n".join(turns_text))
+
+        try:
+            response = self.llm.complete(prompt)
+            return response.text.strip()
+        except Exception:
+            # Fallback: simple concatenation of queries
+            queries = [t.query for t in turns]
+            return f"用户询问了: {', '.join(queries[:5])}"
+
+    def _maybe_summarize(self) -> None:
+        """Trigger summarization if threshold exceeded."""
+        if not self.state.needs_summarization(self.max_history_turns):
+            return
+
+        # Turns to summarize (all except recent)
+        turns_to_summarize = self.state.turns[:-self.keep_recent_turns]
+        recent_turns = self.state.turns[-self.keep_recent_turns:]
+
+        # Generate new summary (combine with existing)
+        new_summary = self._summarize_history(turns_to_summarize)
+        if self.state.summary:
+            # Combine summaries
+            self.state.summary = f"{self.state.summary}\n{new_summary}"
+        else:
+            self.state.summary = new_summary
+
+        # Keep only recent turns
+        self.state.turns = recent_turns
+
+        if self.verbose:
+            print(f"📋 Summarized {len(turns_to_summarize)} turns into summary")
