@@ -84,7 +84,7 @@ export default api
 
 // Chat endpoints
 export const chatApi = {
-  query: async (query, topK = 10) => {
-    return api.post('/chat/query', { query, top_k: topK })
+  query: async (query, topK = 10, mode = 'pipeline') => {
+    return api.post('/chat/query', { query, top_k: topK, mode })
   },
 }
