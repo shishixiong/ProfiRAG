@@ -32,6 +32,13 @@ class OutputFormat(str, Enum):
     JSONL = "jsonl"
 
 
+class ChatMode(str, Enum):
+    """Query mode for RAG chat."""
+    PIPELINE = "pipeline"
+    AGENT = "agent"
+    PLAN = "plan"
+
+
 # PDF Conversion Models
 class PdfConvertRequest(BaseModel):
     """Request for PDF to Markdown conversion."""
@@ -156,6 +163,7 @@ class ChatRequest(BaseModel):
     """Request for RAG chat query."""
     query: str = Field(..., description="User question")
     top_k: int = Field(10, ge=1, le=50, description="Number of results to retrieve")
+    mode: ChatMode = Field(ChatMode.PIPELINE, description="Query mode")
     env_file: str = Field(".env", description="Path to .env config file")
 
 
