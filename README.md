@@ -53,6 +53,12 @@ Advanced RAG (Retrieval-Augmented Generation) framework built with LlamaIndex, s
 - Chinese text splitter
 - Chinese prompt templates (4 modes: simple/default/professional/technical)
 
+### Web Service
+
+- **Backend**: FastAPI with PDF conversion, document splitting, import, and chat endpoints
+- **Frontend**: Vue 3 SPA with tabbed interface for all operations
+- **Chat Modes**: Pipeline/Agent/Plan mode selector in web UI
+
 ## Installation
 
 ```bash
@@ -149,6 +155,27 @@ uv run python scripts/ingest_documents.py --documents ./documents
 uv run python scripts/ingest_documents.py --file ./documents/example.pdf
 ```
 
+### Web Service
+
+Start the web interface for interactive document processing and chat:
+
+```bash
+# Start backend (from project root)
+cd web/api && python main.py
+
+# Start frontend dev server
+cd web/frontend && npm install && npm run dev
+```
+
+Access at http://localhost:5173. Features:
+- **PDF Convert**: Upload PDF → Markdown conversion with table/image extraction
+- **Doc Splitter**: Preview document chunking with multiple splitter types
+- **Doc Import**: Import documents to vector store with progress tracking
+- **Chat**: Knowledge Q&A with three modes:
+  - **直接问答 (Pipeline)**: Fast retrieval-based answers
+  - **Agent**: Intelligent tool selection for complex queries
+  - **Plan**: Structured execution with auto-approved plans
+
 ## Project Structure
 
 ```
@@ -168,6 +195,17 @@ ProfiRAG/
 │   ├── embedding/               # Custom OpenAI embedding wrapper
 │   ├── storage/                 # Storage abstraction (Qdrant, PG, Local)
 │   └── evaluation/              # Retrieval, response, chunking, dataset eval
+├── web/                         # Web service
+│   ├── api/                     # FastAPI backend
+│   │   ├── main.py              # API entry point
+│   │   ├── routes/              # PDF, split, import, chat endpoints
+│   │   ├── services.py          # Business logic wrappers
+│   │   └── schemas.py           # Pydantic request/response models
+│   └── frontend/                # Vue 3 frontend
+│   │   ├── src/views/           # PdfConvert, DocSplitter, DocImport, Chat
+│   │   ├── src/components/      # ModeSelector, shared components
+│   │   └── src/api/             # Axios API client
+│   │   └── src/App.vue          # Main layout with tab navigation
 └── scripts/                     # Utility scripts (PDF conversion, ingestion)
 ```
 

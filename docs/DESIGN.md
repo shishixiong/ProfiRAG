@@ -212,3 +212,91 @@ Query → PlanGenerator.generate_plan()        [LLM 分析复杂度]
 3. **新 Reranker 提供商**：实现 `BaseReranker`，添加到 `Reranker._create_impl()`
 4. **新 Agent 模式**：实现新的 Agent 类，添加到 `AgentFactory` 和 `RAGPipeline.query_with_agent()`
 5. **新响应模式**：在 `PromptTemplates.MODE_TEMPLATES_ZH` 中添加提示词模板
+
+## Web 服务
+
+### 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Vue 3 前端                           │
+│  ┌────────────┬────────────┬────────────┬────────────┐ │
+│  │ PDF Convert │ Doc Splitter │ Doc Import │   Chat    │ │
+│  └────────────┴────────────┴────────────┴────────────┘ │
+│                         ↓ Axios API                     │
+├─────────────────────────────────────────────────────────┤
+│                    FastAPI 后端                          │
+│  ┌────────────┬────────────┬────────────┬────────────┐ │
+│  │ /api/pdf   │ /api/split │ /api/import│ /api/chat  │ │
+│  └────────────┴────────────┴────────────┴────────────┘ │
+│                         ↓ Services                      │
+├─────────────────────────────────────────────────────────┤
+│                   业务逻辑层                             │
+│  PdfService │ SplitService │ ImportService │ ChatService│
+│                         ↓                               │
+├─────────────────────────────────────────────────────────┤
+│                   ProfiRAG Core                          │
+│  DocumentLoader │ TextSplitter │ RAGPipeline │ Agents   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 前端组件 (`web/frontend/src/`)
+
+**视图:**
+- `PdfConvert.vue` — PDF 上传、转换预览、Markdown 下载
+- `DocSplitter.vue` — 分割器预览（句子/Token/语义/中文/AST/Markdown）
+- `DocImport.vue` — 批量导入、进度追踪、统计展示
+- `ChatView.vue` — 知识问答，支持表格和图片渲染
+
+**组件:**
+- `ModeSelector.vue` — 模式选择器（Pipeline/Agent/Plan）
+
+### 后端路由 (`web/api/routes/`)
+
+**PDF (`/api/pdf`):**
+- `POST /upload` — 上传 PDF 文件
+- `POST /convert/{file_id}` — 转换为 Markdown
+- `GET /preview/{file_id}` — 预览转换结果
+- `GET /download/{file_id}` — 下载 Markdown
+
+**分割 (`/api/split`):**
+- `POST /upload` — 上传文档
+- `POST /preview` — 预览分割结果
+
+**导入 (`/api/import`):**
+- `POST /upload` — 上传多个文件
+- `POST /start` — 开始导入任务
+- `GET /progress/{job_id}` — 获取进度
+
+**聊天 (`/api/chat`):**
+- `POST /query` — RAG 查询，支持三种模式
+
+### Chat 模式选择
+
+**请求:**
+```json
+{
+  "query": "用户问题",
+  "top_k": 10,
+  "mode": "pipeline",  // pipeline, agent, plan
+  "env_file": ".env"
+}
+```
+
+**模式路由:**
+| 模式 | 后端处理 | 特点 |
+|------|----------|------|
+| `pipeline` | `RAGPipeline.query_with_images()` | 快速检索+生成，支持图片 |
+| `agent` | `RAGPipeline.query_with_agent(mode="agent")` | 动态工具选择，多轮检索 |
+| `plan` | `RAGPipeline.query_with_agent(mode="plan", auto_approve=True)` | 结构化执行，自动审批 |
+
+**响应格式统一:**
+```json
+{
+  "query": "原始问题",
+  "response": "生成的回答",
+  "source_nodes": [...],
+  "images": [...],
+  "metadata": {...}
+}
+```
