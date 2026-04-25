@@ -450,9 +450,20 @@ class ChatService:
     def query(
         query_str: str,
         top_k: int = 10,
+        mode: str = "pipeline",
         env_file: str = ".env",
     ) -> Dict[str, Any]:
-        """Execute RAG query and return response with images."""
+        """Execute RAG query and return response with images.
+
+        Args:
+            query_str: User query string
+            top_k: Number of results to retrieve
+            mode: Query mode (pipeline, agent, plan)
+            env_file: Path to environment config file
+
+        Returns:
+            Dictionary with response, sources, and images
+        """
         # Load configuration
         config_path = PROJECT_ROOT / env_file
         config = load_config(str(config_path))
@@ -460,33 +471,57 @@ class ChatService:
         # Initialize pipeline
         pipeline = RAGPipeline(config)
 
-        # Execute query with images
-        result = pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
+        # Route based on mode
+        if mode == "plan":
+            result = pipeline.query_with_agent(query_str, mode="plan", auto_approve=True)
+            return ChatService._format_agent_response(result)
+        elif mode == "agent":
+            result = pipeline.query_with_agent(query_str, mode="agent")
+            return ChatService._format_agent_response(result)
+        else:
+            # Pipeline mode - default behavior
+            return pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
 
-        # Format source nodes - sources is a list, not a dict
-        source_nodes = []
-        for source in result.get("sources", []):
-            source_nodes.append({
-                "node_id": source.get("node_id", ""),
-                "text": source.get("text", "")[:300] if len(source.get("text", "")) > 300 else source.get("text", ""),
-                "score": source.get("score", 0.0),
-                "source_file": source.get("metadata", {}).get("source_file"),
-                "header_path": source.get("metadata", {}).get("header_path"),
-            })
+    @staticmethod
+    def _format_agent_response(result: Dict) -> Dict:
+        """Normalize agent response to ChatResponse format.
 
-        # Format images
-        images = []
-        for img in result.get("images", []):
-            images.append({
-                "path": img.get("path", ""),
-                "description": img.get("description", ""),
-                "node_id": img.get("source_chunk", ""),
-            })
+        Args:
+            result: Agent query result dictionary
+
+        Returns:
+            Normalized dictionary with response, source_nodes, images, metadata
+        """
+        # Extract response text
+        response = result.get("response", "")
+
+        # Extract sources from agent result
+        sources = []
+        if "sources" in result:
+            for src in result["sources"]:
+                sources.append({
+                    "node_id": src.get("node_id", ""),
+                    "text": src.get("text", "")[:300] if len(src.get("text", "")) > 300 else src.get("text", ""),
+                    "score": src.get("score", 0.0),
+                    "source_file": src.get("source_file"),
+                    "header_path": src.get("header_path"),
+                })
+
+        # Also check source_nodes key (alternative format)
+        if "source_nodes" in result and not sources:
+            for src in result["source_nodes"]:
+                sources.append({
+                    "node_id": src.get("node_id", ""),
+                    "text": src.get("text", "")[:300] if len(src.get("text", "")) > 300 else src.get("text", ""),
+                    "score": src.get("score", 0.0),
+                    "source_file": src.get("source_file"),
+                    "header_path": src.get("header_path"),
+                })
 
         return {
-            "query": query_str,
-            "response": result.get("response", ""),
-            "source_nodes": source_nodes,
-            "images": images,
-            "metadata": result.get("metadata", {}),
+            "query": result.get("question", result.get("query", "")),
+            "response": response,
+            "source_nodes": sources,
+            "images": [],  # Agent mode doesn't return images currently
+            "metadata": {"mode": result.get("mode", "agent")},
         }
