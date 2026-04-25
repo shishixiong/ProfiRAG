@@ -39,6 +39,20 @@ class ChatMode(str, Enum):
     PLAN = "plan"
 
 
+class ConversationRequest(BaseModel):
+    """Conversation context in request."""
+    session_id: Optional[str] = Field(None, description="Session ID to continue")
+    continue_session: bool = Field(False, description="Continue existing conversation")
+
+
+class ConversationInfo(BaseModel):
+    """Conversation info in response."""
+    session_id: str
+    turn_count: int
+    injected_context: bool = False
+    reference_detected: bool = False
+
+
 # PDF Conversion Models
 class PdfConvertRequest(BaseModel):
     """Request for PDF to Markdown conversion."""
@@ -166,6 +180,7 @@ class ChatRequest(BaseModel):
     top_k: int = Field(10, ge=1, le=50, description="Number of results to retrieve")
     mode: ChatMode = Field(ChatMode.PIPELINE, description="Query mode")
     env_file: str = Field(".env", description="Path to .env config file")
+    conversation: Optional[ConversationRequest] = Field(None, description="Conversation context")
 
 
 class SourceNode(BaseModel):
@@ -191,3 +206,4 @@ class ChatResponse(BaseModel):
     source_nodes: List[SourceNode] = Field(default_factory=list)
     images: List[ImageInfo] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    conversation: Optional[ConversationInfo] = Field(None, description="Conversation info")
