@@ -1,6 +1,6 @@
 """Agent module for RAG system
 
-Provides ReAct Agent and Plan Agent for intelligent question answering.
+Provides ReAct Agent, Plan Agent, and ConversationManager for intelligent question answering.
 """
 
 from .tools import RAGTools, ToolResultFormatter
@@ -15,6 +15,12 @@ from .plan_agent import (
     PlanApproval,
     PlanComplexity,
     StepStatus,
+)
+from .conversation import (
+    ConversationManager,
+    ConversationTurn,
+    ConversationState,
+    QueryEnrichmentResult,
 )
 
 __all__ = [
@@ -31,4 +37,8 @@ __all__ = [
     "PlanApproval",
     "PlanComplexity",
     "StepStatus",
+    "ConversationManager",
+    "ConversationTurn",
+    "ConversationState",
+    "QueryEnrichmentResult",
 ]
