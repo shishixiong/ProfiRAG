@@ -286,3 +286,61 @@ def test_enrich_query_no_context():
         use_recent_turns=False,
     )
     assert result == "什么是向量数据库?"
+
+
+def test_should_inject_context_with_llm_needs():
+    """Test LLM decides context needed."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = '{"needs_context": true, "reason": "问题涉及之前讨论的概念"}'
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, enable_auto_context=True)
+    manager.state.summary = "讨论了Qdrant配置"
+    manager.state.turns.append(ConversationTurn(
+        query="Qdrant如何配置?",
+        response="Qdrant配置需要...",
+        timestamp=datetime.now(),
+        mode="react",
+    ))
+
+    needs = manager._should_inject_context_llm("它的主要参数是什么?")
+    assert needs is True
+
+
+def test_should_inject_context_with_llm_not_needed():
+    """Test LLM decides context not needed."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = '{"needs_context": false, "reason": "新问题独立"}'
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, enable_auto_context=True)
+    manager.state.summary = "讨论了Qdrant配置"
+
+    needs = manager._should_inject_context_llm("什么是PostgreSQL?")
+    assert needs is False
+
+
+def test_should_inject_context_llm_fallback():
+    """Test fallback when LLM fails."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.side_effect = Exception("LLM error")
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, enable_auto_context=True)
+    manager.state.summary = "讨论了Qdrant"
+
+    # Should fallback to False on error
+    needs = manager._should_inject_context_llm("新问题")
+    assert needs is False
+
+
+def test_should_inject_context_disabled():
+    """Test auto context disabled."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, enable_auto_context=False)
+
+    # Should return False when disabled
+    needs = manager._should_inject_context_llm("任何问题")
+    assert needs is False

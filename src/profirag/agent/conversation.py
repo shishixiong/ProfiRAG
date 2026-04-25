@@ -201,3 +201,44 @@ class ConversationManager:
             return f"【上下文】\n{context_str}\n\n用户问题：{query}"
         else:
             return f"【相关背景】\n{context_str}\n\n用户问题：{query}"
+
+    def _should_inject_context_llm(self, query: str) -> bool:
+        """Use LLM to decide if context should be injected.
+
+        Args:
+            query: User query
+
+        Returns:
+            True if context should be injected
+        """
+        if not self.enable_auto_context:
+            return False
+
+        if not self.state.summary and not self.state.turns:
+            return False
+
+        # Get last turn for context
+        last_turn_str = ""
+        if self.state.turns:
+            last = self.state.turns[-1]
+            last_turn_str = f"问: {last.query}\n答: {last.response[:100]}"
+
+        prompt = CONTEXT_DECISION_PROMPT.format(
+            summary=self.state.summary or "无",
+            last_turn=last_turn_str or "无",
+            query=query,
+        )
+
+        try:
+            response = self.llm.complete(prompt)
+            # Parse JSON response
+            text = response.text.strip()
+            # Find JSON in response
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if json_match:
+                data = json.loads(json_match.group())
+                return data.get("needs_context", False)
+        except Exception:
+            pass  # Fallback to False on any error
+
+        return False
