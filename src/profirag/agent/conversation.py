@@ -168,3 +168,36 @@ class ConversationManager:
             if re.search(pattern, query):
                 return True
         return False
+
+    def _enrich_query(self, query: str, use_recent_turns: bool = False) -> str:
+        """Enrich query with conversation context.
+
+        Args:
+            query: Original user query
+            use_recent_turns: Include recent turns in context
+
+        Returns:
+            Enriched query string
+        """
+        # Build context string
+        context_parts = []
+
+        if self.state.summary:
+            context_parts.append(f"摘要: {self.state.summary}")
+
+        if use_recent_turns and self.state.turns:
+            recent = self.state.turns[-self.keep_recent_turns:]
+            for turn in recent:
+                context_parts.append(f"问: {turn.query}")
+                context_parts.append(f"答: {turn.response[:200]}")
+
+        if not context_parts:
+            return query  # No enrichment
+
+        context_str = "\n".join(context_parts)
+
+        # Choose enrichment format
+        if use_recent_turns:
+            return f"【上下文】\n{context_str}\n\n用户问题：{query}"
+        else:
+            return f"【相关背景】\n{context_str}\n\n用户问题：{query}"

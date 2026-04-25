@@ -236,3 +236,53 @@ def test_detect_no_explicit_reference():
     assert manager._detect_explicit_reference("什么是Qdrant？") is False
     assert manager._detect_explicit_reference("如何配置向量数据库") is False
     assert manager._detect_explicit_reference("介绍一下RAG系统") is False
+
+
+def test_enrich_query_with_recent_turns():
+    """Test enrichment with recent turns and summary."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+    manager.state.summary = "讨论了向量数据库配置"
+    manager.state.turns.append(ConversationTurn(
+        query="什么是Qdrant?",
+        response="Qdrant是一个向量数据库",
+        timestamp=datetime.now(),
+        mode="react",
+    ))
+
+    result = manager._enrich_query(
+        query="基于上面的回答，如何配置?",
+        use_recent_turns=True,
+    )
+    assert "【上下文】" in result
+    assert "用户问题：基于上面的回答，如何配置?" in result
+
+
+def test_enrich_query_with_summary_only():
+    """Test enrichment with summary only."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+    manager.state.summary = "讨论了向量数据库配置"
+
+    result = manager._enrich_query(
+        query="继续说明",
+        use_recent_turns=False,
+    )
+    assert "【相关背景】" in result
+    assert "讨论了向量数据库配置" in result
+    assert "用户问题：继续说明" in result
+
+
+def test_enrich_query_no_context():
+    """Test no enrichment when context empty."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+
+    result = manager._enrich_query(
+        query="什么是向量数据库?",
+        use_recent_turns=False,
+    )
+    assert result == "什么是向量数据库?"
