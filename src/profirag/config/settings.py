@@ -184,6 +184,13 @@ class PlanAgentConfig(BaseModel):
     auto_approve_simple: bool = True    # 简单问题自动批准
 
 
+class ConversationConfig(BaseModel):
+    """ConversationManager configuration."""
+    max_history_turns: int = 6      # Turns before summarization
+    keep_recent_turns: int = 2      # Turns kept verbatim after summarization
+    auto_context: bool = True       # Enable LLM-based context decision
+
+
 class AgentConfig(BaseModel):
     """Agent configuration for ReAct-based question answering"""
     enabled: bool = False  # 默认关闭，使用Pipeline模式
@@ -193,6 +200,8 @@ class AgentConfig(BaseModel):
     markdown_base_path: Optional[str] = None  # Markdown文件目录路径（用于表格索引解析）
     # PlanAgent 配置
     plan_config: PlanAgentConfig = PlanAgentConfig()
+    # Conversation 配置
+    conversation_config: ConversationConfig = ConversationConfig()
     # 可用的工具列表
     tools: List[str] = [
         "vector_search",
