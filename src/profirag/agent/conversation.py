@@ -293,3 +293,86 @@ class ConversationManager:
 
         if self.verbose:
             print(f"📋 Summarized {len(turns_to_summarize)} turns into summary")
+
+    def query(self, question: str, **agent_kwargs) -> Dict[str, Any]:
+        """
+        Process query with conversation context.
+
+        Args:
+            question: User query
+            **agent_kwargs: Additional args for wrapped agent
+
+        Returns:
+            Result dict with response, enriched_query, conversation metadata
+        """
+        # Step 1: Check if first query (no history)
+        is_first_query = len(self.state.turns) == 0
+
+        # Step 2: Determine enrichment
+        enrichment_result = QueryEnrichmentResult(
+            original_query=question,
+            enriched_query=question,
+            injected_context=False,
+            reference_detected=False,
+            context_source="none",
+        )
+
+        if not is_first_query:
+            # Detect explicit reference
+            explicit_ref = self._detect_explicit_reference(question)
+
+            if explicit_ref:
+                # Enrich with recent turns + summary
+                enrichment_result.enriched_query = self._enrich_query(question, use_recent_turns=True)
+                enrichment_result.injected_context = True
+                enrichment_result.reference_detected = True
+                enrichment_result.context_source = "recent_turns"
+            elif self.enable_auto_context:
+                # Use LLM to decide
+                needs_context = self._should_inject_context_llm(question)
+                if needs_context:
+                    enrichment_result.enriched_query = self._enrich_query(question, use_recent_turns=False)
+                    enrichment_result.injected_context = True
+                    enrichment_result.context_source = "summary"
+
+        if self.verbose and enrichment_result.injected_context:
+            print(f"🔍 Enriched query: {enrichment_result.context_source}")
+
+        # Step 3: Pass to wrapped agent
+        agent_result = self.agent.query(enrichment_result.enriched_query, **agent_kwargs)
+
+        # Step 4: Create ConversationTurn
+        mode = agent_result.get("mode", "unknown")
+        tool_calls = agent_result.get("tool_calls", [])
+        turn = ConversationTurn(
+            query=question,  # Original query, not enriched
+            response=agent_result.get("response", ""),
+            timestamp=datetime.now(),
+            tool_calls=tool_calls,
+            mode=mode,
+        )
+        self.state.turns.append(turn)
+        self.state.last_activity = datetime.now()
+
+        # Step 5: Trigger summarization if needed
+        self._maybe_summarize()
+
+        # Step 6: Build result
+        result = {
+            "response": agent_result.get("response", ""),
+            "enriched_query": enrichment_result.enriched_query,
+            "original_query": enrichment_result.original_query,
+            "injected_context": enrichment_result.injected_context,
+            "reference_detected": enrichment_result.reference_detected,
+            "context_source": enrichment_result.context_source,
+            "conversation_turns": self.state.total_turns(),
+            "session_id": self.state.session_id,
+            "mode": mode,
+        }
+
+        # Include other agent result fields
+        for key in ["sources", "source_nodes", "plan", "execution_result", "metadata"]:
+            if key in agent_result:
+                result[key] = agent_result[key]
+
+        return result

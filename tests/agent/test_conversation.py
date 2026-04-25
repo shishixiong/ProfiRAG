@@ -397,3 +397,84 @@ def test_trigger_summarization():
     assert manager.state.summary != ""
     # Should keep recent turns
     assert len(manager.state.turns) == manager.keep_recent_turns
+
+
+def test_query_first_turn_no_enrichment():
+    """Test first query has no enrichment."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+
+    result = manager.query("什么是Qdrant?")
+    assert result["response"] == "Mock response for: 什么是Qdrant?"
+    assert result["enriched_query"] == "什么是Qdrant?"
+    assert result["injected_context"] is False
+    assert result["conversation_turns"] == 1
+
+
+def test_query_with_explicit_reference():
+    """Test query with explicit reference gets enriched."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+
+    # Add first turn
+    manager.state.turns.append(ConversationTurn(
+        query="什么是Qdrant?",
+        response="Qdrant是向量数据库",
+        timestamp=datetime.now(),
+        mode="react",
+    ))
+    manager.state.summary = "讨论了向量数据库"
+
+    # Query with explicit reference
+    result = manager.query("基于上面的回答，如何配置?")
+    assert "【上下文】" in result["enriched_query"]
+    assert result["injected_context"] is True
+    assert result["reference_detected"] is True
+    assert result["conversation_turns"] == 2
+
+
+def test_query_without_reference_no_enrichment():
+    """Test query without reference stays original when LLM decides not needed."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = '{"needs_context": false, "reason": "独立问题"}'
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm)
+
+    # Add first turn
+    manager.state.turns.append(ConversationTurn(
+        query="什么是Qdrant?",
+        response="Qdrant是向量数据库",
+        timestamp=datetime.now(),
+        mode="react",
+    ))
+
+    # Independent query
+    result = manager.query("什么是PostgreSQL?")
+    assert result["enriched_query"] == "什么是PostgreSQL?"
+    assert result["injected_context"] is False
+
+
+def test_query_triggers_summarization():
+    """Test query triggers summarization at threshold."""
+    mock_agent = MockAgent()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value.text = '{"needs_context": false}'  # For context decision
+    manager = ConversationManager(agent=mock_agent, llm=mock_llm, max_history_turns=3)
+
+    # Add turns up to threshold
+    for i in range(3):
+        manager.state.turns.append(ConversationTurn(
+            query=f"q{i}",
+            response=f"r{i}",
+            timestamp=datetime.now(),
+            mode="react",
+        ))
+
+    # This query should trigger summarization
+    manager.query("新问题")
+
+    # Check summarization happened
+    assert manager.state.summary != ""
+    assert len(manager.state.turns) == manager.keep_recent_turns
