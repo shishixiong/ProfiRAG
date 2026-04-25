@@ -1,6 +1,7 @@
 <template>
   <div class="workspace">
     <h2 class="workspace-title">知识问答</h2>
+    <ModeSelector @change="onModeChange" />
 
     <div class="chat-container">
       <!-- Messages -->
@@ -87,11 +88,13 @@
 import { ref, nextTick } from 'vue'
 import { marked } from 'marked'
 import { chatApi } from '../api'
+import ModeSelector from '../components/ModeSelector.vue'
 
 const messages = ref([])
 const query = ref('')
 const loading = ref(false)
 const topK = ref(10)
+const selectedMode = ref('pipeline')
 const messagesContainer = ref(null)
 
 // Configure marked for better rendering
@@ -132,7 +135,7 @@ async function sendQuery() {
   scrollToBottom()
 
   try {
-    const res = await chatApi.query(userQuery, topK.value)
+    const res = await chatApi.query(userQuery, topK.value, selectedMode.value)
 
     // Add assistant message with sources and images
     messages.value.push({
@@ -164,6 +167,10 @@ function scrollToBottom() {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
   }
+}
+
+function onModeChange(modeValue) {
+  selectedMode.value = modeValue
 }
 </script>
 
