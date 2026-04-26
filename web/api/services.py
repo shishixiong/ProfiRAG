@@ -30,6 +30,7 @@ from llama_index.core.schema import TextNode, Document
 # Import ingest function
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
+from profirag.agent.react_agent import AgentFactory
 
 # Temp directory for uploaded files
 TEMP_DIR = PROJECT_ROOT / "web" / "api" / "temp"
@@ -451,12 +452,16 @@ class ImportService:
 class ChatService:
     """Handle RAG chat queries."""
 
+    # Session storage (in-memory for now)
+    active_sessions: Dict[str, Any] = {}
+
     @staticmethod
     def query(
         query_str: str,
         top_k: int = 10,
         mode: str = "pipeline",
         env_file: str = ".env",
+        conversation: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """Execute RAG query and return response with images.
 
@@ -465,10 +470,21 @@ class ChatService:
             top_k: Number of results to retrieve
             mode: Query mode (pipeline, agent, plan)
             env_file: Path to environment config file
+            conversation: Optional conversation context dict
 
         Returns:
             Dictionary with response, sources, and images
         """
+        # Handle conversation mode
+        if conversation and mode in ("agent", "plan", "react"):
+            return ChatService.query_with_conversation(
+                query_str=query_str,
+                session_id=conversation.get("session_id"),
+                mode=mode,
+                top_k=top_k,
+                env_file=env_file,
+            )
+
         # Load configuration
         config_path = PROJECT_ROOT / env_file
         config = load_config(str(config_path))
@@ -489,6 +505,110 @@ class ChatService:
             # Add query field to match ChatResponse schema
             result["query"] = query_str
             return result
+
+    @staticmethod
+    def query_with_conversation(
+        query_str: str,
+        session_id: Optional[str],
+        mode: str,
+        top_k: int,
+        env_file: str,
+    ) -> Dict[str, Any]:
+        """Execute query with conversation context.
+
+        Args:
+            query_str: User query
+            session_id: Existing session ID (None for new session)
+            mode: Agent mode (react/plan)
+            top_k: Retrieval count
+            env_file: Config file path
+
+        Returns:
+            Response with conversation info
+        """
+        config_path = PROJECT_ROOT / env_file
+        config = load_config(str(config_path))
+        pipeline = RAGPipeline(config)
+
+        # Get or create conversation manager
+        if session_id and session_id in ChatService.active_sessions:
+            conv_manager = ChatService.active_sessions[session_id]
+        else:
+            conv_manager = AgentFactory.create_conversation_agent(
+                agent_type=mode,
+                retriever=pipeline._hybrid_retriever,
+                synthesizer=pipeline._synthesizer,
+                llm=pipeline._llm,
+                max_history_turns=config.agent.conversation_config.max_history_turns,
+                keep_recent_turns=config.agent.conversation_config.keep_recent_turns,
+                enable_auto_context=config.agent.conversation_config.auto_context,
+                verbose=config.agent.verbose,
+                markdown_base_path=config.agent.markdown_base_path,
+                pre_retrieval=pipeline._pre_retrieval,
+                reranker=pipeline._reranker,
+            )
+            ChatService.active_sessions[conv_manager.state.session_id] = conv_manager
+
+        # Execute query
+        result = conv_manager.query(query_str)
+
+        # Format response
+        response = {
+            "query": result.get("original_query", query_str),
+            "response": result.get("response", ""),
+            "source_nodes": ChatService._extract_sources(result),
+            "images": [],
+            "metadata": {"mode": mode},
+            "conversation": {
+                "session_id": conv_manager.state.session_id,
+                "turn_count": result.get("conversation_turns", 1),
+                "injected_context": result.get("injected_context", False),
+                "reference_detected": result.get("reference_detected", False),
+            },
+        }
+        return response
+
+    @staticmethod
+    def _extract_sources(result: Dict) -> List[Dict]:
+        """Extract sources from result."""
+        sources = []
+        for src in result.get("sources", result.get("source_nodes", [])):
+            if hasattr(src, "node"):
+                sources.append({
+                    "node_id": src.node.node_id,
+                    "text": src.node.text[:300],
+                    "score": src.score,
+                    "source_file": src.node.metadata.get("source_file"),
+                })
+            else:
+                sources.append({
+                    "node_id": src.get("node_id", ""),
+                    "text": src.get("text", "")[:300],
+                    "score": src.get("score", 0.0),
+                    "source_file": src.get("source_file"),
+                })
+        return sources
+
+    @staticmethod
+    def clear_session(session_id: str) -> bool:
+        """Clear conversation session."""
+        if session_id in ChatService.active_sessions:
+            del ChatService.active_sessions[session_id]
+            return True
+        return False
+
+    @staticmethod
+    def get_session(session_id: str) -> Optional[Dict]:
+        """Get session info."""
+        if session_id in ChatService.active_sessions:
+            conv_manager = ChatService.active_sessions[session_id]
+            return {
+                "session_id": session_id,
+                "turn_count": conv_manager.state.total_turns(),
+                "summary": conv_manager.state.summary,
+                "created_at": conv_manager.state.created_at.isoformat(),
+            }
+        return None
 
     @staticmethod
     def _format_agent_response(result: Dict) -> Dict:
