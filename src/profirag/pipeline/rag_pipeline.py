@@ -18,7 +18,7 @@ from ..retrieval.reranker import Reranker
 from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
 from ..ingestion.image_processor import ImageProcessor, ImageResult, RetrievalResult
-from ..agent import RAGReActAgent, RAGTools, AgentFactory
+from ..agent import RAGReActAgent, RAGTools, AgentFactory, ConversationManager
 
 
 class CustomOpenAILLM(OpenAI):
@@ -501,6 +501,52 @@ class RAGPipeline:
             pre_retrieval=self._pre_retrieval,
             reranker=self._reranker,
         )
+
+    def create_conversation_manager(
+        self,
+        mode: str = "react",
+        max_history_turns: int = 6,
+    ) -> ConversationManager:
+        """Create ConversationManager with pipeline's components.
+
+        Args:
+            mode: Agent mode ("react" or "plan")
+            max_history_turns: Max turns before summarization
+
+        Returns:
+            ConversationManager instance
+        """
+        return AgentFactory.create_conversation_agent(
+            agent_type=mode,
+            retriever=self._hybrid_retriever,
+            synthesizer=self._synthesizer,
+            llm=self._llm,
+            max_history_turns=max_history_turns,
+            keep_recent_turns=self._agent_config.conversation_config.keep_recent_turns,
+            enable_auto_context=self._agent_config.conversation_config.auto_context,
+            verbose=self._agent_config.verbose,
+            markdown_base_path=self._agent_config.markdown_base_path,
+            pre_retrieval=self._pre_retrieval,
+            reranker=self._reranker,
+        )
+
+    def query_with_conversation(
+        self,
+        question: str,
+        conversation_manager: ConversationManager,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Query using conversation manager.
+
+        Args:
+            question: User question
+            conversation_manager: ConversationManager instance
+            **kwargs: Additional arguments
+
+        Returns:
+            Query result with conversation metadata
+        """
+        return conversation_manager.query(question, **kwargs)
 
     def _deduplicate_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
         """Remove duplicate nodes based on node_id.
