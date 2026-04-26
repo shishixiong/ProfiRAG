@@ -456,6 +456,12 @@ class ChatService:
     active_sessions: Dict[str, Any] = {}
 
     @staticmethod
+    def _create_session_id() -> str:
+        """Generate new session ID."""
+        import uuid
+        return str(uuid.uuid4())[:8]
+
+    @staticmethod
     def query(
         query_str: str,
         top_k: int = 10,
