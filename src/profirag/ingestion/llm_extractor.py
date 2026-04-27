@@ -5,7 +5,7 @@ import re
 import logging
 from typing import Optional, List, Dict, Any
 
-from llama_index.core.llms import LLM
+from llama_index.core.llms import LLM, LLMMetadata
 from llama_index.llms.openai import OpenAI
 
 from .cleaner_config import (
@@ -20,6 +20,26 @@ from .cleaner_config import (
 
 
 logger = logging.getLogger(__name__)
+
+
+class CustomOpenAILLM(OpenAI):
+    """Custom OpenAI LLM that bypasses model name validation.
+
+    Allows using custom model names (like MiniMax-M2.7) with OpenAI-compatible APIs.
+    """
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        """Override metadata to bypass model validation."""
+        model_dict = self.model_dump()
+
+        return LLMMetadata(
+            context_window=128000,  # Fixed context window for custom models
+            num_output=model_dict.get('max_tokens') or -1,
+            is_chat_model=True,
+            is_function_calling_model=True,
+            model_name=model_dict.get('model', 'unknown'),
+        )
 
 
 # ============================================================================
@@ -151,12 +171,20 @@ class LLMExtractor:
         self._llm = llm or self._create_default_llm()
 
     def _create_default_llm(self) -> LLM:
-        """创建默认LLM"""
-        return OpenAI(
-            model=self.config.llm_model,
-            temperature=self.config.llm_temperature,
-            max_tokens=self.config.llm_max_tokens,
-        )
+        """创建默认LLM（支持OpenAI兼容API）"""
+        llm_kwargs = {
+            "model": self.config.llm_model,
+            "temperature": self.config.llm_temperature,
+            "context_window": 128000,
+            "is_chat_model": True,
+        }
+        if self.config.llm_max_tokens:
+            llm_kwargs["max_tokens"] = self.config.llm_max_tokens
+        if self.config.llm_api_key:
+            llm_kwargs["api_key"] = self.config.llm_api_key
+        if self.config.llm_base_url:
+            llm_kwargs["api_base"] = self.config.llm_base_url
+        return CustomOpenAILLM(**llm_kwargs)
 
     def extract_structure(
         self,

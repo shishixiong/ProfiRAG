@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from llama_index.core import Document
-from llama_index.llms.openai import OpenAI
+from llama_index.core.llms import LLM
 
 from .cleaner_config import (
     CleanedDocument,
@@ -16,7 +16,7 @@ from .cleaner_config import (
     QualityCheckResult,
 )
 from .rule_extractor import RuleExtractor
-from .llm_extractor import LLMExtractor
+from .llm_extractor import LLMExtractor, CustomOpenAILLM
 from .quality_checker import QualityChecker
 from .loaders import DocumentLoader
 
@@ -42,13 +42,13 @@ class DocumentCleaner:
 
     def __init__(
         self,
-        llm: Optional[OpenAI] = None,
+        llm: Optional[LLM] = None,
         config: Optional[CleanerConfig] = None,
     ):
         """Initialize document cleaner.
 
         Args:
-            llm: LLM instance for semantic extraction
+            llm: LLM instance for semantic extraction (supports OpenAI-compatible APIs)
             config: Cleaner configuration
         """
         self.config = config or CleanerConfig()
@@ -67,26 +67,39 @@ class DocumentCleaner:
             "errors": 0,
         }
 
-    def _create_default_llm(self) -> OpenAI:
-        """Create default LLM from environment."""
+    def _create_default_llm(self) -> LLM:
+        """Create default LLM from environment (支持OpenAI兼容API)."""
         # Try to get config from RAGConfig if available
         try:
             from ..config.settings import RAGConfig
             rag_config = RAGConfig.from_env()
-            return OpenAI(
-                model=rag_config.llm.model,
-                api_key=rag_config.llm.api_key,
-                api_base=rag_config.llm.base_url,
-                temperature=rag_config.llm.temperature,
-                max_tokens=rag_config.llm.max_tokens,
-            )
+            llm_kwargs = {
+                "model": rag_config.llm.model,
+                "api_key": rag_config.llm.api_key,
+                "temperature": rag_config.llm.temperature,
+                "context_window": 128000,
+                "is_chat_model": True,
+            }
+            if rag_config.llm.max_tokens:
+                llm_kwargs["max_tokens"] = rag_config.llm.max_tokens
+            if rag_config.llm.base_url:
+                llm_kwargs["api_base"] = rag_config.llm.base_url
+            return CustomOpenAILLM(**llm_kwargs)
         except Exception:
-            # Fallback to default
-            return OpenAI(
-                model=self.config.llm_model,
-                temperature=self.config.llm_temperature,
-                max_tokens=self.config.llm_max_tokens,
-            )
+            # Fallback to default with CleanerConfig
+            llm_kwargs = {
+                "model": self.config.llm_model,
+                "temperature": self.config.llm_temperature,
+                "context_window": 128000,
+                "is_chat_model": True,
+            }
+            if self.config.llm_max_tokens:
+                llm_kwargs["max_tokens"] = self.config.llm_max_tokens
+            if self.config.llm_api_key:
+                llm_kwargs["api_key"] = self.config.llm_api_key
+            if self.config.llm_base_url:
+                llm_kwargs["api_base"] = self.config.llm_base_url
+            return CustomOpenAILLM(**llm_kwargs)
 
     def clean(self, document: Document) -> Optional[CleanedDocument]:
         """Clean a single document.
@@ -283,16 +296,24 @@ class DocumentCleaner:
             from ..config.settings import RAGConfig
             config = RAGConfig.from_env(env_file)
 
-            llm = OpenAI(
-                model=config.llm.model,
-                api_key=config.llm.api_key,
-                api_base=config.llm.base_url,
-                temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens,
-            )
+            llm_kwargs = {
+                "model": config.llm.model,
+                "api_key": config.llm.api_key,
+                "temperature": config.llm.temperature,
+                "context_window": 128000,
+                "is_chat_model": True,
+            }
+            if config.llm.max_tokens:
+                llm_kwargs["max_tokens"] = config.llm.max_tokens
+            if config.llm.base_url:
+                llm_kwargs["api_base"] = config.llm.base_url
+
+            llm = CustomOpenAILLM(**llm_kwargs)
 
             cleaner_config = CleanerConfig(
                 llm_model=config.llm.model,
+                llm_api_key=config.llm.api_key,
+                llm_base_url=config.llm.base_url,
                 llm_temperature=config.llm.temperature,
                 llm_max_tokens=config.llm.max_tokens,
             )

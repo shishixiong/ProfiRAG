@@ -217,6 +217,8 @@ class CleanerConfig(BaseModel):
 
     # LLM配置
     llm_model: str = Field(default="gpt-4-turbo", description="LLM模型")
+    llm_api_key: Optional[str] = Field(default=None, description="LLM API密钥")
+    llm_base_url: Optional[str] = Field(default=None, description="LLM API Base URL (兼容OpenAI API)")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=1.0, description="LLM温度")
     llm_max_tokens: Optional[int] = Field(default=None, description="LLM最大输出token")
 
