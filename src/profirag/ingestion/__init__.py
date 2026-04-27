@@ -9,6 +9,17 @@ from .loaders import (
     fix_heading_levels,
 )
 from .splitters import TextSplitter
+from .document_cleaner import DocumentCleaner
+from .cleaner_config import (
+    CleanedDocument,
+    CleanerConfig,
+    ProblemElement,
+    CauseAnalysis,
+    Solution,
+    TroubleshootingStep,
+    DocumentMetadata,
+    QualityCheckResult,
+)
 
 __all__ = [
     "DocumentLoader",
@@ -18,4 +29,14 @@ __all__ = [
     "detect_header_footer_patterns",
     "fix_heading_levels",
     "TextSplitter",
+    # Document Cleaner
+    "DocumentCleaner",
+    "CleanedDocument",
+    "CleanerConfig",
+    "ProblemElement",
+    "CauseAnalysis",
+    "Solution",
+    "TroubleshootingStep",
+    "DocumentMetadata",
+    "QualityCheckResult",
 ]
