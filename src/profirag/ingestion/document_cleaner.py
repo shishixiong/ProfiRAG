@@ -126,6 +126,10 @@ class DocumentCleaner:
 
             # Step 3: 质量检查
             logger.debug("Step 3: Quality check...")
+            logger.debug(f"Extracted structure: problem={structure.problem.description}, "
+                        f"cause={structure.cause.root_cause}, "
+                        f"solution_steps={len(structure.solution.steps)}, "
+                        f"solution_commands={len(structure.solution.commands)}")
             quality = self._quality_checker.check(document.text, structure)
 
             if self._quality_checker.should_reject(quality):
@@ -165,7 +169,7 @@ class DocumentCleaner:
 
         except Exception as e:
             self._stats["errors"] += 1
-            logger.error(f"Document cleaning failed: {e}")
+            logger.error(f"Document cleaning failed: {e}", exc_info=True)
             return None
 
     def _extract_title(self, text: str) -> Optional[str]:
