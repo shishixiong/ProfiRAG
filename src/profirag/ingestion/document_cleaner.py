@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from llama_index.core import Document
 from llama_index.core.llms import LLM
 
+from ..config.settings import CustomOpenAILLM
 from .cleaner_config import (
     CleanedDocument,
     CleanerConfig,
@@ -16,7 +17,7 @@ from .cleaner_config import (
     QualityCheckResult,
 )
 from .rule_extractor import RuleExtractor
-from .llm_extractor import LLMExtractor, CustomOpenAILLM
+from .llm_extractor import LLMExtractor
 from .quality_checker import QualityChecker
 from .loaders import DocumentLoader
 

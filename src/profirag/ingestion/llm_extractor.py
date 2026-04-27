@@ -5,9 +5,9 @@ import re
 import logging
 from typing import Optional, List, Dict, Any
 
-from llama_index.core.llms import LLM, LLMMetadata
-from llama_index.llms.openai import OpenAI
+from llama_index.core.llms import LLM
 
+from ..config.settings import CustomOpenAILLM
 from .cleaner_config import (
     StructureResult,
     ProblemElement,
@@ -20,26 +20,6 @@ from .cleaner_config import (
 
 
 logger = logging.getLogger(__name__)
-
-
-class CustomOpenAILLM(OpenAI):
-    """Custom OpenAI LLM that bypasses model name validation.
-
-    Allows using custom model names (like MiniMax-M2.7) with OpenAI-compatible APIs.
-    """
-
-    @property
-    def metadata(self) -> LLMMetadata:
-        """Override metadata to bypass model validation."""
-        model_dict = self.model_dump()
-
-        return LLMMetadata(
-            context_window=128000,  # Fixed context window for custom models
-            num_output=model_dict.get('max_tokens') or -1,
-            is_chat_model=True,
-            is_function_calling_model=True,
-            model_name=model_dict.get('model', 'unknown'),
-        )
 
 
 # ============================================================================

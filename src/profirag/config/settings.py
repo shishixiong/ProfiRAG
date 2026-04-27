@@ -6,6 +6,8 @@ from typing import Dict, Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from llama_index.llms.openai import OpenAI
+from llama_index.core.llms import LLMMetadata
 
 
 class EnvSettings(BaseSettings):
@@ -95,6 +97,34 @@ class EnvSettings(BaseSettings):
     profirag_agent_max_iterations: int = 10
     profirag_agent_verbose: bool = True
     profirag_agent_markdown_base_path: Optional[str] = None
+
+
+class CustomOpenAILLM(OpenAI):
+    """Custom OpenAI LLM that bypasses model name validation.
+
+    Allows using custom model names (like MiniMax-M2.7, DeepSeek, etc.)
+    with OpenAI-compatible APIs.
+
+    Example:
+        >>> llm = CustomOpenAILLM(
+        >>>     model="MiniMax-M2.7",
+        >>>     api_key="your-api-key",
+        >>>     api_base="https://api.minimax.chat/v1",
+        >>> )
+    """
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        """Override metadata to bypass model validation."""
+        model_dict = self.model_dump()
+
+        return LLMMetadata(
+            context_window=128000,  # Fixed context window for custom models
+            num_output=model_dict.get('max_tokens') or -1,
+            is_chat_model=True,  # All modern APIs use chat mode
+            is_function_calling_model=True,
+            model_name=model_dict.get('model', 'unknown'),
+        )
 
 
 class StorageConfig(BaseModel):

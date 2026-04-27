@@ -6,9 +6,8 @@ from llama_index.core import VectorStoreIndex, Document, QueryBundle
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.llms.openai import OpenAI
-from llama_index.core.llms import LLMMetadata
 
-from ..config.settings import RAGConfig
+from ..config.settings import RAGConfig, CustomOpenAILLM
 from ..embedding import CustomOpenAIEmbedding
 from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
@@ -19,27 +18,6 @@ from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
 from ..ingestion.image_processor import ImageProcessor, ImageResult, RetrievalResult
 from ..agent import RAGReActAgent, RAGTools, AgentFactory, ConversationManager
-
-
-class CustomOpenAILLM(OpenAI):
-    """Custom OpenAI LLM that bypasses model name validation.
-
-    Allows using custom model names (like MiniMax-M2.7) with OpenAI-compatible APIs.
-    """
-
-    @property
-    def metadata(self) -> LLMMetadata:
-        """Override metadata to bypass model validation."""
-        # Get values from model_dump() to avoid pydantic __getattr__ issues
-        model_dict = self.model_dump()
-
-        return LLMMetadata(
-            context_window=128000,  # Fixed context window for custom models
-            num_output=model_dict.get('max_tokens') or -1,
-            is_chat_model=True,  # All modern APIs use chat mode
-            is_function_calling_model=True,
-            model_name=model_dict.get('model', 'unknown'),
-        )
 
 
 class RAGPipeline:

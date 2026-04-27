@@ -11,6 +11,7 @@ from .settings import (
     GenerationConfig,
     load_config,
     EnvSettings,
+    CustomOpenAILLM,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "GenerationConfig",
     "load_config",
     "EnvSettings",
+    "CustomOpenAILLM",
 ]
