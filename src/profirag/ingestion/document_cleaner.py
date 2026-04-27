@@ -3,6 +3,7 @@
 import json
 import logging
 import argparse
+import shutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -15,11 +16,13 @@ from .cleaner_config import (
     CleanerConfig,
     DocumentMetadata,
     QualityCheckResult,
+    ImageInfo,
 )
 from .rule_extractor import RuleExtractor
 from .llm_extractor import LLMExtractor
 from .quality_checker import QualityChecker
-from .loaders import DocumentLoader
+from .loaders import DocumentLoader, extract_image_map
+from .image_processor import ImageProcessor, understand_image_minimax
 
 
 logger = logging.getLogger(__name__)
@@ -60,12 +63,18 @@ class DocumentCleaner:
         self._llm_extractor = LLMExtractor(self._llm, self.config)
         self._quality_checker = QualityChecker(self._llm, self.config)
 
+        # Initialize image processor if enabled
+        self._image_processor: Optional[ImageProcessor] = None
+        if self.config.process_images:
+            self._image_processor = self._create_image_processor()
+
         # Statistics
         self._stats = {
             "total_processed": 0,
             "passed": 0,
             "rejected": 0,
             "errors": 0,
+            "images_processed": 0,
         }
 
     def _create_default_llm(self) -> LLM:
@@ -102,11 +111,123 @@ class DocumentCleaner:
                 llm_kwargs["api_base"] = self.config.llm_base_url
             return CustomOpenAILLM(**llm_kwargs)
 
-    def clean(self, document: Document) -> Optional[CleanedDocument]:
+    def _create_image_processor(self) -> ImageProcessor:
+        """Create image processor from config."""
+        return ImageProcessor(
+            api_key=self.config.minimax_api_key,
+            api_host=self.config.minimax_api_host,
+            description_prompt=self.config.image_description_prompt,
+            generate_descriptions=True,
+        )
+
+    def _process_images(
+        self,
+        document: Document,
+        output_dir: Optional[Path] = None
+    ) -> List[ImageInfo]:
+        """Process images in document and return ImageInfo list.
+
+        Args:
+            document: Document with potential image references
+            output_dir: Output directory for copying images (optional)
+
+        Returns:
+            List of ImageInfo objects with descriptions
+        """
+        images: List[ImageInfo] = []
+
+        # Get image_map from document metadata
+        image_map = document.metadata.get("image_map", {})
+        image_path = document.metadata.get("image_path")
+
+        if not image_map and not image_path:
+            # Try to extract image references from text
+            image_map = extract_image_map(document.text)
+
+        if not image_map:
+            return images
+
+        logger.debug(f"Found {len(image_map)} images in document")
+
+        # Process each image
+        for image_id, img_info in image_map.items():
+            original_path = img_info.get("path", "")
+
+            # Resolve image path
+            if image_path and not Path(original_path).is_absolute():
+                # Try to find image relative to document's image_path
+                resolved_path = Path(image_path) / Path(original_path).name
+                if resolved_path.exists():
+                    original_path = str(resolved_path)
+                else:
+                    resolved_path = Path(image_path) / original_path
+                    if resolved_path.exists():
+                        original_path = str(resolved_path)
+
+            # Check if image exists
+            if not Path(original_path).exists():
+                logger.warning(f"Image not found: {original_path}")
+                continue
+
+            # Generate description
+            description = None
+            if self._image_processor:
+                try:
+                    logger.debug(f"Generating description for image: {original_path}")
+                    description = understand_image_minimax(
+                        image_path=original_path,
+                        prompt=self.config.image_description_prompt,
+                        api_key=self.config.minimax_api_key,
+                        api_host=self.config.minimax_api_host,
+                    )
+                    self._stats["images_processed"] += 1
+                    logger.debug(f"Image description: {description[:100]}...")
+                except Exception as e:
+                    logger.warning(f"Failed to generate image description: {e}")
+                    description = f"[图片: {Path(original_path).name}]"
+
+            # Determine relative path for output
+            relative_path = None
+            if output_dir and self.config.include_images_in_output:
+                # Copy image to output directory
+                image_output_dir = output_dir / "images"
+                image_output_dir.mkdir(parents=True, exist_ok=True)
+                dest_path = image_output_dir / Path(original_path).name
+                if not dest_path.exists():
+                    shutil.copy2(original_path, dest_path)
+                relative_path = f"images/{Path(original_path).name}"
+
+            images.append(ImageInfo(
+                image_id=image_id,
+                original_path=original_path,
+                relative_path=relative_path,
+                description=description,
+                alt_text=img_info.get("alt_text"),
+                surrounding_context=img_info.get("surrounding_text"),
+            ))
+
+        return images
+
+    def _build_image_context(self, images: List[ImageInfo]) -> str:
+        """Build context string from image descriptions for LLM prompt."""
+        if not images:
+            return ""
+
+        context_parts = ["【图片信息】"]
+        for img in images:
+            if img.description:
+                context_parts.append(f"- 图片 {img.image_id}: {img.description}")
+                if img.surrounding_context:
+                    context_parts.append(f"  上下文: {img.surrounding_context[:100]}")
+
+        return "\n".join(context_parts) if len(context_parts) > 1 else ""
+
+    def clean(self, document: Document, output_dir: Optional[str] = None) -> Optional[CleanedDocument]:
         """Clean a single document.
 
         Args:
             document: Document to clean
+            output_dir: Output directory for images (optional)
 
         Returns:
             CleanedDocument if quality check passed, None if rejected
@@ -114,6 +235,17 @@ class DocumentCleaner:
         self._stats["total_processed"] += 1
 
         try:
+            # Step 0: 图片预处理 (如果启用)
+            images: List[ImageInfo] = []
+            image_context = ""
+            if self.config.process_images and self._image_processor:
+                logger.debug("Step 0: Image processing...")
+                output_path = Path(output_dir) if output_dir else None
+                images = self._process_images(document, output_path)
+                image_context = self._build_image_context(images)
+                if image_context:
+                    logger.debug(f"Image context generated: {len(image_context)} chars")
+
             # Step 1: 规则提取 (快速、低成本)
             logger.debug("Step 1: Rule extraction...")
             rule_result = self._rule_extractor.extract(document.text)
@@ -121,7 +253,7 @@ class DocumentCleaner:
             # Step 2: LLM结构提取 (语义理解)
             logger.debug("Step 2: LLM structure extraction...")
             structure = self._llm_extractor.extract_structure(
-                document.text, hints=rule_result
+                document.text, hints=rule_result, image_context=image_context
             )
 
             # Step 3: 质量检查
@@ -164,6 +296,7 @@ class DocumentCleaner:
                 solution=structure.solution,
                 metadata=metadata,
                 quality=quality,
+                images=images,
                 original_text=document.text if self.config.include_original_text else None,
             )
 

@@ -60,6 +60,17 @@ class QualityCheckResult(BaseModel):
     rejection_reason: Optional[str] = Field(default=None, description="拒绝原因")
 
 
+class ImageInfo(BaseModel):
+    """图片信息"""
+    image_id: str = Field(default="", description="图片ID")
+    original_path: str = Field(default="", description="原始图片路径")
+    relative_path: Optional[str] = Field(default=None, description="相对输出文件的路径")
+    description: Optional[str] = Field(default=None, description="图片描述(LLM生成)")
+    alt_text: Optional[str] = Field(default=None, description="原始alt文本")
+    surrounding_context: Optional[str] = Field(default=None, description="图片周围的文本上下文")
+    section: Optional[str] = Field(default=None, description="图片所属章节(problem/cause/solution)")
+
+
 class StructureResult(BaseModel):
     """LLM提取的结构结果"""
     problem: ProblemElement = Field(default_factory=ProblemElement)
@@ -86,6 +97,7 @@ class CleanedDocument(BaseModel):
     solution: Solution = Field(default_factory=Solution)
     metadata: DocumentMetadata = Field(default_factory=DocumentMetadata)
     quality: QualityCheckResult = Field(default_factory=QualityCheckResult)
+    images: List[ImageInfo] = Field(default_factory=list, description="文档中的图片信息")
     original_text: Optional[str] = Field(default=None, description="原文内容")
 
     def to_markdown(self) -> str:
@@ -177,6 +189,31 @@ class CleanedDocument(BaseModel):
             lines.append("- **发现的问题**:")
             for issue in self.quality.issues:
                 lines.append(f"  - {issue}")
+        lines.append("")
+
+        # 相关图片
+        if self.images:
+            lines.append("## 相关图片")
+            lines.append("")
+            for img in self.images:
+                # 图片标题
+                img_title = f"### {img.image_id}"
+                if img.section:
+                    img_title += f" ({img.section})"
+                lines.append(img_title)
+                lines.append("")
+                # 图片引用
+                if img.relative_path:
+                    lines.append(f"![{img.alt_text or img.image_id}]({img.relative_path})")
+                elif img.original_path:
+                    lines.append(f"![{img.alt_text or img.image_id}]({img.original_path})")
+                lines.append("")
+                # 图片描述
+                if img.description:
+                    lines.append(f"**图片描述**: {img.description}")
+                if img.surrounding_context:
+                    lines.append(f"**上下文**: {img.surrounding_context[:200]}...")
+                lines.append("")
 
         return "\n".join(lines)
 
@@ -225,3 +262,14 @@ class CleanerConfig(BaseModel):
     # 输出配置
     output_format: str = Field(default="markdown", description="输出格式")
     include_original_text: bool = Field(default=False, description="是否包含原文")
+
+    # 图片处理配置
+    process_images: bool = Field(default=True, description="是否处理文档中的图片")
+    image_description_prompt: str = Field(
+        default="描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息",
+        description="图片描述prompt"
+    )
+    include_images_in_output: bool = Field(default=True, description="是否在输出中包含图片")
+    image_output_dir: Optional[str] = Field(default=None, description="图片输出目录(相对于输出文件)")
+    minimax_api_key: Optional[str] = Field(default=None, description="MiniMax API密钥(用于图片理解)")
+    minimax_api_host: str = Field(default="https://api.minimax.chat", description="MiniMax API地址")
