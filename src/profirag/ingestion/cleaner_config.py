@@ -282,3 +282,41 @@ class CleanerConfig(BaseModel):
     image_openai_base_url: Optional[str] = Field(default=None, description="图片理解OpenAI API Base URL")
     image_openai_model: str = Field(default="gpt-4o", description="图片理解模型(如gpt-4o, deepseek-vl等)")
     image_timeout: int = Field(default=60, description="图片理解API超时时间(秒)")
+
+    @classmethod
+    def from_env(cls) -> "CleanerConfig":
+        """Create CleanerConfig from environment variables.
+
+        Reads configuration from .env file using EnvSettings.
+
+        Returns:
+            CleanerConfig instance
+        """
+        try:
+            from ..config.settings import EnvSettings
+            env = EnvSettings()
+
+            # OpenAI API key fallback: image_openai_api_key -> openai_api_key
+            image_openai_api_key = env.profirag_image_openai_api_key or env.openai_api_key
+            # OpenAI base URL fallback: image_openai_base_url -> openai_base_url
+            image_openai_base_url = env.profirag_image_openai_base_url or env.openai_base_url
+
+            return cls(
+                # 图片处理配置
+                process_images=env.profirag_image_processing_enabled,
+                image_provider=env.profirag_image_provider,
+                image_description_prompt=env.profirag_image_description_prompt,
+                # MiniMax配置
+                minimax_api_key=env.minimax_api_key,
+                minimax_api_host=env.minimax_api_host,
+                # OpenAI配置
+                image_openai_api_key=image_openai_api_key,
+                image_openai_base_url=image_openai_base_url,
+                image_openai_model=env.profirag_image_openai_model,
+                image_timeout=env.profirag_image_timeout,
+            )
+        except Exception as e:
+            # Fallback to defaults if env loading fails
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to load env config: {e}")
+            return cls()

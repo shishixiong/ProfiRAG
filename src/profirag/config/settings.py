@@ -39,6 +39,11 @@ class EnvSettings(BaseSettings):
     profirag_generate_image_descriptions: bool = True
     profirag_image_storage_path: str = "./images"
     profirag_image_description_prompt: str = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
+    profirag_image_provider: Literal["minimax", "openai"] = "minimax"  # Image understanding provider
+    profirag_image_openai_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
+    profirag_image_openai_base_url: Optional[str] = None  # Fallback to openai_base_url if not set
+    profirag_image_openai_model: str = "gpt-4o"  # Vision model for OpenAI provider
+    profirag_image_timeout: int = 60  # Image understanding API timeout
 
     # Storage Configuration
     profirag_storage_type: Literal["qdrant", "local", "postgres"] = "qdrant"

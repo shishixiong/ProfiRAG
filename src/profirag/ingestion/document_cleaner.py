@@ -437,9 +437,11 @@ class DocumentCleaner:
             DocumentCleaner instance
         """
         try:
-            from ..config.settings import RAGConfig
+            from ..config.settings import RAGConfig, EnvSettings
             config = RAGConfig.from_env(env_file)
+            env = EnvSettings()
 
+            # LLM configuration
             llm_kwargs = {
                 "model": config.llm.model,
                 "api_key": config.llm.api_key,
@@ -454,12 +456,29 @@ class DocumentCleaner:
 
             llm = CustomOpenAILLM(**llm_kwargs)
 
+            # OpenAI API key/base_url fallback for image understanding
+            image_openai_api_key = env.profirag_image_openai_api_key or env.openai_api_key
+            image_openai_base_url = env.profirag_image_openai_base_url or env.openai_base_url
+
             cleaner_config = CleanerConfig(
+                # LLM配置
                 llm_model=config.llm.model,
                 llm_api_key=config.llm.api_key,
                 llm_base_url=config.llm.base_url,
                 llm_temperature=config.llm.temperature,
                 llm_max_tokens=config.llm.max_tokens,
+                # 图片处理配置
+                process_images=env.profirag_image_processing_enabled,
+                image_provider=env.profirag_image_provider,
+                image_description_prompt=env.profirag_image_description_prompt,
+                # MiniMax配置
+                minimax_api_key=env.minimax_api_key,
+                minimax_api_host=env.minimax_api_host,
+                # OpenAI配置
+                image_openai_api_key=image_openai_api_key,
+                image_openai_base_url=image_openai_base_url,
+                image_openai_model=env.profirag_image_openai_model,
+                image_timeout=env.profirag_image_timeout,
             )
 
             return cls(llm=llm, config=cleaner_config)
