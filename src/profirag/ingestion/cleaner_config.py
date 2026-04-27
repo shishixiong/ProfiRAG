@@ -1,7 +1,7 @@
 """Configuration and data models for document cleaner."""
 
 import re
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, Literal
 from pydantic import BaseModel, Field
 from pathlib import Path
 
@@ -265,11 +265,20 @@ class CleanerConfig(BaseModel):
 
     # 图片处理配置
     process_images: bool = Field(default=True, description="是否处理文档中的图片")
+    image_provider: Literal["minimax", "openai"] = Field(
+        default="minimax", description="图片理解API提供商(minimax/openai)"
+    )
     image_description_prompt: str = Field(
         default="描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息",
         description="图片描述prompt"
     )
     include_images_in_output: bool = Field(default=True, description="是否在输出中包含图片")
     image_output_dir: Optional[str] = Field(default=None, description="图片输出目录(相对于输出文件)")
+    # MiniMax配置
     minimax_api_key: Optional[str] = Field(default=None, description="MiniMax API密钥(用于图片理解)")
     minimax_api_host: str = Field(default="https://api.minimax.chat", description="MiniMax API地址")
+    # OpenAI兼容配置(用于图片理解)
+    image_openai_api_key: Optional[str] = Field(default=None, description="图片理解OpenAI API密钥")
+    image_openai_base_url: Optional[str] = Field(default=None, description="图片理解OpenAI API Base URL")
+    image_openai_model: str = Field(default="gpt-4o", description="图片理解模型(如gpt-4o, deepseek-vl等)")
+    image_timeout: int = Field(default=60, description="图片理解API超时时间(秒)")

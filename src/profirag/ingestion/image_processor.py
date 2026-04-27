@@ -1,18 +1,22 @@
-"""Image processing module for PDF image handling with MiniMax VLM."""
+"""Image processing module for PDF image handling with VLM APIs."""
 
 import base64
 import hashlib
 import json
+import logging
 import os
 import urllib.request
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 
 from llama_index.core.schema import TextNode
 
 
+logger = logging.getLogger(__name__)
+
+
 # Default prompt for image description
-DEFAULT_IMAGE_DESCRIPTION_PROMPT = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
+DEFAULT_IMAGE_DESCRIPTION_PROMPT = "描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息"
 
 
 def understand_image_minimax(
@@ -71,6 +75,141 @@ def understand_image_minimax(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         result = json.loads(resp.read().decode())
         return result.get("content", "")
+
+
+def understand_image_openai(
+    image_path: str,
+    prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: str = "gpt-4o",
+    timeout: int = 60,
+) -> str:
+    """Understand image using OpenAI-compatible Vision API.
+
+    Supports OpenAI GPT-4 Vision and other OpenAI-compatible APIs
+    (e.g., DeepSeek, Gemini, Claude via OpenAI-compatible endpoints).
+
+    Args:
+        image_path: Path to image file.
+        prompt: Prompt for image understanding.
+        api_key: API key (uses OPENAI_API_KEY env if not provided).
+        base_url: API base URL (uses OPENAI_BASE_URL env if not provided).
+        model: Vision model name (default: gpt-4o).
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Image description text.
+
+    Raises:
+        EnvironmentError: If API key is not configured.
+        FileNotFoundError: If image file does not exist.
+    """
+    # Get API key from environment if not provided
+    key = api_key or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise EnvironmentError("OPENAI_API_KEY environment variable not set")
+
+    # Get base URL from environment if not provided
+    url_base = base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+
+    # Check image file exists
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+
+    # Read and encode image
+    with open(image_path, "rb") as f:
+        img_data = base64.b64encode(f.read()).decode()
+
+    # Determine image type from file extension
+    ext = Path(image_path).suffix.lower()
+    mime_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+
+    # Build request for OpenAI chat completions API
+    url = f"{url_base}/chat/completions"
+    data = json.dumps({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{img_data}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 1000
+    }).encode()
+
+    req = urllib.request.Request(url, data=data, headers={
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    })
+
+    # Send request and parse response
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        result = json.loads(resp.read().decode())
+        # Extract content from OpenAI response format
+        choices = result.get("choices", [])
+        if choices:
+            return choices[0].get("message", {}).get("content", "")
+        return ""
+
+
+def understand_image(
+    image_path: str,
+    prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
+    provider: Literal["minimax", "openai"] = "minimax",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_host: str = "https://api.minimax.chat",
+    model: str = "gpt-4o",
+    timeout: int = 60,
+) -> str:
+    """Understand image using specified VLM provider.
+
+    Unified interface for image understanding across different providers.
+
+    Args:
+        image_path: Path to image file.
+        prompt: Prompt for image understanding.
+        provider: VLM provider ("minimax" or "openai").
+        api_key: API key for the provider.
+        base_url: Base URL for OpenAI-compatible API.
+        api_host: API host for MiniMax.
+        model: Model name for OpenAI-compatible API.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Image description text.
+    """
+    if provider == "minimax":
+        return understand_image_minimax(
+            image_path=image_path,
+            prompt=prompt,
+            api_key=api_key,
+            api_host=api_host,
+            timeout=timeout,
+        )
+    elif provider == "openai":
+        return understand_image_openai(
+            image_path=image_path,
+            prompt=prompt,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout,
+        )
+    else:
+        raise ValueError(f"Unknown image provider: {provider}")
 
 
 class ImageProcessor:

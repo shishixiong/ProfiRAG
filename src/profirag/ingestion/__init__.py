@@ -22,7 +22,12 @@ from .cleaner_config import (
     QualityCheckResult,
     ImageInfo,
 )
-from .image_processor import ImageProcessor, understand_image_minimax
+from .image_processor import (
+    ImageProcessor,
+    understand_image,
+    understand_image_minimax,
+    understand_image_openai,
+)
 
 __all__ = [
     "DocumentLoader",
@@ -46,5 +51,7 @@ __all__ = [
     "ImageInfo",
     # Image Processing
     "ImageProcessor",
+    "understand_image",
     "understand_image_minimax",
+    "understand_image_openai",
 ]

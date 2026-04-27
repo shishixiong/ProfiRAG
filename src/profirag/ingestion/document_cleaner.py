@@ -22,7 +22,7 @@ from .rule_extractor import RuleExtractor
 from .llm_extractor import LLMExtractor
 from .quality_checker import QualityChecker
 from .loaders import DocumentLoader, extract_image_map
-from .image_processor import ImageProcessor, understand_image_minimax
+from .image_processor import ImageProcessor, understand_image
 
 
 logger = logging.getLogger(__name__)
@@ -173,12 +173,18 @@ class DocumentCleaner:
             description = None
             if self._image_processor:
                 try:
-                    logger.debug(f"Generating description for image: {original_path}")
-                    description = understand_image_minimax(
+                    logger.debug(f"Generating description for image: {original_path} (provider: {self.config.image_provider})")
+                    description = understand_image(
                         image_path=original_path,
                         prompt=self.config.image_description_prompt,
-                        api_key=self.config.minimax_api_key,
+                        provider=self.config.image_provider,
+                        # MiniMax params
+                        api_key=self.config.minimax_api_key if self.config.image_provider == "minimax" else self.config.image_openai_api_key,
                         api_host=self.config.minimax_api_host,
+                        # OpenAI params
+                        base_url=self.config.image_openai_base_url,
+                        model=self.config.image_openai_model,
+                        timeout=self.config.image_timeout,
                     )
                     self._stats["images_processed"] += 1
                     logger.debug(f"Image description: {description[:100]}...")
