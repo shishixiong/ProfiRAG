@@ -207,3 +207,39 @@ class ChatResponse(BaseModel):
     images: List[ImageInfo] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     conversation: Optional[ConversationInfo] = Field(None, description="Conversation info")
+
+
+# Search Models
+class SearchRequest(BaseModel):
+    """Request for pure retrieval search."""
+    query: str = Field(..., description="Natural language query")
+    top_k: int = Field(20, ge=1, le=100, description="Number of results")
+    rerank: bool = Field(True, description="Enable reranking")
+    use_pre_retrieval: bool = Field(False, description="Enable query transformation")
+    env_file: str = Field(".env", description="Config file path")
+
+
+class SearchResultFile(BaseModel):
+    """File summary in search results."""
+    filename: str
+    chunk_count: int
+
+
+class SearchResultChunk(BaseModel):
+    """Single retrieved chunk."""
+    chunk_id: str
+    heading: Optional[str] = Field(None, description="Section heading")
+    score: float
+    text_preview: str = Field(..., description="First 200 characters")
+    full_text: str
+    source_file: str
+    header_path: Optional[str] = Field(None, description="Full header hierarchy")
+
+
+class SearchResponse(BaseModel):
+    """Response for search query."""
+    query: str
+    total_results: int
+    files: List[SearchResultFile]
+    chunks: List[SearchResultChunk]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
