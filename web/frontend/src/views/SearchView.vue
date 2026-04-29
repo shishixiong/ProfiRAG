@@ -160,13 +160,17 @@ const LANGUAGE_MAP = {
 
 function isCodeFile(filename) {
   if (!filename) return false
-  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'))
+  const dotIndex = filename.lastIndexOf('.')
+  if (dotIndex === -1) return false
+  const ext = filename.toLowerCase().slice(dotIndex)
   return ext in LANGUAGE_MAP
 }
 
 function getLanguage(filename) {
   if (!filename) return ''
-  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'))
+  const dotIndex = filename.lastIndexOf('.')
+  if (dotIndex === -1) return ''
+  const ext = filename.toLowerCase().slice(dotIndex)
   return LANGUAGE_MAP[ext] || ''
 }
 
