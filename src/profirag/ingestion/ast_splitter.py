@@ -20,10 +20,11 @@ class CodeChunk:
     code: str
     language: str
     entity_name: str
-    entity_type: str  # "function" | "class" | "method" | "module"
+    entity_type: str  # "function" | "class" | "method" | "module" | "class_header"
     file_path: str
     start_line: int
     end_line: int
+    parent_class: str = ""  # For methods, the class they belong to
 
     def to_text_node(self):
         """Convert to llama_index TextNode."""
@@ -32,9 +33,10 @@ class CodeChunk:
             text=self.code,
             metadata={
                 "language": self.language,
-                "function_name": self.entity_name if self.entity_type == "function" else None,
-                "class_name": self.entity_name if self.entity_type == "class" else None,
-                "file_path": self.file_path,
+                "function_name": self.entity_name if self.entity_type in ("function", "method") else None,
+                "class_name": self.parent_class if self.entity_type == "method" else self.entity_name if self.entity_type in ("class", "class_header") else None,
+                "method_name": self.entity_name if self.entity_type == "method" else None,
+                "source_file": self.file_path,
                 "start_line": self.start_line,
                 "end_line": self.end_line,
                 "entity_type": self.entity_type,
@@ -49,9 +51,11 @@ class CodeChunk:
 class BaseLanguageParser(ABC):
     """Abstract base class for language-specific AST parsers."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
+                 extract_class_methods: bool = True):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.extract_class_methods = extract_class_methods
 
     def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
         """Parse source code and return list of code chunks."""
@@ -66,7 +70,15 @@ class BaseLanguageParser(ABC):
         return len(code) // 4  # rough estimate
 
     def _split_if_needed(self, chunk: CodeChunk) -> List[CodeChunk]:
-        """Split oversized chunk into smaller pieces."""
+        """Split oversized chunk into smaller pieces.
+
+        Functions, methods, constructors, and classes are kept intact regardless of size.
+        Only large modules or other structures may be split if too large.
+        """
+        # Keep code entities intact - don't split them
+        if chunk.entity_type in ("function", "method", "constructor", "class"):
+            return [chunk]
+
         if self._estimate_tokens(chunk.code) <= self.chunk_size:
             return [chunk]
 
@@ -86,8 +98,9 @@ class BaseLanguageParser(ABC):
 class PythonParser(BaseLanguageParser):
     """Parser for Python code using tree-sitter."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
-        super().__init__(chunk_size, chunk_overlap)
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
+                 extract_class_methods: bool = True):
+        super().__init__(chunk_size, chunk_overlap, extract_class_methods)
         self._parser = None
         self._ensure_parser()
 
@@ -114,17 +127,90 @@ class PythonParser(BaseLanguageParser):
         self._extract_entities(tree.root_node, source_code, file_path, chunks)
         return chunks
 
-    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
-        """Recursively extract functions and classes."""
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk],
+                          in_class: bool = False):
+        """Recursively extract functions and classes.
+
+        Args:
+            in_class: Whether we're currently inside a class definition.
+                      When True, methods are extracted as separate chunks.
+        """
         for child in node.children:
             if child.type in ("function_definition", "async_generator_function_definition"):
-                self._create_chunk_from_node(child, source_code, file_path, chunks, "function")
+                # If inside a class, this is a method
+                entity_type = "method" if in_class else "function"
+                self._create_chunk_from_node(child, source_code, file_path, chunks, entity_type)
             elif child.type == "class_definition":
-                self._create_chunk_from_node(child, source_code, file_path, chunks, "class")
+                # If extract_class_methods is True, extract methods separately
+                if self.extract_class_methods:
+                    # Extract class header (without method bodies) as a chunk
+                    self._extract_class_with_methods(child, source_code, file_path, chunks)
+                else:
+                    # Extract entire class as single chunk
+                    self._create_chunk_from_node(child, source_code, file_path, chunks, "class")
             elif child.type == "module":
-                pass
-            else:
                 self._extract_entities(child, source_code, file_path, chunks)
+            else:
+                # Recurse into other structures to find nested functions
+                self._extract_entities(child, source_code, file_path, chunks, in_class)
+
+    def _extract_class_with_methods(self, class_node, source_code: str, file_path: str,
+                                     chunks: List[CodeChunk]):
+        """Extract class and its methods as separate chunks.
+
+        This approach:
+        1. Creates a chunk for the class definition (class header + docstring)
+        2. Creates separate chunks for each method
+        """
+        # Get class name
+        class_name = "<anonymous>"
+        for child in class_node.children:
+            if child.type in ("identifier", "name"):
+                class_name = child.text.decode("utf8")
+                break
+
+        # Extract each method in the class
+        for child in class_node.children:
+            if child.type in ("function_definition", "async_generator_function_definition"):
+                self._create_chunk_from_node(child, source_code, file_path, chunks, "method",
+                                              parent_class=class_name)
+
+        # Optionally, create a class overview chunk (class header without method bodies)
+        # This is useful for understanding the class structure
+        class_header_parts = []
+        for child in class_node.children:
+            # Include class header elements but not method bodies
+            if child.type in ("identifier", "name", "argument_list", "parenthesized_list",
+                              "expression_list", "simple_statement"):
+                class_header_parts.append(source_code[child.start_byte:child.end_byte])
+            elif child.type == "block":
+                # Look for docstring or class-level statements (not methods)
+                for block_child in child.children:
+                    if block_child.type == "expression_statement":
+                        # Could be a docstring (string literal)
+                        for expr_child in block_child.children:
+                            if expr_child.type == "string":
+                                class_header_parts.append(
+                                    source_code[block_child.start_byte:block_child.end_byte])
+                    elif block_child.type in ("assignment", "expression_statement"):
+                        # Class-level variable/constant
+                        if not any(c.type in ("function_definition", "async_generator_function_definition")
+                                   for c in block_child.children):
+                            class_header_parts.append(
+                                source_code[block_child.start_byte:block_child.end_byte])
+
+        if class_header_parts:
+            header_code = "\n".join(class_header_parts)
+            if header_code.strip():
+                chunks.append(CodeChunk(
+                    code=f"class {class_name}:\n{header_code}" if not header_code.startswith("class") else header_code,
+                    language="python",
+                    entity_name=class_name,
+                    entity_type="class_header",
+                    file_path=file_path,
+                    start_line=class_node.start_point[0] + 1,
+                    end_line=class_node.start_point[0] + len(class_header_parts) + 1
+                ))
 
     def _create_chunk_from_node(self, node, source_code: str, file_path: str,
                                  chunks: List[CodeChunk], entity_type: str):
@@ -820,7 +906,7 @@ class ASTSplitter:
         chunks = parser.parse(source)
         if file_path:
             for chunk in chunks:
-                chunk.metadata.setdefault("file_path", file_path)
+                chunk.metadata.setdefault("source_file", file_path)
         return chunks
 
     def detect_language(self, file_path: str) -> Optional[str]:
@@ -868,7 +954,8 @@ class ASTSplitter:
     def split_document(self, document) -> List:
         """Split a document into code chunks."""
         code = document.text
-        file_path = document.metadata.get("file_path", "")
+        # Support both source_file and file_path for compatibility
+        file_path = document.metadata.get("source_file") or document.metadata.get("file_path", "")
         return self.split_text(code, file_path)
 
     def split_documents(self, documents: List) -> List:

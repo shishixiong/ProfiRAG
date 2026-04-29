@@ -417,10 +417,14 @@ class QdrantStore(BaseVectorStore):
         """Count nodes in the Qdrant collection.
 
         Returns:
-            Number of nodes
+            Number of nodes (0 if collection doesn't exist)
         """
-        info = self._client.get_collection(self.collection_name)
-        return info.points_count
+        try:
+            info = self._client.get_collection(self.collection_name)
+            return info.points_count
+        except Exception:
+            # Collection doesn't exist yet
+            return 0
 
     def clear(self) -> None:
         """Clear all nodes from the collection."""

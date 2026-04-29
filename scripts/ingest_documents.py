@@ -175,6 +175,10 @@ def ingest_file(
     file_path: str,
     env_file: str = ".env",
     show_progress: bool = True,
+    splitter_type: str = None,
+    chunk_size: int = None,
+    chunk_overlap: int = None,
+    ast_language: str = None,
     mode: str = "hybrid",
 ) -> dict:
     """Ingest a single file into the RAG pipeline.
@@ -183,6 +187,10 @@ def ingest_file(
         file_path: Path to the file
         env_file: Path to .env configuration file
         show_progress: Show progress information
+        splitter_type: Override splitter type (sentence, token, semantic, chinese, ast, markdown)
+        chunk_size: Override chunk size
+        chunk_overlap: Override chunk overlap
+        ast_language: Language for AST splitter (python, java, cpp, go)
         mode: Index mode - "vector" or "hybrid"
 
     Returns:
@@ -197,9 +205,25 @@ def ingest_file(
     if show_progress:
         print(f"Loading configuration from {env_file}...")
 
+    # Override chunking settings if provided
+    if splitter_type:
+        config.chunking.splitter_type = splitter_type
+    if chunk_size:
+        config.chunking.chunk_size = chunk_size
+    if chunk_overlap:
+        config.chunking.chunk_overlap = chunk_overlap
+    if ast_language:
+        config.chunking.ast_language = ast_language
+
     # Initialize pipeline
     if show_progress:
         print(f"Initializing RAG pipeline...")
+        print(f"  - Embedding model: {config.embedding.model}")
+        print(f"  - LLM model: {config.llm.model}")
+        print(f"  - Storage type: {config.storage.type}")
+        print(f"  - Splitter: {config.chunking.splitter_type}")
+        print(f"  - Chunk size: {config.chunking.chunk_size}")
+        print(f"  - Chunk overlap: {config.chunking.chunk_overlap}")
 
     pipeline = RAGPipeline(config)
 
@@ -334,6 +358,10 @@ def main():
                 file_path=args.file,
                 env_file=args.env,
                 show_progress=show_progress,
+                splitter_type=args.splitter,
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+                ast_language=args.ast_language,
                 mode=args.mode,
             )
         else:

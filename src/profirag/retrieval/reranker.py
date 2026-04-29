@@ -98,7 +98,7 @@ class CohereReranker(BaseReranker):
         documents = [node.node.text for node in nodes]
 
         # Build request
-        url = f"{self.base_url}/rerank"
+        url = f"{self.base_url}/reranks"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
