@@ -52,6 +52,8 @@ from profirag.config.settings import load_config, RAGConfig
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from profirag.ingestion.loaders import DocumentLoader
 from profirag.ingestion.splitters import TextSplitter, ChineseTextSplitter
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 
 def apply_index_mode(config: RAGConfig, mode: str) -> RAGConfig:

@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from dotenv import load_dotenv
 
 # Add src to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -491,9 +492,12 @@ class ChatService:
                 env_file=env_file,
             )
 
-        # Load configuration
+        # Load environment variables from .env file
         config_path = PROJECT_ROOT / env_file
-        config = load_config(str(config_path))
+        load_dotenv(str(config_path), override=True)
+
+        # Load configuration (now reads from environment variables)
+        config = load_config()
 
         # Initialize pipeline
         pipeline = RAGPipeline(config)
@@ -532,8 +536,12 @@ class ChatService:
         Returns:
             Response with conversation info
         """
+        # Load environment variables from .env file
         config_path = PROJECT_ROOT / env_file
-        config = load_config(str(config_path))
+        load_dotenv(str(config_path), override=True)
+
+        # Load configuration
+        config = load_config()
         pipeline = RAGPipeline(config)
 
         # Get or create conversation manager
