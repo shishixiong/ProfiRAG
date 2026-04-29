@@ -10,6 +10,16 @@ from llama_index.llms.openai import OpenAI
 from llama_index.core.llms import LLMMetadata
 
 
+# FastEmbed model dimension mapping for auto-detection
+FASTEMBED_MODEL_DIMENSIONS: dict[str, int] = {
+    "BAAI/bge-small-en-v1.5": 384,
+    "BAAI/bge-base-en-v1.5": 768,
+    "BAAI/bge-large-en-v1.5": 1024,
+    "intfloat/multilingual-e5-large": 1024,
+    "sentence-transformers/all-MiniLM-L6-v2": 384,
+}
+
+
 class EnvSettings(BaseSettings):
     """Environment settings loaded from .env file"""
 
@@ -29,6 +39,12 @@ class EnvSettings(BaseSettings):
     openai_llm_model: str = "gpt-4-turbo"
     openai_llm_temperature: float = 0.0
     openai_llm_max_tokens: Optional[int] = None
+
+    # Embedding Provider Configuration
+    profirag_embedding_provider: Literal["openai", "fastembed"] = "openai"
+    profirag_embedding_model: str = "BAAI/bge-small-en-v1.5"
+    profirag_embedding_dimension: Optional[int] = None  # Auto-detected for FastEmbed
+    profirag_embedding_cache_dir: Optional[str] = None
 
     # MiniMax Vision Configuration (for image understanding)
     minimax_api_key: Optional[str] = None
@@ -139,12 +155,13 @@ class StorageConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """OpenAI Embedding configuration"""
-    provider: Literal["openai"] = "openai"
+    """Embedding configuration supporting OpenAI and FastEmbed providers"""
+    provider: Literal["openai", "fastembed"] = "openai"
     model: str = "text-embedding-3-small"
     dimension: int = 1536
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    cache_dir: Optional[str] = None  # For FastEmbed model cache
 
 
 class LLMConfig(BaseModel):
@@ -300,14 +317,23 @@ class RAGConfig(BaseModel):
         storage_type = env_settings.profirag_storage_type
         storage_config = cls._build_storage_config(env_settings, storage_type)
 
+        # Build embedding config based on provider
+        if env_settings.profirag_embedding_provider == "fastembed":
+            model = env_settings.profirag_embedding_model
+            dimension = env_settings.profirag_embedding_dimension or FASTEMBED_MODEL_DIMENSIONS.get(model, 768)
+        else:
+            model = env_settings.openai_embedding_model
+            dimension = env_settings.openai_embedding_dimension
+
         return cls(
             storage=StorageConfig(type=storage_type, config=storage_config),
             embedding=EmbeddingConfig(
-                provider="openai",
-                model=env_settings.openai_embedding_model,
-                dimension=env_settings.openai_embedding_dimension,
-                api_key=env_settings.openai_embedding_api_key or env_settings.openai_api_key,
-                base_url=env_settings.openai_embedding_base_url or env_settings.openai_base_url,
+                provider=env_settings.profirag_embedding_provider,
+                model=model,
+                dimension=dimension,
+                api_key=env_settings.openai_embedding_api_key or env_settings.openai_api_key if env_settings.profirag_embedding_provider == "openai" else None,
+                base_url=env_settings.openai_embedding_base_url or env_settings.openai_base_url if env_settings.profirag_embedding_provider == "openai" else None,
+                cache_dir=env_settings.profirag_embedding_cache_dir,
             ),
             llm=LLMConfig(
                 provider="openai",
