@@ -85,7 +85,14 @@
               <span>文件: {{ chunk.source_file }}</span>
               <span v-if="chunk.header_path">路径: {{ chunk.header_path }}</span>
             </div>
-            <div class="chunk-text">{{ chunk.full_text }}</div>
+            <!-- Code file: use CodeBlock -->
+            <CodeBlock
+              v-if="isCodeFile(chunk.source_file)"
+              :code="chunk.full_text"
+              :language="getLanguage(chunk.source_file)"
+            />
+            <!-- Non-code file: plain text -->
+            <div class="chunk-text" v-else>{{ chunk.full_text }}</div>
             <button class="btn btn-secondary collapse-btn" @click.stop="expandedChunk = null">
               收起
             </button>
@@ -112,6 +119,56 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { searchApi } from '../api'
+import CodeBlock from '../components/CodeBlock.vue'
+
+// File extension to language mapping
+const LANGUAGE_MAP = {
+  '.py': 'python',
+  '.java': 'java',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.go': 'go',
+  '.cpp': 'cpp',
+  '.cc': 'cpp',
+  '.cxx': 'cpp',
+  '.c': 'c',
+  '.h': 'c',
+  '.hpp': 'cpp',
+  '.rs': 'rust',
+  '.rb': 'ruby',
+  '.php': 'php',
+  '.sh': 'bash',
+  '.bash': 'bash',
+  '.sql': 'sql',
+  '.json': 'json',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.xml': 'xml',
+  '.html': 'html',
+  '.htm': 'html',
+  '.css': 'css',
+  '.scss': 'css',
+  '.sass': 'css',
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.vue': 'javascript',
+  '.kt': 'kotlin',
+  '.kts': 'kotlin',
+}
+
+function isCodeFile(filename) {
+  if (!filename) return false
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'))
+  return ext in LANGUAGE_MAP
+}
+
+function getLanguage(filename) {
+  if (!filename) return ''
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'))
+  return LANGUAGE_MAP[ext] || ''
+}
 
 const query = ref('')
 const topK = ref(20)
