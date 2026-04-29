@@ -88,3 +88,15 @@ export const chatApi = {
     return api.post('/chat/query', { query, top_k: topK, mode })
   },
 }
+
+// Search endpoints
+export const searchApi = {
+  query: async (query, topK = 20, rerank = true, usePreRetrieval = false) => {
+    return api.post('/search/query', {
+      query,
+      top_k: topK,
+      rerank,
+      use_pre_retrieval: usePreRetrieval,
+    })
+  },
+}
