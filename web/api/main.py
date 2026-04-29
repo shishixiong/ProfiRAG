@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from routes import pdf_router, split_router, import_router, chat_router
+from routes import pdf_router, split_router, import_router, chat_router, search_router
 
 
 @asynccontextmanager
@@ -48,6 +48,7 @@ app.include_router(pdf_router)
 app.include_router(split_router)
 app.include_router(import_router)
 app.include_router(chat_router)
+app.include_router(search_router)
 
 
 @app.get("/", tags=["Root"])
@@ -61,6 +62,7 @@ async def root():
             "split": "/api/split",
             "import": "/api/import",
             "chat": "/api/chat",
+            "search": "/api/search",
         }
     }
 
