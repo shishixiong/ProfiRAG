@@ -22,6 +22,10 @@
           <span class="icon">💬</span>
           <span class="label">Chat</span>
         </router-link>
+        <router-link to="/search" class="nav-item" active-class="active">
+          <span class="icon">🔍</span>
+          <span class="label">Search</span>
+        </router-link>
       </nav>
     </aside>
 
