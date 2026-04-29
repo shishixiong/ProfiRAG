@@ -26,7 +26,8 @@ from profirag.ingestion.splitters import (
     chunk_sections,
 )
 from profirag.ingestion.ast_splitter import ASTSplitter
-from llama_index.core.schema import TextNode, Document
+from llama_index.core.schema import TextNode, Document, NodeWithScore
+from llama_index.core import QueryBundle
 
 # Import ingest function
 from profirag.config.settings import load_config
@@ -666,4 +667,103 @@ class ChatService:
             "source_nodes": sources,
             "images": [],  # Agent mode doesn't return images currently
             "metadata": {"mode": result.get("mode", "agent")},
+        }
+
+
+class SearchService:
+    """Pure retrieval service without LLM synthesis."""
+
+    @staticmethod
+    def query(
+        query_str: str,
+        top_k: int = 20,
+        rerank: bool = True,
+        use_pre_retrieval: bool = False,
+        env_file: str = ".env",
+    ) -> Dict[str, Any]:
+        """Execute retrieval-only query.
+
+        Args:
+            query_str: Natural language query
+            top_k: Number of results to return
+            rerank: Enable reranking
+            use_pre_retrieval: Enable query transformation (HyDE, rewrite)
+            env_file: Config file path
+
+        Returns:
+            Dictionary with query, total_results, files, chunks, metadata
+        """
+        # Load config
+        config_path = PROJECT_ROOT / env_file
+        load_dotenv(str(config_path), override=True)
+        config = load_config()
+
+        # Initialize pipeline (get retrieval components)
+        pipeline = RAGPipeline(config)
+
+        # Pre-retrieval transformation (optional)
+        if use_pre_retrieval:
+            query_bundles = pipeline._pre_retrieval.transform(query_str)
+        else:
+            query_bundles = [QueryBundle(query_str=query_str)]
+
+        # Retrieve from all query variants
+        all_nodes = []
+        for qb in query_bundles:
+            nodes = pipeline._hybrid_retriever.retrieve(qb.query_str, top_k=top_k * 2)
+            all_nodes.extend(nodes)
+
+        # Deduplicate
+        unique_nodes = pipeline._deduplicate_nodes(all_nodes)
+
+        # Rerank (optional)
+        if rerank:
+            unique_nodes = pipeline._reranker.rerank(query_str, unique_nodes)
+
+        # Format results
+        return SearchService._format_results(query_str, unique_nodes[:top_k], rerank)
+
+    @staticmethod
+    def _format_results(
+        query_str: str,
+        nodes: List[NodeWithScore],
+        reranked: bool
+    ) -> Dict[str, Any]:
+        """Format nodes into SearchResponse structure.
+
+        Args:
+            query_str: Original query string
+            nodes: List of NodeWithScore objects
+            reranked: Whether reranking was applied
+
+        Returns:
+            Dictionary matching SearchResponse schema
+        """
+        # Group by file
+        file_counts: Dict[str, int] = {}
+        chunks: List[Dict[str, Any]] = []
+
+        for node in nodes:
+            source_file = node.node.metadata.get("source_file", "unknown")
+            file_counts[source_file] = file_counts.get(source_file, 0) + 1
+
+            text = node.node.text
+            chunks.append({
+                "chunk_id": node.node.node_id,
+                "heading": node.node.metadata.get("current_heading"),
+                "score": node.score,
+                "text_preview": text[:200] if len(text) > 200 else text,
+                "full_text": text,
+                "source_file": source_file,
+                "header_path": node.node.metadata.get("header_path"),
+            })
+
+        files = [{"filename": f, "chunk_count": c} for f, c in file_counts.items()]
+
+        return {
+            "query": query_str,
+            "total_results": len(chunks),
+            "files": files,
+            "chunks": chunks,
+            "metadata": {"reranked": reranked},
         }
