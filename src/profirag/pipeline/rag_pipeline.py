@@ -168,14 +168,40 @@ class RAGPipeline:
 
     def _create_index(self) -> VectorStoreIndex:
         """Create vector store index."""
-        storage_context = StorageContext.from_defaults(
-            vector_store=self._vector_store.to_llamaindex_vector_store()
-        )
-        return VectorStoreIndex.from_vector_store(
-            self._vector_store.to_llamaindex_vector_store(),
-            embed_model=self._embed_model,
-            storage_context=storage_context,
-        )
+        # Get the underlying LlamaIndex vector store
+        li_vector_store = self._vector_store.to_llamaindex_vector_store()
+
+        # Check if vector store stores text (required for from_vector_store)
+        if hasattr(li_vector_store, 'stores_text') and li_vector_store.stores_text:
+            # Use from_vector_store for stores that support text storage
+            storage_context = StorageContext.from_defaults(
+                vector_store=li_vector_store
+            )
+            return VectorStoreIndex.from_vector_store(
+                li_vector_store,
+                embed_model=self._embed_model,
+                storage_context=storage_context,
+            )
+        else:
+            # For SimpleVectorStore and similar, use existing storage context
+            # or create index directly with empty nodes
+            if hasattr(self._vector_store, '_storage_context'):
+                storage_context = self._vector_store._storage_context
+            else:
+                from llama_index.core.storage.docstore import SimpleDocumentStore
+                from llama_index.core.storage.index_store import SimpleIndexStore
+                storage_context = StorageContext.from_defaults(
+                    vector_store=li_vector_store,
+                    docstore=SimpleDocumentStore(),
+                    index_store=SimpleIndexStore(),
+                )
+
+            # Create index with empty nodes list
+            return VectorStoreIndex(
+                [],
+                storage_context=storage_context,
+                embed_model=self._embed_model,
+            )
 
     def ingest_documents(
         self,
