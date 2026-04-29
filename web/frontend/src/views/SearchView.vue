@@ -12,7 +12,7 @@
         @keyup.enter="executeSearch"
         :disabled="loading"
       />
-      <button class="btn btn-primary" @click="executeSearch" :disabled="loading || !query">
+      <button class="btn btn-primary" @click="executeSearch" :disabled="loading || !query" aria-label="执行搜索">
         {{ loading ? '检索中...' : '搜索' }}
       </button>
       <div class="search-config">
@@ -36,6 +36,9 @@
           class="file-item"
           :class="{ active: selectedFile === null }"
           @click="selectedFile = null"
+          role="button"
+          tabindex="0"
+          :aria-label="'查看全部文件'"
         >
           📁 全部文件 ({{ results.total_results }})
         </div>
@@ -45,6 +48,9 @@
           :key="file.filename"
           :class="{ active: selectedFile === file.filename }"
           @click="selectedFile = file.filename"
+          role="button"
+          tabindex="0"
+          :aria-label="'查看文件 ' + file.filename"
         >
           📄 {{ file.filename }} ({{ file.chunk_count }})
         </div>
@@ -52,7 +58,12 @@
 
       <!-- Right: Chunk Cards -->
       <div class="chunk-list">
-        <div v-if="filteredChunks.length === 0" class="empty-state">
+        <div v-if="results.metadata?.error" class="error-state">
+          <p class="error-title">检索失败</p>
+          <p class="error-message">{{ results.metadata.error }}</p>
+          <button class="btn btn-secondary" @click="results = null">清除</button>
+        </div>
+        <div v-else-if="filteredChunks.length === 0" class="empty-state">
           <p>未找到相关内容</p>
         </div>
         <div
@@ -246,7 +257,7 @@ function toggleExpand(chunkId) {
 
 .chunk-card.expanded {
   border: 2px solid var(--primary);
-  background: #eff6ff;
+  background: var(--bg-secondary);
 }
 
 .chunk-header {
@@ -261,6 +272,7 @@ function toggleExpand(chunkId) {
   color: var(--text-primary);
 }
 
+/* Score badge uses semantic colors for success/score indication */
 .score-badge {
   background: #dcfce7;
   color: #166534;
@@ -311,6 +323,29 @@ function toggleExpand(chunkId) {
   justify-content: center;
   align-items: center;
   color: var(--text-secondary);
+}
+
+.error-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: var(--danger, #dc2626);
+  text-align: center;
+  gap: 8px;
+}
+
+.error-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-message {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 400px;
 }
 
 /* Mobile responsive */
