@@ -701,6 +701,10 @@ class SearchService:
         # Initialize pipeline (get retrieval components)
         pipeline = RAGPipeline(config)
 
+        # Set reranker top_n to match requested top_k
+        if rerank and pipeline._reranker.enabled:
+            pipeline._reranker.set_top_n(top_k)
+
         # Pre-retrieval transformation (optional)
         if use_pre_retrieval:
             query_bundles = pipeline._pre_retrieval.transform(query_str)
@@ -719,8 +723,10 @@ class SearchService:
         # Rerank (optional)
         if rerank:
             unique_nodes = pipeline._reranker.rerank(query_str, unique_nodes)
+            # Deduplicate again after rerank (safety check)
+            unique_nodes = pipeline._deduplicate_nodes(unique_nodes)
 
-        # Format results
+        # Format results with final slice
         return SearchService._format_results(query_str, unique_nodes[:top_k], rerank)
 
     @staticmethod
