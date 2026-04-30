@@ -3,12 +3,13 @@
 import re
 from typing import List, Dict, Any, Optional
 from llama_index.core import VectorStoreIndex, Document, QueryBundle
+from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.llms.openai import OpenAI
 
 from ..config.settings import RAGConfig, CustomOpenAILLM
-from ..embedding import CustomOpenAIEmbedding
+from ..embedding import CustomOpenAIEmbedding, FastEmbedEmbedding
 from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
 from ..retrieval.query_transform import PreRetrievalPipeline
@@ -131,17 +132,24 @@ class RAGPipeline:
                 embed_model=self._embed_model if chunking.splitter_type == "semantic" else None,
             )
 
-    def _create_embed_model(self) -> CustomOpenAIEmbedding:
-        """Create embedding model."""
-        embed_kwargs = {
-            "model": self.config.embedding.model,
-            "api_key": self.config.embedding.api_key,
-        }
-        if self.config.embedding.dimension:
-            embed_kwargs["dimensions"] = self.config.embedding.dimension
-        if self.config.embedding.base_url:
-            embed_kwargs["api_base"] = self.config.embedding.base_url
-        return CustomOpenAIEmbedding(**embed_kwargs)
+    def _create_embed_model(self) -> BaseEmbedding:
+        """Create embedding model based on provider configuration."""
+        if self.config.embedding.provider == "fastembed":
+            return FastEmbedEmbedding(
+                model=self.config.embedding.model,
+                dimension=self.config.embedding.dimension,
+                cache_dir=self.config.embedding.cache_dir,
+            )
+        else:  # openai
+            embed_kwargs = {
+                "model": self.config.embedding.model,
+                "api_key": self.config.embedding.api_key,
+            }
+            if self.config.embedding.dimension:
+                embed_kwargs["dimensions"] = self.config.embedding.dimension
+            if self.config.embedding.base_url:
+                embed_kwargs["api_base"] = self.config.embedding.base_url
+            return CustomOpenAIEmbedding(**embed_kwargs)
 
     def _create_llm(self) -> CustomOpenAILLM:
         """Create LLM instance using custom OpenAI-compatible wrapper."""
