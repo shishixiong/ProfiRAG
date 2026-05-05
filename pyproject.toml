@@ -33,6 +33,9 @@ dependencies = [
     "tree-sitter-cpp>=0.20.0",
     "tree-sitter-go>=0.20.0",
     "fastembed>=0.2.0",
+    "fastapi>=0.136.1",
+    "uvicorn>=0.46.0",
+    "python-multipart>=0.0.27",
 ]
 
 [project.optional-dependencies]
