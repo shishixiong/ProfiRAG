@@ -31,11 +31,17 @@ ProfiRAG is an advanced RAG framework (~11,500 lines) built on LlamaIndex with t
 
 ### Embedding Providers
 
-Two embedding providers are supported:
+Three embedding providers are supported:
 - **OpenAI**: API-based embedding (default)
 - **FastEmbed**: Local embedding via `FastEmbedEmbedding` class
+- **Ollama**: Local embedding via Ollama's OpenAI-compatible API endpoint
 
-Provider selection via `PROFIRAG_EMBEDDING_PROVIDER` env var.
+Provider selection via `PROFIRAG_EMBEDDING_PROVIDER` env var (openai, fastembed, ollama).
+
+For Ollama:
+- Run `ollama serve` to start Ollama server
+- Run `ollama pull nomic-embed-text` to download embedding model
+- Set `PROFIRAG_EMBEDDING_PROVIDER=ollama` in `.env`
 
 ### Agent Tool Context
 
