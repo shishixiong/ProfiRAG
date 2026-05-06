@@ -161,7 +161,7 @@ class StorageConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     """Embedding configuration supporting OpenAI and FastEmbed providers"""
-    provider: Literal["openai", "fastembed"] = "openai"
+    provider: Literal["openai", "fastembed", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
     dimension: int = 1536
     api_key: Optional[str] = None
