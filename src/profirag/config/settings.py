@@ -41,7 +41,12 @@ class EnvSettings(BaseSettings):
     openai_llm_max_tokens: Optional[int] = None
 
     # Embedding Provider Configuration
-    profirag_embedding_provider: Literal["openai", "fastembed"] = "openai"
+    profirag_embedding_provider: Literal["openai", "fastembed", "ollama"] = "openai"
+
+    # Ollama Configuration (only used when PROFIRAG_EMBEDDING_PROVIDER=ollama)
+    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_embedding_dimension: int = 768
+    ollama_base_url: str = "http://localhost:11434/v1"
     profirag_embedding_model: str = "BAAI/bge-small-en-v1.5"
     profirag_embedding_dimension: Optional[int] = None  # Auto-detected for FastEmbed
     profirag_embedding_cache_dir: Optional[str] = None
