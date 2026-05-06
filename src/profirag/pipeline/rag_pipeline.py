@@ -140,6 +140,13 @@ class RAGPipeline:
                 dimension=self.config.embedding.dimension,
                 cache_dir=self.config.embedding.cache_dir,
             )
+        elif self.config.embedding.provider == "ollama":
+            return CustomOpenAIEmbedding(
+                model=self.config.embedding.model,
+                api_key="",  # Ollama doesn't require authentication
+                api_base=self.config.embedding.base_url,
+                dimensions=self.config.embedding.dimension,
+            )
         else:  # openai
             embed_kwargs = {
                 "model": self.config.embedding.model,
