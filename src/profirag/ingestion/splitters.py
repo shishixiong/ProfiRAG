@@ -407,7 +407,12 @@ class TextSplitter:
     - sentence: Split by sentences with overlap
     - token: Split by token count
     - semantic: Split by semantic similarity
+
+    Preserves code blocks intact during splitting.
     """
+
+    # Pattern for markdown code blocks
+    CODE_BLOCK_PATTERN = re.compile(r'```[\s\S]*?```')
 
     def __init__(
         self,
@@ -433,6 +438,44 @@ class TextSplitter:
         self.kwargs = kwargs
 
         self._splitter = self._create_splitter()
+
+    def _extract_code_blocks(self, text: str) -> tuple[str, List[tuple]]:
+        """Extract code blocks from text and return them with their positions.
+
+        Args:
+            text: Text to process
+
+        Returns:
+            Tuple of (text_with_placeholders, code_blocks)
+            - text_with_placeholders: Text with code blocks replaced by placeholders
+            - code_blocks: List of (placeholder, code_block) tuples
+        """
+        code_blocks = []
+        placeholder_index = 0
+
+        def replace_with_placeholder(match):
+            nonlocal placeholder_index
+            placeholder = f"__CODE_BLOCK_{placeholder_index}__"
+            code_blocks.append((placeholder, match.group(0)))
+            placeholder_index += 1
+            return placeholder
+
+        text_with_placeholders = self.CODE_BLOCK_PATTERN.sub(replace_with_placeholder, text)
+        return text_with_placeholders, code_blocks
+
+    def _restore_code_blocks(self, text: str, code_blocks: List[tuple]) -> str:
+        """Restore code blocks from placeholders in text.
+
+        Args:
+            text: Text with placeholders
+            code_blocks: List of (placeholder, code_block) tuples
+
+        Returns:
+            Text with code blocks restored
+        """
+        for placeholder, code in code_blocks:
+            text = text.replace(placeholder, code)
+        return text
 
     def _create_splitter(self):
         """Create appropriate splitter based on type."""
@@ -474,6 +517,8 @@ class TextSplitter:
     def split_document(self, document: Document) -> List[TextNode]:
         """Split a Document into nodes.
 
+        Preserves code blocks intact during splitting.
+
         Args:
             document: Document to split
 
@@ -486,6 +531,9 @@ class TextSplitter:
         # Extract heading chain from original text for heading metadata
         heading_chain = extract_heading_chain(document.text)
 
+        # Extract code blocks and replace with placeholders
+        text_with_placeholders, code_blocks = self._extract_code_blocks(document.text)
+
         # Create reduced metadata (without large image_map) before splitting
         # LlamaIndex splitter checks metadata length against chunk_size
         reduced_metadata = {
@@ -493,15 +541,15 @@ class TextSplitter:
             if k != "image_map"  # Skip the potentially large image_map
         }
 
-        # Temporarily modify document metadata for splitting
-        original_metadata = document.metadata.copy()
-        document.metadata = reduced_metadata
+        # Create a temporary document with placeholders for splitting
+        temp_doc = Document(text=text_with_placeholders, metadata=reduced_metadata)
 
         # Split the document with reduced metadata
-        nodes = self._splitter.get_nodes_from_documents([document])
+        nodes = self._splitter.get_nodes_from_documents([temp_doc])
 
-        # Restore original metadata to document
-        document.metadata = original_metadata
+        # Restore code blocks in each node
+        for node in nodes:
+            node.text = self._restore_code_blocks(node.text, code_blocks)
 
         # Add image-related and heading metadata to each node
         for node in nodes:
@@ -662,7 +710,11 @@ class ChineseTextSplitter:
     """Text splitter optimized for Chinese text.
 
     Handles Chinese-specific sentence boundaries and punctuation.
+    Preserves code blocks intact.
     """
+
+    # Pattern for markdown code blocks
+    CODE_BLOCK_PATTERN = re.compile(r'```[\s\S]*?```')
 
     def __init__(
         self,
@@ -680,6 +732,30 @@ class ChineseTextSplitter:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.kwargs = kwargs
+
+    def _extract_code_blocks(self, text: str) -> tuple[List[str], List[tuple]]:
+        """Extract code blocks from text and return them with their positions.
+
+        Args:
+            text: Text to process
+
+        Returns:
+            Tuple of (text_with_placeholders, code_blocks)
+            - text_with_placeholders: Text with code blocks replaced by placeholders
+            - code_blocks: List of (placeholder, code_block) tuples
+        """
+        code_blocks = []
+        placeholder_index = 0
+
+        def replace_with_placeholder(match):
+            nonlocal placeholder_index
+            placeholder = f"__CODE_BLOCK_{placeholder_index}__"
+            code_blocks.append((placeholder, match.group(0)))
+            placeholder_index += 1
+            return placeholder
+
+        text_with_placeholders = self.CODE_BLOCK_PATTERN.sub(replace_with_placeholder, text)
+        return text_with_placeholders, code_blocks
 
     def _split_sentences(self, text: str) -> List[str]:
         """Split text into Chinese sentences.
@@ -710,6 +786,8 @@ class ChineseTextSplitter:
     def split_text(self, text: str) -> List[TextNode]:
         """Split Chinese text into nodes.
 
+        Preserves code blocks intact.
+
         Args:
             text: Chinese text
 
@@ -718,25 +796,55 @@ class ChineseTextSplitter:
         """
         HARD_LIMIT = 4000
 
-        sentences = self._split_sentences(text)
+        # Extract code blocks and replace with placeholders
+        text_with_placeholders, code_blocks = self._extract_code_blocks(text)
+        code_block_map = {placeholder: code for placeholder, code in code_blocks}
+
+        sentences = self._split_sentences(text_with_placeholders)
         nodes = []
         current_chunk = ""
         # Cumulative character offset in the original text
-        # Represents the starting position of the current_chunk in original text
         offset = 0
 
         def flush_chunk(chunk: str, flush_offset: int) -> None:
             """Helper to yield a chunk with its starting position."""
             if chunk.strip():
+                # Restore code blocks from placeholders
+                restored_chunk = chunk
+                for placeholder, code in code_blocks:
+                    restored_chunk = restored_chunk.replace(placeholder, code)
                 nodes.append(
-                    TextNode(text=chunk.strip(), metadata={"_char_start": flush_offset})
+                    TextNode(text=restored_chunk.strip(), metadata={"_char_start": flush_offset})
                 )
 
         for sentence in sentences:
             sentence_len = len(sentence)
+            # Calculate actual length with code blocks restored
+            actual_sentence_len = sentence_len
+            for placeholder, code in code_blocks:
+                if placeholder in sentence:
+                    actual_sentence_len += len(code) - len(placeholder)
+
+            # Handle code blocks - they should be kept intact
+            has_code_block = any(placeholder in sentence for placeholder, _ in code_blocks)
+
+            if has_code_block:
+                # Flush current chunk first
+                if current_chunk.strip():
+                    flush_chunk(current_chunk, offset - len(current_chunk))
+                    current_chunk = ""
+
+                # Code block should be its own chunk
+                # Restore code blocks
+                restored_sentence = sentence
+                for placeholder, code in code_blocks:
+                    restored_sentence = restored_sentence.replace(placeholder, code)
+                flush_chunk(restored_sentence, offset)
+                offset += actual_sentence_len
+                continue
 
             # Handle very long sentences (exceed chunk_size or hard limit)
-            if sentence_len > self.chunk_size:
+            if actual_sentence_len > self.chunk_size:
                 # First, save current chunk if not empty
                 if current_chunk.strip():
                     flush_chunk(current_chunk, offset - len(current_chunk))
@@ -745,24 +853,24 @@ class ChineseTextSplitter:
                 # Split long sentence into smaller pieces
                 split_size = min(self.chunk_size, HARD_LIMIT)
                 piece_offset = offset
-                for i in range(0, sentence_len, split_size - self.chunk_overlap):
+                for i in range(0, actual_sentence_len, split_size - self.chunk_overlap):
                     chunk_piece = sentence[i:i + split_size]
                     if chunk_piece.strip():
                         flush_chunk(chunk_piece, piece_offset + i)
-                offset += sentence_len
+                offset += actual_sentence_len
                 continue
 
             # Check if adding sentence would exceed chunk_size
-            if len(current_chunk) + sentence_len > self.chunk_size:
+            if len(current_chunk) + actual_sentence_len > self.chunk_size:
                 if current_chunk:
                     flush_chunk(current_chunk, offset - len(current_chunk))
                 # Add overlap: keep last chunk_overlap chars of current_chunk
                 overlap = max(0, len(current_chunk) - self.chunk_overlap)
                 current_chunk = current_chunk[overlap:] + sentence
-                offset += sentence_len  # advance by new sentence
+                offset += actual_sentence_len
             else:
                 current_chunk += sentence
-                offset += sentence_len
+                offset += actual_sentence_len
 
         # Add remaining chunk
         if current_chunk.strip():

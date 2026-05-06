@@ -750,13 +750,16 @@ class SearchService:
         chunks: List[Dict[str, Any]] = []
 
         for node in nodes:
-            source_file = node.node.metadata.get("source_file", "unknown")
+            source_file = (node.node.metadata.get('source', '') or node.node.metadata.get('source_file', '')
+                   or node.node.metadata.get('source_path', ''))
+            if not source_file:
+                source_file = "unknown"
             file_counts[source_file] = file_counts.get(source_file, 0) + 1
 
             text = node.node.text
             chunks.append({
                 "chunk_id": node.node.node_id,
-                "heading": node.node.metadata.get("current_heading"),
+                "heading": node.node.metadata.get("title") or node.node.metadata.get("current_heading"),
                 "score": node.score,
                 "text_preview": text[:200] if len(text) > 200 else text,
                 "full_text": text,

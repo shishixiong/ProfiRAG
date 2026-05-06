@@ -211,7 +211,7 @@ class RAGTools:
                     continue
                 # Source file filter
                 if source_file:
-                    src = n.node.metadata.get('source_file', '') or n.node.metadata.get('source_path', '')
+                    src = n.node.metadata.get('source', '') or n.node.metadata.get('source_file', '') or n.node.metadata.get('source_path', '')
                     if source_file.lower() not in src.lower():
                         continue
                 filtered.append(n)
@@ -463,7 +463,8 @@ class RAGTools:
 
             # 截断长文本
             text_preview = text[:300] + "..." if len(text) > 300 else text
-            source = metadata.get('source_file', metadata.get('source_path', '未知来源'))
+            # 优先使用 source (wiki URL)，然后是 source_file/source_path
+            source = metadata.get('source', metadata.get('source_file', metadata.get('source_path', '未知来源')))
 
             formatted.append(f"[文档{i+1}] 相关度: {score:.3f}")
             formatted.append(f"来源: {source}")
@@ -583,7 +584,8 @@ class RAGTools:
         sources = []
         for i, n in enumerate(nodes[:5]):
             metadata = n.node.metadata if hasattr(n, 'node') else {}
-            source_file = metadata.get('source_file', metadata.get('source_path', '未知'))
+            # 优先使用 source (wiki URL)，然后是 source_file/source_path
+            source_file = metadata.get('source', metadata.get('source_file', metadata.get('source_path', '未知')))
             # 简化来源名称
             if '/' in source_file:
                 source_file = source_file.split('/')[-1]

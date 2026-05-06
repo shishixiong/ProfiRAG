@@ -1045,6 +1045,9 @@ class DocumentLoader:
         Returns:
             Document object
         """
+        import uuid
+        if doc_id is None:
+            doc_id = str(uuid.uuid4())
         return Document(
             text=text,
             metadata=metadata or {},
