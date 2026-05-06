@@ -326,9 +326,18 @@ class RAGConfig(BaseModel):
         if env_settings.profirag_embedding_provider == "fastembed":
             model = env_settings.profirag_embedding_model
             dimension = env_settings.profirag_embedding_dimension or FASTEMBED_MODEL_DIMENSIONS.get(model, 768)
-        else:
+            api_key = None
+            base_url = None
+        elif env_settings.profirag_embedding_provider == "ollama":
+            model = env_settings.ollama_embedding_model
+            dimension = env_settings.ollama_embedding_dimension
+            api_key = None  # Ollama doesn't require authentication
+            base_url = env_settings.ollama_base_url
+        else:  # openai
             model = env_settings.openai_embedding_model
             dimension = env_settings.openai_embedding_dimension
+            api_key = env_settings.openai_embedding_api_key or env_settings.openai_api_key
+            base_url = env_settings.openai_embedding_base_url or env_settings.openai_base_url
 
         return cls(
             storage=StorageConfig(type=storage_type, config=storage_config),
@@ -336,8 +345,8 @@ class RAGConfig(BaseModel):
                 provider=env_settings.profirag_embedding_provider,
                 model=model,
                 dimension=dimension,
-                api_key=env_settings.openai_embedding_api_key or env_settings.openai_api_key if env_settings.profirag_embedding_provider == "openai" else None,
-                base_url=env_settings.openai_embedding_base_url or env_settings.openai_base_url if env_settings.profirag_embedding_provider == "openai" else None,
+                api_key=api_key,
+                base_url=base_url,
                 cache_dir=env_settings.profirag_embedding_cache_dir,
             ),
             llm=LLMConfig(
