@@ -1,25 +1,23 @@
 """Retrieval evaluation module"""
 
-import asyncio
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.evaluation import RetrieverEvaluator
 from llama_index.core.evaluation.retrieval.base import (
-    RetrievalEvalResult,
     RetrievalEvalMode,
+    RetrievalEvalResult,
 )
 from llama_index.core.evaluation.retrieval.metrics import (
-    HitRate,
     MRR,
-    Precision,
-    Recall,
     NDCG,
     AveragePrecision,
+    HitRate,
+    Precision,
+    Recall,
 )
 
 from .dataset import EvalDataset
-
 
 # Available retrieval metrics
 AVAILABLE_RETRIEVAL_METRICS = {
@@ -52,8 +50,8 @@ class RetrievalEvaluator:
     def __init__(
         self,
         retriever: BaseRetriever,
-        metrics: List[str] = ["hit_rate", "mrr", "precision", "recall"],
-        node_postprocessors: Optional[List[Any]] = None,
+        metrics: list[str] = ["hit_rate", "mrr", "precision", "recall"],
+        node_postprocessors: list[Any] | None = None,
     ):
         """Initialize retrieval evaluator.
 
@@ -84,8 +82,8 @@ class RetrievalEvaluator:
     def evaluate(
         self,
         query: str,
-        expected_ids: List[str],
-        expected_texts: Optional[List[str]] = None,
+        expected_ids: list[str],
+        expected_texts: list[str] | None = None,
     ) -> RetrievalEvalResult:
         """Evaluate retrieval for a single query.
 
@@ -107,8 +105,8 @@ class RetrievalEvaluator:
     async def aevaluate(
         self,
         query: str,
-        expected_ids: List[str],
-        expected_texts: Optional[List[str]] = None,
+        expected_ids: list[str],
+        expected_texts: list[str] | None = None,
     ) -> RetrievalEvalResult:
         """Async evaluate retrieval for a single query.
 
@@ -129,12 +127,12 @@ class RetrievalEvaluator:
 
     def evaluate_batch(
         self,
-        queries: List[str],
-        expected_ids_list: List[List[str]],
-        expected_texts_list: Optional[List[List[str]]] = None,
+        queries: list[str],
+        expected_ids_list: list[list[str]],
+        expected_texts_list: list[list[str]] | None = None,
         workers: int = 2,
         show_progress: bool = False,
-    ) -> List[RetrievalEvalResult]:
+    ) -> list[RetrievalEvalResult]:
         """Evaluate retrieval for multiple queries.
 
         Args:
@@ -152,6 +150,7 @@ class RetrievalEvaluator:
 
         # Use synchronous evaluation to avoid async client issues
         from tqdm import tqdm
+
         iterator = tqdm(range(total), desc="Evaluating", disable=not show_progress)
 
         for i in iterator:
@@ -173,7 +172,7 @@ class RetrievalEvaluator:
         dataset: EvalDataset,
         workers: int = 2,
         show_progress: bool = False,
-    ) -> List[RetrievalEvalResult]:
+    ) -> list[RetrievalEvalResult]:
         """Evaluate retrieval using EvalDataset.
 
         Args:
@@ -193,8 +192,8 @@ class RetrievalEvaluator:
 
     def get_metrics_summary(
         self,
-        results: List[RetrievalEvalResult],
-    ) -> Dict[str, float]:
+        results: list[RetrievalEvalResult],
+    ) -> dict[str, float]:
         """Compute average metrics from results.
 
         Args:
@@ -214,13 +213,13 @@ class RetrievalEvaluator:
         return summary
 
     @classmethod
-    def get_available_metrics(cls) -> List[str]:
+    def get_available_metrics(cls) -> list[str]:
         """Get list of available metric names."""
         return list(AVAILABLE_RETRIEVAL_METRICS.keys())
 
 
 def get_retrieval_results_df(
-    results: List[RetrievalEvalResult],
+    results: list[RetrievalEvalResult],
 ) -> Any:
     """Convert retrieval results to pandas DataFrame.
 
@@ -231,4 +230,5 @@ def get_retrieval_results_df(
         pandas DataFrame with query and metrics columns
     """
     from llama_index.core.evaluation import get_retrieval_results_df as _get_df
+
     return _get_df(results)

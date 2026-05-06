@@ -1,11 +1,10 @@
 """Unit tests for FastEmbedEmbedding class"""
 
+from unittest.mock import Mock, patch
+
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, MagicMock
 
 from profirag.embedding import FastEmbedEmbedding
-from profirag.config.settings import FASTEMBED_MODEL_DIMENSIONS
 
 
 class TestFastEmbedEmbeddingInit:
@@ -42,7 +41,7 @@ class TestFastEmbedEmbeddingInit:
 class TestFastEmbedEmbeddingLoadModel:
     """Tests for model loading"""
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_load_model_success(self, mock_text_embedding):
         """Test successful model loading"""
         mock_instance = Mock()
@@ -55,12 +54,11 @@ class TestFastEmbedEmbeddingLoadModel:
         model = embedding._load_model()
 
         mock_text_embedding.assert_called_once_with(
-            model_name="BAAI/bge-small-en-v1.5",
-            cache_dir=None
+            model_name="BAAI/bge-small-en-v1.5", cache_dir=None
         )
         assert model == mock_instance
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_load_model_cached(self, mock_text_embedding):
         """Test that model is cached after first load"""
         mock_instance = Mock()
@@ -86,20 +84,22 @@ class TestFastEmbedEmbeddingLoadModel:
             dimension=384,
         )
 
-        with patch.dict('sys.modules', {'fastembed': None}):
+        with patch.dict("sys.modules", {"fastembed": None}):
             with pytest.raises(ImportError) as exc_info:
                 embedding._load_model()
 
             assert "fastembed package not installed" in str(exc_info.value)
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_load_model_invalid_model(self, mock_text_embedding):
         """Test error for invalid model name"""
         mock_text_embedding.side_effect = ValueError("Invalid model")
-        mock_text_embedding.list_supported_models = Mock(return_value=[
-            {"model": "BAAI/bge-small-en-v1.5"},
-            {"model": "BAAI/bge-base-en-v1.5"},
-        ])
+        mock_text_embedding.list_supported_models = Mock(
+            return_value=[
+                {"model": "BAAI/bge-small-en-v1.5"},
+                {"model": "BAAI/bge-base-en-v1.5"},
+            ]
+        )
 
         embedding = FastEmbedEmbedding(
             model="invalid-model-name",
@@ -112,7 +112,7 @@ class TestFastEmbedEmbeddingLoadModel:
         assert "Invalid FastEmbed model" in str(exc_info.value)
         assert "invalid-model-name" in str(exc_info.value)
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_load_model_runtime_error(self, mock_text_embedding):
         """Test error for unexpected model loading failure"""
         mock_text_embedding.side_effect = RuntimeError("Network error")
@@ -131,7 +131,7 @@ class TestFastEmbedEmbeddingLoadModel:
 class TestFastEmbedEmbeddingMethods:
     """Tests for embedding methods"""
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_embedding_single(self, mock_text_embedding):
         """Test single text embedding"""
         mock_instance = Mock()
@@ -160,7 +160,7 @@ class TestFastEmbedEmbeddingMethods:
         assert len(result) == 384
         assert result == [0.0] * 384
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_embeddings_batch(self, mock_text_embedding):
         """Test batch embedding for multiple texts"""
         mock_instance = Mock()
@@ -182,7 +182,7 @@ class TestFastEmbedEmbeddingMethods:
         assert result[0] == [0.1] * 384
         assert result[1] == [0.2] * 384
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_embeddings_with_empty_texts(self, mock_text_embedding):
         """Test batch embedding handles empty texts with zero vectors"""
         mock_instance = Mock()
@@ -203,7 +203,7 @@ class TestFastEmbedEmbeddingMethods:
         # Empty text should have zero vector
         assert result[1] == [0.0] * 384
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_query_embedding(self, mock_text_embedding):
         """Test _get_query_embedding method"""
         mock_instance = Mock()
@@ -220,7 +220,7 @@ class TestFastEmbedEmbeddingMethods:
 
         assert len(result) == 384
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_text_embedding(self, mock_text_embedding):
         """Test _get_text_embedding method"""
         mock_instance = Mock()
@@ -237,7 +237,7 @@ class TestFastEmbedEmbeddingMethods:
 
         assert len(result) == 384
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_get_text_embeddings(self, mock_text_embedding):
         """Test _get_text_embeddings batch method"""
         mock_instance = Mock()
@@ -261,7 +261,7 @@ class TestFastEmbedEmbeddingAsync:
     """Tests for async embedding methods"""
 
     @pytest.mark.asyncio
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     async def test_aget_query_embedding(self, mock_text_embedding):
         """Test async _aget_query_embedding method"""
         mock_instance = Mock()
@@ -279,7 +279,7 @@ class TestFastEmbedEmbeddingAsync:
         assert len(result) == 384
 
     @pytest.mark.asyncio
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     async def test_aget_text_embedding(self, mock_text_embedding):
         """Test async _aget_text_embedding method"""
         mock_instance = Mock()
@@ -297,7 +297,7 @@ class TestFastEmbedEmbeddingAsync:
         assert len(result) == 384
 
     @pytest.mark.asyncio
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     async def test_aget_text_embeddings(self, mock_text_embedding):
         """Test async _aget_text_embeddings batch method"""
         mock_instance = Mock()
@@ -320,7 +320,7 @@ class TestFastEmbedEmbeddingAsync:
 class TestFastEmbedEmbeddingErrorHandling:
     """Tests for error handling"""
 
-    @patch('fastembed.TextEmbedding')
+    @patch("fastembed.TextEmbedding")
     def test_embedding_runtime_error(self, mock_text_embedding):
         """Test error handling when embedding fails"""
         mock_instance = Mock()

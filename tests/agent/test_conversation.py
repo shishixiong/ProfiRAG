@@ -1,13 +1,13 @@
 """Tests for ConversationManager and related models."""
 
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any
 from unittest.mock import MagicMock
 
 from profirag.agent.conversation import (
-    ConversationTurn,
-    ConversationState,
     ConversationManager,
+    ConversationState,
+    ConversationTurn,
 )
 
 
@@ -60,19 +60,22 @@ def test_conversation_state_needs_summarization():
     )
     # Add 7 turns
     for i in range(7):
-        state.turns.append(ConversationTurn(
-            query=f"query{i}",
-            response=f"response{i}",
-            timestamp=datetime.now(),
-            mode="react",
-        ))
+        state.turns.append(
+            ConversationTurn(
+                query=f"query{i}",
+                response=f"response{i}",
+                timestamp=datetime.now(),
+                mode="react",
+            )
+        )
     assert state.needs_summarization(6) is True
     assert state.needs_summarization(10) is False
 
 
 class MockAgent:
     """Mock agent for testing."""
-    def query(self, question: str, **kwargs) -> Dict[str, Any]:
+
+    def query(self, question: str, **kwargs) -> dict[str, Any]:
         return {
             "response": f"Mock response for: {question}",
             "question": question,
@@ -99,12 +102,14 @@ def test_conversation_manager_reset():
     mock_agent = MockAgent()
     mock_llm = MagicMock()
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
-    manager.state.turns.append(ConversationTurn(
-        query="test",
-        response="result",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="test",
+            response="result",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
     manager.reset()
     assert manager.state.turns == []
     assert manager.state.summary == ""
@@ -115,12 +120,14 @@ def test_conversation_manager_get_history():
     mock_agent = MockAgent()
     mock_llm = MagicMock()
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
-    manager.state.turns.append(ConversationTurn(
-        query="q1",
-        response="r1",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="q1",
+            response="r1",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
     history = manager.get_history()
     assert len(history) == 1
     assert history[0].query == "q1"
@@ -244,12 +251,14 @@ def test_enrich_query_with_recent_turns():
     mock_llm = MagicMock()
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
     manager.state.summary = "讨论了向量数据库配置"
-    manager.state.turns.append(ConversationTurn(
-        query="什么是Qdrant?",
-        response="Qdrant是一个向量数据库",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="什么是Qdrant?",
+            response="Qdrant是一个向量数据库",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
 
     result = manager._enrich_query(
         query="基于上面的回答，如何配置?",
@@ -292,16 +301,20 @@ def test_should_inject_context_with_llm_needs():
     """Test LLM decides context needed."""
     mock_agent = MockAgent()
     mock_llm = MagicMock()
-    mock_llm.complete.return_value.text = '{"needs_context": true, "reason": "问题涉及之前讨论的概念"}'
+    mock_llm.complete.return_value.text = (
+        '{"needs_context": true, "reason": "问题涉及之前讨论的概念"}'
+    )
 
     manager = ConversationManager(agent=mock_agent, llm=mock_llm, enable_auto_context=True)
     manager.state.summary = "讨论了Qdrant配置"
-    manager.state.turns.append(ConversationTurn(
-        query="Qdrant如何配置?",
-        response="Qdrant配置需要...",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="Qdrant如何配置?",
+            response="Qdrant配置需要...",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
 
     needs = manager._should_inject_context_llm("它的主要参数是什么?")
     assert needs is True
@@ -350,14 +363,22 @@ def test_summarize_history():
     """Test history summarization with LLM."""
     mock_agent = MockAgent()
     mock_llm = MagicMock()
-    mock_llm.complete.return_value.text = "用户询问了Qdrant配置、混合检索原理。讨论了向量数据库、BM25等概念。"
+    mock_llm.complete.return_value.text = (
+        "用户询问了Qdrant配置、混合检索原理。讨论了向量数据库、BM25等概念。"
+    )
 
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
 
     turns = [
-        ConversationTurn(query="Qdrant如何配置?", response="...", timestamp=datetime.now(), mode="react"),
-        ConversationTurn(query="混合检索是什么?", response="...", timestamp=datetime.now(), mode="react"),
-        ConversationTurn(query="BM25怎么用?", response="...", timestamp=datetime.now(), mode="react"),
+        ConversationTurn(
+            query="Qdrant如何配置?", response="...", timestamp=datetime.now(), mode="react"
+        ),
+        ConversationTurn(
+            query="混合检索是什么?", response="...", timestamp=datetime.now(), mode="react"
+        ),
+        ConversationTurn(
+            query="BM25怎么用?", response="...", timestamp=datetime.now(), mode="react"
+        ),
     ]
 
     summary = manager._summarize_history(turns)
@@ -380,16 +401,20 @@ def test_trigger_summarization():
     mock_llm = MagicMock()
     mock_llm.complete.return_value.text = "用户询问了多个问题。"
 
-    manager = ConversationManager(agent=mock_agent, llm=mock_llm, max_history_turns=3, keep_recent_turns=1)
+    manager = ConversationManager(
+        agent=mock_agent, llm=mock_llm, max_history_turns=3, keep_recent_turns=1
+    )
 
     # Add turns exceeding threshold
     for i in range(5):
-        manager.state.turns.append(ConversationTurn(
-            query=f"query{i}",
-            response=f"response{i}",
-            timestamp=datetime.now(),
-            mode="react",
-        ))
+        manager.state.turns.append(
+            ConversationTurn(
+                query=f"query{i}",
+                response=f"response{i}",
+                timestamp=datetime.now(),
+                mode="react",
+            )
+        )
 
     manager._maybe_summarize()
 
@@ -419,12 +444,14 @@ def test_query_with_explicit_reference():
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
 
     # Add first turn
-    manager.state.turns.append(ConversationTurn(
-        query="什么是Qdrant?",
-        response="Qdrant是向量数据库",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="什么是Qdrant?",
+            response="Qdrant是向量数据库",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
     manager.state.summary = "讨论了向量数据库"
 
     # Query with explicit reference
@@ -443,12 +470,14 @@ def test_query_without_reference_no_enrichment():
     manager = ConversationManager(agent=mock_agent, llm=mock_llm)
 
     # Add first turn
-    manager.state.turns.append(ConversationTurn(
-        query="什么是Qdrant?",
-        response="Qdrant是向量数据库",
-        timestamp=datetime.now(),
-        mode="react",
-    ))
+    manager.state.turns.append(
+        ConversationTurn(
+            query="什么是Qdrant?",
+            response="Qdrant是向量数据库",
+            timestamp=datetime.now(),
+            mode="react",
+        )
+    )
 
     # Independent query
     result = manager.query("什么是PostgreSQL?")
@@ -465,12 +494,14 @@ def test_query_triggers_summarization():
 
     # Add turns up to threshold
     for i in range(3):
-        manager.state.turns.append(ConversationTurn(
-            query=f"q{i}",
-            response=f"r{i}",
-            timestamp=datetime.now(),
-            mode="react",
-        ))
+        manager.state.turns.append(
+            ConversationTurn(
+                query=f"q{i}",
+                response=f"r{i}",
+                timestamp=datetime.now(),
+                mode="react",
+            )
+        )
 
     # This query should trigger summarization
     manager.query("新问题")

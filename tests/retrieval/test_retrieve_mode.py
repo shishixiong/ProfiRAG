@@ -1,7 +1,8 @@
 """Tests for retrieve_mode in HybridRetriever"""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from llama_index.core.vector_stores.types import VectorStoreQueryMode
 
 from profirag.retrieval.hybrid import HybridRetriever

@@ -1,24 +1,23 @@
 """Main RAG pipeline integrating all components"""
 
-import re
-from typing import List, Dict, Any, Optional
-from llama_index.core import VectorStoreIndex, Document, QueryBundle
+from typing import Any
+
+from llama_index.core import Document, QueryBundle, VectorStoreIndex
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
-from llama_index.llms.openai import OpenAI
 
-from ..config.settings import RAGConfig, CustomOpenAILLM
+from ..agent import AgentFactory, ConversationManager, RAGReActAgent
+from ..config.settings import CustomOpenAILLM, RAGConfig
 from ..embedding import CustomOpenAIEmbedding, FastEmbedEmbedding
-from ..storage.registry import StorageRegistry
-from ..storage.base import BaseVectorStore
-from ..retrieval.query_transform import PreRetrievalPipeline
+from ..generation.synthesizer import ResponseFormatter, ResponseSynthesizer
+from ..ingestion.image_processor import ImageProcessor, ImageResult
+from ..ingestion.splitters import ChineseTextSplitter, TextSplitter
 from ..retrieval.hybrid import HybridRetriever
+from ..retrieval.query_transform import PreRetrievalPipeline
 from ..retrieval.reranker import Reranker
-from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
-from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
-from ..ingestion.image_processor import ImageProcessor, ImageResult, RetrievalResult
-from ..agent import RAGReActAgent, RAGTools, AgentFactory, ConversationManager
+from ..storage.base import BaseVectorStore
+from ..storage.registry import StorageRegistry
 
 
 class RAGPipeline:
@@ -33,11 +32,7 @@ class RAGPipeline:
     Supports multiple vector store backends through storage abstraction.
     """
 
-    def __init__(
-        self,
-        config: RAGConfig,
-        **kwargs
-    ):
+    def __init__(self, config: RAGConfig, **kwargs):
         """Initialize RAG pipeline.
 
         Args:
@@ -66,7 +61,7 @@ class RAGPipeline:
                 "use_hyde": config.pre_retrieval.use_hyde,
                 "use_rewrite": config.pre_retrieval.use_rewrite,
                 "multi_query": config.pre_retrieval.multi_query,
-            }
+            },
         )
 
         self._hybrid_retriever = HybridRetriever(
@@ -88,7 +83,7 @@ class RAGPipeline:
         self._splitter = self._create_splitter()
 
         # Initialize image processor if enabled
-        self._image_processor: Optional[ImageProcessor] = None
+        self._image_processor: ImageProcessor | None = None
         if config.image_processing.enabled:
             self._image_processor = ImageProcessor(
                 api_key=config.image_processing.minimax_api_key,
@@ -99,8 +94,8 @@ class RAGPipeline:
             )
 
         # Initialize Agents if enabled (lazy initialization)
-        self._agent: Optional[RAGReActAgent] = None
-        self._plan_agent: Optional[Any] = None  # RAGPlanAgent
+        self._agent: RAGReActAgent | None = None
+        self._plan_agent: Any | None = None  # RAGPlanAgent
         self._agent_config = config.agent
 
     def _create_splitter(self):
@@ -108,6 +103,7 @@ class RAGPipeline:
         chunking = self.config.chunking
         if chunking.splitter_type == "ast":
             from profirag.ingestion.ast_splitter import ASTSplitter
+
             return ASTSplitter(
                 chunk_size=chunking.chunk_size,
                 chunk_overlap=chunking.chunk_overlap,
@@ -115,6 +111,7 @@ class RAGPipeline:
             )
         elif chunking.splitter_type == "markdown":
             from profirag.ingestion.splitters import MarkdownSplitter
+
             return MarkdownSplitter(
                 chunk_size=chunking.chunk_size,
                 chunk_overlap=chunking.chunk_overlap,
@@ -176,10 +173,7 @@ class RAGPipeline:
 
     def _create_vector_store(self) -> BaseVectorStore:
         """Create vector store based on configuration."""
-        return StorageRegistry.get_store(
-            self.config.storage.type,
-            self.config.storage.config
-        )
+        return StorageRegistry.get_store(self.config.storage.type, self.config.storage.config)
 
     def _create_index(self) -> VectorStoreIndex:
         """Create vector store index."""
@@ -187,11 +181,9 @@ class RAGPipeline:
         li_vector_store = self._vector_store.to_llamaindex_vector_store()
 
         # Check if vector store stores text (required for from_vector_store)
-        if hasattr(li_vector_store, 'stores_text') and li_vector_store.stores_text:
+        if hasattr(li_vector_store, "stores_text") and li_vector_store.stores_text:
             # Use from_vector_store for stores that support text storage
-            storage_context = StorageContext.from_defaults(
-                vector_store=li_vector_store
-            )
+            storage_context = StorageContext.from_defaults(vector_store=li_vector_store)
             return VectorStoreIndex.from_vector_store(
                 li_vector_store,
                 embed_model=self._embed_model,
@@ -200,11 +192,12 @@ class RAGPipeline:
         else:
             # For SimpleVectorStore and similar, use existing storage context
             # or create index directly with empty nodes
-            if hasattr(self._vector_store, '_storage_context'):
+            if hasattr(self._vector_store, "_storage_context"):
                 storage_context = self._vector_store._storage_context
             else:
                 from llama_index.core.storage.docstore import SimpleDocumentStore
                 from llama_index.core.storage.index_store import SimpleIndexStore
+
                 storage_context = StorageContext.from_defaults(
                     vector_store=li_vector_store,
                     docstore=SimpleDocumentStore(),
@@ -220,11 +213,11 @@ class RAGPipeline:
 
     def ingest_documents(
         self,
-        documents: List[Document],
+        documents: list[Document],
         use_custom_splitter: bool = True,
         process_images: bool = True,
-        **kwargs
-    ) -> Dict[str, Any]:
+        **kwargs,
+    ) -> dict[str, Any]:
         """Ingest documents into the vector store.
 
         Args:
@@ -283,11 +276,7 @@ class RAGPipeline:
             "image_node_ids": image_node_ids,
         }
 
-    def ingest_nodes(
-        self,
-        nodes: List[TextNode],
-        **kwargs
-    ) -> List[str]:
+    def ingest_nodes(self, nodes: list[TextNode], **kwargs) -> list[str]:
         """Ingest nodes directly into the vector store.
 
         Nodes will be automatically embedded using the configured embedding model.
@@ -305,12 +294,7 @@ class RAGPipeline:
 
         return node_ids
 
-    def query(
-        self,
-        query_str: str,
-        top_k: int = 10,
-        **kwargs
-    ) -> Dict[str, Any]:
+    def query(self, query_str: str, top_k: int = 10, **kwargs) -> dict[str, Any]:
         """Execute RAG query and return response.
 
         Args:
@@ -338,16 +322,12 @@ class RAGPipeline:
                 "total_nodes_retrieved": len(all_nodes),
                 "unique_nodes": len(unique_nodes),
                 "nodes_after_reranking": len(reranked_nodes),
-            }
+            },
         }
 
     def query_with_images(
-        self,
-        query_str: str,
-        top_k: int = 10,
-        include_images: bool = True,
-        **kwargs
-    ) -> Dict[str, Any]:
+        self, query_str: str, top_k: int = 10, include_images: bool = True, **kwargs
+    ) -> dict[str, Any]:
         """Execute RAG query and return response with associated images.
 
         Args:
@@ -377,10 +357,10 @@ class RAGPipeline:
 
     def _retrieve(
         self,
-        query_bundles: List["QueryBundle"],
+        query_bundles: list["QueryBundle"],
         top_k: int,
         include_images: bool = False,
-    ) -> tuple[List[NodeWithScore], List[ImageResult]]:
+    ) -> tuple[list[NodeWithScore], list[ImageResult]]:
         """Retrieve nodes (and optionally images) for query bundles.
 
         Args:
@@ -391,8 +371,8 @@ class RAGPipeline:
         Returns:
             Tuple of (text_nodes, images)
         """
-        all_nodes: List[NodeWithScore] = []
-        all_images: List[ImageResult] = []
+        all_nodes: list[NodeWithScore] = []
+        all_images: list[ImageResult] = []
 
         for qb in query_bundles:
             if include_images:
@@ -409,7 +389,7 @@ class RAGPipeline:
 
         return all_nodes, all_images
 
-    def _deduplicate_images(self, images: List[ImageResult]) -> List[ImageResult]:
+    def _deduplicate_images(self, images: list[ImageResult]) -> list[ImageResult]:
         """Remove duplicate images based on image_path.
 
         Args:
@@ -421,7 +401,7 @@ class RAGPipeline:
         if not images:
             return []
 
-        path_to_image: Dict[str, ImageResult] = {}
+        path_to_image: dict[str, ImageResult] = {}
         for img in images:
             path = img.image_path
             if path not in path_to_image or img.score > path_to_image[path].score:
@@ -429,12 +409,7 @@ class RAGPipeline:
 
         return list(path_to_image.values())
 
-    def query_stream(
-        self,
-        query_str: str,
-        top_k: int = 10,
-        **kwargs
-    ):
+    def query_stream(self, query_str: str, top_k: int = 10, **kwargs):
         """Execute RAG query with streaming response.
 
         Args:
@@ -455,12 +430,8 @@ class RAGPipeline:
             yield chunk
 
     def query_with_agent(
-        self,
-        query_str: str,
-        mode: Optional[str] = None,
-        auto_approve: bool = False,
-        **kwargs
-    ) -> Dict[str, Any]:
+        self, query_str: str, mode: str | None = None, auto_approve: bool = False, **kwargs
+    ) -> dict[str, Any]:
         """Execute query using Agent or Pipeline mode.
 
         Args:
@@ -550,11 +521,8 @@ class RAGPipeline:
         )
 
     def query_with_conversation(
-        self,
-        question: str,
-        conversation_manager: ConversationManager,
-        **kwargs
-    ) -> Dict[str, Any]:
+        self, question: str, conversation_manager: ConversationManager, **kwargs
+    ) -> dict[str, Any]:
         """Query using conversation manager.
 
         Args:
@@ -567,7 +535,7 @@ class RAGPipeline:
         """
         return conversation_manager.query(question, **kwargs)
 
-    def _deduplicate_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
+    def _deduplicate_nodes(self, nodes: list[NodeWithScore]) -> list[NodeWithScore]:
         """Remove duplicate nodes based on node_id.
 
         Args:
@@ -577,7 +545,7 @@ class RAGPipeline:
             Deduplicated list
         """
         seen_ids: set = set()
-        unique: List[NodeWithScore] = []
+        unique: list[NodeWithScore] = []
 
         for node in nodes:
             if node.node.node_id not in seen_ids:
@@ -601,7 +569,7 @@ class RAGPipeline:
         """Clear all data from the pipeline."""
         self._vector_store.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get pipeline statistics.
 
         Returns:
@@ -639,7 +607,7 @@ class RAGPipeline:
         return cls(config)
 
     @classmethod
-    def from_env(cls, env_file: Optional[str] = None) -> "RAGPipeline":
+    def from_env(cls, env_file: str | None = None) -> "RAGPipeline":
         """Create pipeline from .env file and environment variables.
 
         Args:

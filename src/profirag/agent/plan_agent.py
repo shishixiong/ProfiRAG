@@ -3,14 +3,14 @@
 import json
 import re
 import time
+from collections.abc import Callable
 from enum import Enum
-from typing import List, Dict, Any, Optional, Callable
+from typing import Any
 
-from pydantic import BaseModel, Field
 from llama_index.core.tools import FunctionTool
+from pydantic import BaseModel, Field
 
 from .tools import RAGTools
-
 
 # Prompts for plan generation
 COMPLEXITY_ANALYSIS_PROMPT = """分析用户问题复杂度，制定最优检索和回答计划。
@@ -70,6 +70,7 @@ MODIFY_PLAN_PROMPT = """根据用户反馈修改执行计划。
 
 class StepStatus(str, Enum):
     """Execution step status"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -78,6 +79,7 @@ class StepStatus(str, Enum):
 
 class PlanComplexity(str, Enum):
     """Plan complexity level"""
+
     SIMPLE = "simple"
     MEDIUM = "medium"
     COMPLEX = "complex"
@@ -85,18 +87,20 @@ class PlanComplexity(str, Enum):
 
 class PlanStep(BaseModel):
     """Single step in execution plan"""
+
     tool_name: str
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     expected_output: str = ""
-    depends_on: Optional[int] = None
+    depends_on: int | None = None
     status: StepStatus = StepStatus.PENDING
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
 
 
 class ExecutionPlan(BaseModel):
     """Complete execution plan"""
-    steps: List[PlanStep]
+
+    steps: list[PlanStep]
     reasoning: str
     complexity: PlanComplexity = PlanComplexity.MEDIUM
     requires_approval: bool = True
@@ -104,30 +108,33 @@ class ExecutionPlan(BaseModel):
 
 class StepResult(BaseModel):
     """Result of a single step execution"""
+
     step_index: int
     tool_name: str
-    input_params: Dict[str, Any]
+    input_params: dict[str, Any]
     output: str
     success: bool
-    error: Optional[str] = None
-    duration_ms: Optional[int] = None
+    error: str | None = None
+    duration_ms: int | None = None
 
 
 class PlanExecutionResult(BaseModel):
     """Complete execution result"""
+
     plan: ExecutionPlan
-    step_results: List[StepResult]
+    step_results: list[StepResult]
     replan_count: int = 0
     final_answer: str = ""
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class PlanApproval(BaseModel):
     """User approval response"""
+
     approved: bool
-    modified_plan: Optional[ExecutionPlan] = None
-    feedback: Optional[str] = None
+    modified_plan: ExecutionPlan | None = None
+    feedback: str | None = None
 
 
 class PlanGenerator:
@@ -136,17 +143,17 @@ class PlanGenerator:
     def __init__(self, llm: Any):
         self.llm = llm
 
-    def generate_plan(self, query_str: str, available_tools: List[str]) -> ExecutionPlan:
+    def generate_plan(self, query_str: str, available_tools: list[str]) -> ExecutionPlan:
         """Generate plan with complexity analysis"""
         prompt = COMPLEXITY_ANALYSIS_PROMPT.format(query_str=query_str)
         response = self.llm.complete(prompt)
         plan_dict = self._parse_plan_response(response.text, available_tools)
         return ExecutionPlan(**plan_dict)
 
-    def _parse_plan_response(self, response_text: str, available_tools: List[str]) -> Dict:
+    def _parse_plan_response(self, response_text: str, available_tools: list[str]) -> dict:
         """Parse JSON from LLM response"""
         # Extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        json_match = re.search(r"\{[\s\S]*\}", response_text)
         if json_match:
             try:
                 plan_dict = json.loads(json_match.group())
@@ -173,7 +180,7 @@ class PlanGenerator:
             "steps": [{"tool_name": "retrieve_and_answer", "parameters": {"mode": "default"}}],
             "reasoning": "解析失败，使用默认计划",
             "complexity": "medium",
-            "requires_approval": False
+            "requires_approval": False,
         }
 
     def replan_after_failure(
@@ -181,8 +188,8 @@ class PlanGenerator:
         original_plan: ExecutionPlan,
         failed_step_index: int,
         error: str,
-        context: Dict[str, Any],
-        available_tools: List[str]
+        context: dict[str, Any],
+        available_tools: list[str],
     ) -> ExecutionPlan:
         """Generate new plan after step failure"""
         context_summary = {}
@@ -197,18 +204,19 @@ class PlanGenerator:
             original_plan_json=original_plan.model_dump_json(),
             failed_tool_name=original_plan.steps[failed_step_index].tool_name,
             error_message=error,
-            context_summary=json.dumps(context_summary, ensure_ascii=False)
+            context_summary=json.dumps(context_summary, ensure_ascii=False),
         )
 
         response = self.llm.complete(prompt)
         plan_dict = self._parse_plan_response(response.text, available_tools)
         return ExecutionPlan(**plan_dict)
 
-    def modify_plan(self, plan: ExecutionPlan, modification: str, available_tools: List[str]) -> ExecutionPlan:
+    def modify_plan(
+        self, plan: ExecutionPlan, modification: str, available_tools: list[str]
+    ) -> ExecutionPlan:
         """Modify plan based on user feedback"""
         prompt = MODIFY_PLAN_PROMPT.format(
-            plan_json=plan.model_dump_json(),
-            modification=modification
+            plan_json=plan.model_dump_json(), modification=modification
         )
 
         response = self.llm.complete(prompt)
@@ -221,11 +229,11 @@ class PlanExecutor:
 
     def __init__(
         self,
-        tools: Dict[str, FunctionTool],
+        tools: dict[str, FunctionTool],
         plan_generator: PlanGenerator,
-        available_tools: List[str],
+        available_tools: list[str],
         verbose: bool = True,
-        logger: Optional[Callable] = None
+        logger: Callable | None = None,
     ):
         self.tools = tools
         self.plan_generator = plan_generator
@@ -233,16 +241,12 @@ class PlanExecutor:
         self.verbose = verbose
         self.logger = logger or print
 
-    def execute(
-        self,
-        plan: ExecutionPlan,
-        max_replan: int = 3
-    ) -> PlanExecutionResult:
+    def execute(self, plan: ExecutionPlan, max_replan: int = 3) -> PlanExecutionResult:
         """Execute plan with failure handling and replanning"""
         replan_count = 0
         current_plan = plan
-        all_results: List[StepResult] = []
-        context: Dict[str, Any] = {}
+        all_results: list[StepResult] = []
+        context: dict[str, Any] = {}
 
         while replan_count <= max_replan:
             # Execute steps
@@ -255,11 +259,11 @@ class PlanExecutor:
                     plan=current_plan,
                     step_results=all_results,
                     replan_count=replan_count,
-                    success=True
+                    success=True,
                 )
 
             # Handle failure
-            all_results.extend(step_results[:failed_step.step_index + 1])
+            all_results.extend(step_results[: failed_step.step_index + 1])
 
             if replan_count < max_replan:
                 self.logger(f"\n⚠️ 步骤 {failed_step.step_index + 1} 失败，正在重新规划...")
@@ -268,7 +272,7 @@ class PlanExecutor:
                     failed_step.step_index,
                     failed_step.error or "Unknown error",
                     context,
-                    self.available_tools
+                    self.available_tools,
                 )
                 replan_count += 1
                 self.logger(f"🔄 新计划 (重规划 #{replan_count}):")
@@ -281,21 +285,16 @@ class PlanExecutor:
                     step_results=all_results,
                     replan_count=replan_count,
                     success=False,
-                    error="Max replan attempts reached"
+                    error="Max replan attempts reached",
                 )
 
         return PlanExecutionResult(
-            plan=current_plan,
-            step_results=all_results,
-            replan_count=replan_count,
-            success=True
+            plan=current_plan, step_results=all_results, replan_count=replan_count, success=True
         )
 
     def _execute_plan_steps(
-        self,
-        plan: ExecutionPlan,
-        initial_context: Dict[str, Any]
-    ) -> tuple[List[StepResult], Optional[StepResult], Dict[str, Any]]:
+        self, plan: ExecutionPlan, initial_context: dict[str, Any]
+    ) -> tuple[list[StepResult], StepResult | None, dict[str, Any]]:
         """Execute all steps in plan, returns (results, failed_step, context)"""
         results = []
         context = initial_context.copy()
@@ -311,7 +310,7 @@ class PlanExecutor:
                     raise ValueError(f"Tool '{step.tool_name}' not found")
 
                 # Get the function from FunctionTool
-                tool_fn = tool.fn if hasattr(tool, 'fn') else tool
+                tool_fn = tool.fn if hasattr(tool, "fn") else tool
                 params = self._resolve_params(step.parameters, context)
 
                 if self.verbose:
@@ -326,12 +325,14 @@ class PlanExecutor:
                     input_params=params,
                     output=str(result) if result else "",
                     success=True,
-                    duration_ms=duration
+                    duration_ms=duration,
                 )
 
                 self.logger(f"   ✅ 成功 ({duration}ms)")
                 if self.verbose and result:
-                    output_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
+                    output_preview = (
+                        str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
+                    )
                     self.logger(f"   结果: {output_preview}")
 
                 context[f"step_{i}"] = result
@@ -346,7 +347,7 @@ class PlanExecutor:
                     output="",
                     success=False,
                     error=str(e),
-                    duration_ms=duration
+                    duration_ms=duration,
                 )
                 self.logger(f"   ❌ 失败: {str(e)}")
                 results.append(step_result)
@@ -355,11 +356,7 @@ class PlanExecutor:
 
         return results, failed_step, context
 
-    def _resolve_params(
-        self,
-        params: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _resolve_params(self, params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         """Resolve parameter references from context"""
         resolved = {}
         for key, value in params.items():
@@ -393,7 +390,7 @@ class RAGPlanAgent:
         show_plan: bool = True,
         require_approval: bool = True,
         max_replan_attempts: int = 3,
-        approval_callback: Optional[Callable[[ExecutionPlan], PlanApproval]] = None,
+        approval_callback: Callable[[ExecutionPlan], PlanApproval] | None = None,
     ):
         """Initialize PlanAgent.
 
@@ -422,10 +419,10 @@ class RAGPlanAgent:
             self._plan_generator,
             list(self._tools_dict.keys()),
             verbose,
-            self._log
+            self._log,
         )
 
-    def query(self, question: str, auto_approve: bool = False) -> Dict[str, Any]:
+    def query(self, question: str, auto_approve: bool = False) -> dict[str, Any]:
         """Execute query with planning.
 
         Args:
@@ -440,10 +437,7 @@ class RAGPlanAgent:
         self._log(f"{'=' * 50}\n")
 
         # Phase 1: Generate Plan
-        plan = self._plan_generator.generate_plan(
-            question,
-            list(self._tools_dict.keys())
-        )
+        plan = self._plan_generator.generate_plan(question, list(self._tools_dict.keys()))
 
         self._log(f"📋 计划复杂度: {plan.complexity}")
         self._log(f"📝 计划原因: {plan.reasoning}")
@@ -521,11 +515,11 @@ class RAGPlanAgent:
                 modification = ""
             if modification:
                 modified_plan = self._plan_generator.modify_plan(
-                    plan,
-                    modification,
-                    list(self._tools_dict.keys())
+                    plan, modification, list(self._tools_dict.keys())
                 )
-                return PlanApproval(approved=True, modified_plan=modified_plan, feedback=modification)
+                return PlanApproval(
+                    approved=True, modified_plan=modified_plan, feedback=modification
+                )
             return PlanApproval(approved=True)
 
         return PlanApproval(approved=False)
@@ -543,7 +537,9 @@ class RAGPlanAgent:
         context_parts = []
         for result in execution_result.step_results:
             if result.success and result.output:
-                context_parts.append(f"[步骤{result.step_index + 1}] {result.tool_name}: {result.output}")
+                context_parts.append(
+                    f"[步骤{result.step_index + 1}] {result.tool_name}: {result.output}"
+                )
 
         if not context_parts:
             return "无法生成回答，执行结果为空"

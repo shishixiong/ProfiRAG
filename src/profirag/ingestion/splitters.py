@@ -1,18 +1,18 @@
 """Text splitters for chunking documents"""
 
-import re
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Any, Dict
+from typing import Any
+
 from llama_index.core.node_parser import (
-    SentenceSplitter,
     SemanticSplitterNodeParser,
+    SentenceSplitter,
     TokenTextSplitter,
 )
-from llama_index.core.node_parser.relational.markdown_element import MarkdownElementNodeParser
 from llama_index.core.node_parser.relational.base_element import Element
-from llama_index.core.schema import TextNode, Document
-
+from llama_index.core.node_parser.relational.markdown_element import MarkdownElementNodeParser
+from llama_index.core.schema import Document, TextNode
 
 __all__ = [
     "TextSplitter",
@@ -27,10 +27,10 @@ __all__ = [
 
 
 # Pattern for markdown image references
-IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+IMAGE_REFERENCE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 # Pattern for markdown headings
-HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
+HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
 
 # Logger for chunking operations
 logger = logging.getLogger(__name__)
@@ -39,8 +39,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Section:
     """Represents a section of Markdown content under a header hierarchy."""
-    heading_stack: List[tuple] = field(default_factory=list)
-    elements: List[Element] = field(default_factory=list)
+
+    heading_stack: list[tuple] = field(default_factory=list)
+    elements: list[Element] = field(default_factory=list)
 
     def add_element(self, element: Element) -> None:
         """Add an element to this section."""
@@ -51,7 +52,7 @@ class Section:
         return len(self.elements) > 0
 
 
-def extract_markdown_elements(text: str) -> List[Element]:
+def extract_markdown_elements(text: str) -> list[Element]:
     """Extract structured elements from Markdown text.
 
     Uses LlamaIndex's MarkdownElementNodeParser.extract_elements().
@@ -84,7 +85,7 @@ def extract_markdown_elements(text: str) -> List[Element]:
     return elements
 
 
-def build_sections(elements: List[Element]) -> List[Section]:
+def build_sections(elements: list[Element]) -> list[Section]:
     """Build sections from elements by grouping by title boundaries.
 
     Args:
@@ -94,7 +95,7 @@ def build_sections(elements: List[Element]) -> List[Section]:
         List of Section objects with heading_stack and elements
     """
     sections = []
-    heading_stack: List[tuple] = []
+    heading_stack: list[tuple] = []
     current_section = Section(heading_stack=heading_stack.copy())
 
     for element in elements:
@@ -122,7 +123,7 @@ def build_sections(elements: List[Element]) -> List[Section]:
     return sections
 
 
-def build_header_chain(heading_stack: List[tuple]) -> str:
+def build_header_chain(heading_stack: list[tuple]) -> str:
     """Build header chain from heading stack.
 
     Args:
@@ -161,11 +162,11 @@ def create_chunk_node(text: str, section: Section) -> TextNode:
             "heading_level": heading_level,
             "has_code_block": has_code,
             "has_table": has_table,
-        }
+        },
     )
 
 
-def split_text_by_chars(text: str, max_chars: int, overlap: int = 100) -> List[str]:
+def split_text_by_chars(text: str, max_chars: int, overlap: int = 100) -> list[str]:
     """Split text by character count with overlap.
 
     Args:
@@ -188,12 +189,12 @@ def split_text_by_chars(text: str, max_chars: int, overlap: int = 100) -> List[s
         # Try to find a good break point (newline or space)
         if end < len(text):
             # Look for newline within last 200 chars
-            newline_pos = text.rfind('\n', start, end)
+            newline_pos = text.rfind("\n", start, end)
             if newline_pos > start + max_chars // 2:
                 end = newline_pos + 1
             else:
                 # Look for space within last 100 chars
-                space_pos = text.rfind(' ', start, end)
+                space_pos = text.rfind(" ", start, end)
                 if space_pos > start + max_chars // 2:
                     end = space_pos + 1
 
@@ -212,11 +213,11 @@ def split_text_by_chars(text: str, max_chars: int, overlap: int = 100) -> List[s
 
 
 def chunk_sections(
-    sections: List[Section],
+    sections: list[Section],
     chunk_size: int = 512,
     chunk_overlap: int = 50,
     max_chars: int = 3500,
-) -> List[TextNode]:
+) -> list[TextNode]:
     """Assemble chunks from sections with chunk_size constraints.
 
     Args:
@@ -276,7 +277,9 @@ def chunk_sections(
                 header_len = len(header_chain) + 1 if header_chain else 0
                 effective_max_chars = max_chars - header_len
                 if effective_max_chars > 0:
-                    sub_chunks = split_text_by_chars(element_text, effective_max_chars, chunk_overlap)
+                    sub_chunks = split_text_by_chars(
+                        element_text, effective_max_chars, chunk_overlap
+                    )
                     for sub_chunk in sub_chunks:
                         # Add header chain to each sub-chunk
                         chunk_text = header_chain + "\n" + sub_chunk if header_chain else sub_chunk
@@ -321,7 +324,7 @@ def chunk_sections(
     return filtered_chunks
 
 
-def extract_heading_chain(text: str) -> List[tuple]:
+def extract_heading_chain(text: str) -> list[tuple]:
     """Extract hierarchical heading structure from markdown text.
 
     Args:
@@ -342,10 +345,7 @@ def extract_heading_chain(text: str) -> List[tuple]:
     return results
 
 
-def get_heading_chain_for_position(
-    heading_chain: List[tuple],
-    position_line: int
-) -> tuple:
+def get_heading_chain_for_position(heading_chain: list[tuple], position_line: int) -> tuple:
     """Get the heading chain (ancestors) for content at a given line position.
 
     Args:
@@ -362,7 +362,7 @@ def get_heading_chain_for_position(
 
     # Find the last heading that appears before or at position_line
     current_heading = ""
-    ancestors: List[str] = []
+    ancestors: list[str] = []
 
     for line_num, level, heading_text in heading_chain:
         if line_num > position_line:
@@ -374,7 +374,7 @@ def get_heading_chain_for_position(
     return current_heading, ancestors
 
 
-def find_images_in_chunk(chunk_text: str, image_map: Dict[str, Dict]) -> List[str]:
+def find_images_in_chunk(chunk_text: str, image_map: dict[str, dict]) -> list[str]:
     """Find image IDs referenced in chunk text.
 
     Args:
@@ -392,8 +392,7 @@ def find_images_in_chunk(chunk_text: str, image_map: Dict[str, Dict]) -> List[st
         image_path = match.group(2)
         # Find matching image_id from image_map
         for img_id, img_info in image_map.items():
-            if img_info.get("path") == image_path or \
-               img_info.get("filename") in image_path:
+            if img_info.get("path") == image_path or img_info.get("filename") in image_path:
                 found_ids.append(img_id)
                 break
 
@@ -414,8 +413,8 @@ class TextSplitter:
         splitter_type: str = "sentence",
         chunk_size: int = 512,
         chunk_overlap: int = 50,
-        embed_model: Optional[Any] = None,
-        **kwargs
+        embed_model: Any | None = None,
+        **kwargs,
     ):
         """Initialize text splitter.
 
@@ -438,28 +437,22 @@ class TextSplitter:
         """Create appropriate splitter based on type."""
         if self.splitter_type == "sentence":
             return SentenceSplitter(
-                chunk_size=self.chunk_size,
-                chunk_overlap=self.chunk_overlap,
-                **self.kwargs
+                chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap, **self.kwargs
             )
         elif self.splitter_type == "token":
             return TokenTextSplitter(
-                chunk_size=self.chunk_size,
-                chunk_overlap=self.chunk_overlap,
-                **self.kwargs
+                chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap, **self.kwargs
             )
         elif self.splitter_type == "semantic":
             if self.embed_model is None:
                 raise ValueError("Semantic splitter requires embed_model")
             return SemanticSplitterNodeParser(
-                embed_model=self.embed_model,
-                chunk_size=self.chunk_size,
-                **self.kwargs
+                embed_model=self.embed_model, chunk_size=self.chunk_size, **self.kwargs
             )
         else:
             raise ValueError(f"Unknown splitter type: {self.splitter_type}")
 
-    def split_text(self, text: str) -> List[TextNode]:
+    def split_text(self, text: str) -> list[TextNode]:
         """Split text into nodes.
 
         Args:
@@ -471,7 +464,7 @@ class TextSplitter:
         doc = Document(text=text)
         return self._splitter.get_nodes_from_documents([doc])
 
-    def split_document(self, document: Document) -> List[TextNode]:
+    def split_document(self, document: Document) -> list[TextNode]:
         """Split a Document into nodes.
 
         Args:
@@ -489,7 +482,8 @@ class TextSplitter:
         # Create reduced metadata (without large image_map) before splitting
         # LlamaIndex splitter checks metadata length against chunk_size
         reduced_metadata = {
-            k: v for k, v in document.metadata.items()
+            k: v
+            for k, v in document.metadata.items()
             if k != "image_map"  # Skip the potentially large image_map
         }
 
@@ -513,7 +507,11 @@ class TextSplitter:
             # Find heading context for this node
             if heading_chain:
                 # Match node text back to original document to find position
-                node_start_in_original = document.text.find(node.text[:50]) if len(node.text) >= 50 else document.text.find(node.text)
+                node_start_in_original = (
+                    document.text.find(node.text[:50])
+                    if len(node.text) >= 50
+                    else document.text.find(node.text)
+                )
                 if node_start_in_original >= 0:
                     current_heading, heading_chain_list = get_heading_chain_for_position(
                         heading_chain, document.text[:node_start_in_original].count("\n")
@@ -536,7 +534,7 @@ class TextSplitter:
                 ]
         return nodes
 
-    def split_documents(self, documents: List[Document]) -> List[TextNode]:
+    def split_documents(self, documents: list[Document]) -> list[TextNode]:
         """Split multiple Documents into nodes.
 
         Args:
@@ -583,7 +581,7 @@ class MarkdownSplitter:
     """
 
     # Default max chars safely under embedding API limit (8192)
-# Account for metadata added to embed content
+    # Account for metadata added to embed content
     DEFAULT_MAX_CHARS = 3500
 
     def __init__(
@@ -603,7 +601,7 @@ class MarkdownSplitter:
         self.chunk_overlap = chunk_overlap
         self.max_chars = max_chars
 
-    def split_text(self, text: str) -> List[TextNode]:
+    def split_text(self, text: str) -> list[TextNode]:
         """Split Markdown text into nodes.
 
         Args:
@@ -616,7 +614,7 @@ class MarkdownSplitter:
         sections = build_sections(elements)
         return chunk_sections(sections, self.chunk_size, self.chunk_overlap, self.max_chars)
 
-    def split_document(self, document: Document) -> List[TextNode]:
+    def split_document(self, document: Document) -> list[TextNode]:
         """Split a Document into nodes.
 
         Args:
@@ -630,7 +628,8 @@ class MarkdownSplitter:
         # Create reduced metadata (without large fields like image_map)
         # image_map can be very large and would exceed embedding API limits
         reduced_metadata = {
-            k: v for k, v in document.metadata.items()
+            k: v
+            for k, v in document.metadata.items()
             if k not in ("image_map", "image_count")  # Skip large metadata fields
         }
 
@@ -642,7 +641,7 @@ class MarkdownSplitter:
 
         return nodes
 
-    def split_documents(self, documents: List[Document]) -> List[TextNode]:
+    def split_documents(self, documents: list[Document]) -> list[TextNode]:
         """Split multiple Documents into nodes.
 
         Args:
@@ -664,12 +663,7 @@ class ChineseTextSplitter:
     Handles Chinese-specific sentence boundaries and punctuation.
     """
 
-    def __init__(
-        self,
-        chunk_size: int = 512,
-        chunk_overlap: int = 50,
-        **kwargs
-    ):
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50, **kwargs):
         """Initialize Chinese text splitter.
 
         Args:
@@ -681,7 +675,7 @@ class ChineseTextSplitter:
         self.chunk_overlap = chunk_overlap
         self.kwargs = kwargs
 
-    def _split_sentences(self, text: str) -> List[str]:
+    def _split_sentences(self, text: str) -> list[str]:
         """Split text into Chinese sentences.
 
         Args:
@@ -691,8 +685,9 @@ class ChineseTextSplitter:
             List of sentence strings
         """
         import re
+
         # Split on Chinese punctuation
-        pattern = r'([。！？；\n]+)'
+        pattern = r"([。！？；\n]+)"
         parts = re.split(pattern, text)
 
         sentences = []
@@ -707,7 +702,7 @@ class ChineseTextSplitter:
 
         return sentences
 
-    def split_text(self, text: str) -> List[TextNode]:
+    def split_text(self, text: str) -> list[TextNode]:
         """Split Chinese text into nodes.
 
         Args:
@@ -728,9 +723,7 @@ class ChineseTextSplitter:
         def flush_chunk(chunk: str, flush_offset: int) -> None:
             """Helper to yield a chunk with its starting position."""
             if chunk.strip():
-                nodes.append(
-                    TextNode(text=chunk.strip(), metadata={"_char_start": flush_offset})
-                )
+                nodes.append(TextNode(text=chunk.strip(), metadata={"_char_start": flush_offset}))
 
         for sentence in sentences:
             sentence_len = len(sentence)
@@ -746,7 +739,7 @@ class ChineseTextSplitter:
                 split_size = min(self.chunk_size, HARD_LIMIT)
                 piece_offset = offset
                 for i in range(0, sentence_len, split_size - self.chunk_overlap):
-                    chunk_piece = sentence[i:i + split_size]
+                    chunk_piece = sentence[i : i + split_size]
                     if chunk_piece.strip():
                         flush_chunk(chunk_piece, piece_offset + i)
                 offset += sentence_len
@@ -769,7 +762,7 @@ class ChineseTextSplitter:
             if len(current_chunk) > HARD_LIMIT:
                 piece_offset = offset - len(current_chunk)
                 for i in range(0, len(current_chunk), HARD_LIMIT - self.chunk_overlap):
-                    chunk_piece = current_chunk[i:i + HARD_LIMIT]
+                    chunk_piece = current_chunk[i : i + HARD_LIMIT]
                     if chunk_piece.strip():
                         flush_chunk(chunk_piece, piece_offset + i)
             else:
@@ -777,7 +770,7 @@ class ChineseTextSplitter:
 
         return nodes
 
-    def split_document(self, document: Document) -> List[TextNode]:
+    def split_document(self, document: Document) -> list[TextNode]:
         """Split a Chinese Document into nodes.
 
         Args:
@@ -794,7 +787,8 @@ class ChineseTextSplitter:
         image_map = document.metadata.get("image_map", {})
         # Copy base metadata, excluding large image_map
         base_metadata = {
-            k: v for k, v in document.metadata.items()
+            k: v
+            for k, v in document.metadata.items()
             if k != "image_map"  # Skip the potentially large image_map
         }
         # Update metadata with image propagation and heading context
@@ -833,7 +827,7 @@ class ChineseTextSplitter:
                 ]
         return nodes
 
-    def split_documents(self, documents: List[Document]) -> List[TextNode]:
+    def split_documents(self, documents: list[Document]) -> list[TextNode]:
         """Split multiple Chinese Documents into nodes.
 
         Args:

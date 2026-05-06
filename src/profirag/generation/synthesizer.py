@@ -1,14 +1,18 @@
 """Response synthesizer for RAG generation"""
 
-from typing import List, Optional, Dict, Any
-from llama_index.core.schema import NodeWithScore
+from collections.abc import Callable
+from typing import Any
+
 from llama_index.core.response_synthesizers import (
     BaseSynthesizer as LlamaResponseSynthesizer,
+)
+from llama_index.core.response_synthesizers import (
     get_response_synthesizer,
 )
+from llama_index.core.schema import NodeWithScore
 
-from .prompts import PromptTemplates, DEFAULT_PROMPT_TEMPLATE
 from ..ingestion.image_processor import ImageResult
+from .prompts import DEFAULT_PROMPT_TEMPLATE, PromptTemplates
 
 
 class ResponseSynthesizer:
@@ -25,9 +29,9 @@ class ResponseSynthesizer:
         llm: Any,
         response_mode: str = "compact",
         streaming: bool = False,
-        template: Optional[str] = None,
-        max_context_length: Optional[int] = 80000,
-        **kwargs
+        template: str | None = None,
+        max_context_length: int | None = 80000,
+        **kwargs,
     ):
         """Initialize response synthesizer.
 
@@ -50,7 +54,7 @@ class ResponseSynthesizer:
         self.kwargs = kwargs
 
         # Initialize LlamaIndex synthesizer
-        self._synthesizer: Optional[LlamaResponseSynthesizer] = None
+        self._synthesizer: LlamaResponseSynthesizer | None = None
 
     def _get_synthesizer(self) -> LlamaResponseSynthesizer:
         """Get or create LlamaIndex response synthesizer."""
@@ -59,16 +63,11 @@ class ResponseSynthesizer:
                 llm=self.llm,
                 response_mode=self.response_mode,
                 streaming=self.streaming,
-                **self.kwargs
+                **self.kwargs,
             )
         return self._synthesizer
 
-    def synthesize(
-        self,
-        query_str: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> str:
+    def synthesize(self, query_str: str, nodes: list[NodeWithScore], **kwargs) -> str:
         """Synthesize response from retrieved nodes.
 
         Args:
@@ -85,19 +84,11 @@ class ResponseSynthesizer:
         if self.max_context_length:
             nodes = self._truncate_context(nodes, self.max_context_length)
 
-        response = synthesizer.synthesize(
-            query=query_str,
-            nodes=nodes,
-            **kwargs
-        )
+        response = synthesizer.synthesize(query=query_str, nodes=nodes, **kwargs)
 
         return response.response
 
-    def _truncate_context(
-        self,
-        nodes: List[NodeWithScore],
-        max_length: int
-    ) -> List[NodeWithScore]:
+    def _truncate_context(self, nodes: list[NodeWithScore], max_length: int) -> list[NodeWithScore]:
         """Truncate context to maximum length.
 
         Args:
@@ -119,12 +110,7 @@ class ResponseSynthesizer:
 
         return truncated
 
-    def synthesize_streaming(
-        self,
-        query_str: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ):
+    def synthesize_streaming(self, query_str: str, nodes: list[NodeWithScore], **kwargs):
         """Stream response generation.
 
         Args:
@@ -138,10 +124,7 @@ class ResponseSynthesizer:
         if not self.streaming:
             # Enable streaming temporarily
             synthesizer = get_response_synthesizer(
-                llm=self.llm,
-                response_mode=self.response_mode,
-                streaming=True,
-                **self.kwargs
+                llm=self.llm, response_mode=self.response_mode, streaming=True, **self.kwargs
             )
         else:
             synthesizer = self._get_synthesizer()
@@ -150,21 +133,13 @@ class ResponseSynthesizer:
         if self.max_context_length:
             nodes = self._truncate_context(nodes, self.max_context_length)
 
-        response = synthesizer.synthesize(
-            query=query_str,
-            nodes=nodes,
-            **kwargs
-        )
+        response = synthesizer.synthesize(query=query_str, nodes=nodes, **kwargs)
 
         for chunk in response.response_gen:
             yield chunk
 
     def synthesize_custom(
-        self,
-        query_str: str,
-        nodes: List[NodeWithScore],
-        custom_prompt: Optional[str] = None,
-        **kwargs
+        self, query_str: str, nodes: list[NodeWithScore], custom_prompt: str | None = None, **kwargs
     ) -> str:
         """Synthesize with custom prompt template.
 
@@ -180,9 +155,7 @@ class ResponseSynthesizer:
         prompt_template = custom_prompt or self.template
         context_str = PromptTemplates.format_context(nodes, self.max_context_length)
         prompt = PromptTemplates.format_prompt(
-            query_str=query_str,
-            context_str=context_str,
-            template=prompt_template
+            query_str=query_str, context_str=context_str, template=prompt_template
         )
 
         response = self.llm.complete(prompt)
@@ -193,9 +166,7 @@ class StreamingResponseHandler:
     """Handler for streaming response processing."""
 
     def __init__(
-        self,
-        synthesizer: ResponseSynthesizer,
-        callback: Optional[callable] = None
+        self, synthesizer: ResponseSynthesizer, callback: Callable[..., Any] | None = None
     ):
         """Initialize streaming handler.
 
@@ -206,11 +177,7 @@ class StreamingResponseHandler:
         self.synthesizer = synthesizer
         self.callback = callback
 
-    def handle_stream(
-        self,
-        query_str: str,
-        nodes: List[NodeWithScore]
-    ) -> str:
+    def handle_stream(self, query_str: str, nodes: list[NodeWithScore]) -> str:
         """Handle streaming response and return final result.
 
         Args:
@@ -234,10 +201,8 @@ class ResponseFormatter:
 
     @staticmethod
     def format_with_sources(
-        response: str,
-        nodes: List[NodeWithScore],
-        include_scores: bool = True
-    ) -> Dict[str, Any]:
+        response: str, nodes: list[NodeWithScore], include_scores: bool = True
+    ) -> dict[str, Any]:
         """Format response with source information.
 
         Args:
@@ -252,7 +217,9 @@ class ResponseFormatter:
         for i, node_with_score in enumerate(nodes):
             source_info = {
                 "index": i + 1,
-                "text": node_with_score.node.text[:200] + "..." if len(node_with_score.node.text) > 200 else node_with_score.node.text,
+                "text": node_with_score.node.text[:200] + "..."
+                if len(node_with_score.node.text) > 200
+                else node_with_score.node.text,
                 "metadata": node_with_score.node.metadata,
                 "node_id": node_with_score.node.node_id,
             }
@@ -268,9 +235,7 @@ class ResponseFormatter:
 
     @staticmethod
     def format_markdown(
-        response: str,
-        nodes: List[NodeWithScore],
-        show_full_text: bool = False
+        response: str, nodes: list[NodeWithScore], show_full_text: bool = False
     ) -> str:
         """Format response as markdown with sources.
 
@@ -287,11 +252,13 @@ class ResponseFormatter:
         if nodes:
             md_parts.append("\n## Sources\n")
             for i, node_with_score in enumerate(nodes):
-                text = node_with_score.node.text if show_full_text else node_with_score.node.text[:300]
+                text = (
+                    node_with_score.node.text if show_full_text else node_with_score.node.text[:300]
+                )
                 if not show_full_text and len(node_with_score.node.text) > 300:
                     text += "..."
 
-                md_parts.append(f"\n### Source [{i+1}] (Score: {node_with_score.score:.3f})")
+                md_parts.append(f"\n### Source [{i + 1}] (Score: {node_with_score.score:.3f})")
                 md_parts.append(f"\n```\n{text}\n```")
 
         return "".join(md_parts)
@@ -299,10 +266,10 @@ class ResponseFormatter:
     @staticmethod
     def format_with_sources_and_images(
         response: str,
-        nodes: List[NodeWithScore],
-        images: List[ImageResult],
+        nodes: list[NodeWithScore],
+        images: list[ImageResult],
         include_scores: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Format response with sources and images.
 
         Args:
@@ -339,8 +306,8 @@ class ResponseFormatter:
     @staticmethod
     def format_markdown_with_images(
         response: str,
-        nodes: List[NodeWithScore],
-        images: List[ImageResult],
+        nodes: list[NodeWithScore],
+        images: list[ImageResult],
         show_full_text: bool = False,
         show_images: bool = True,
     ) -> str:
@@ -362,8 +329,8 @@ class ResponseFormatter:
         if images and show_images:
             md_parts.append("\n## Related Images\n")
             for i, img in enumerate(images):
-                md_parts.append(f"\n### Image {i+1}\n")
-                md_parts.append(f"![Image {i+1}]({img.image_path})\n")
+                md_parts.append(f"\n### Image {i + 1}\n")
+                md_parts.append(f"![Image {i + 1}]({img.image_path})\n")
                 if img.description:
                     md_parts.append(f"\n*Description: {img.description}*\n")
 
@@ -371,11 +338,13 @@ class ResponseFormatter:
         if nodes:
             md_parts.append("\n## Sources\n")
             for i, node_with_score in enumerate(nodes):
-                text = node_with_score.node.text if show_full_text else node_with_score.node.text[:300]
+                text = (
+                    node_with_score.node.text if show_full_text else node_with_score.node.text[:300]
+                )
                 if not show_full_text and len(node_with_score.node.text) > 300:
                     text += "..."
 
-                md_parts.append(f"\n### Source [{i+1}] (Score: {node_with_score.score:.3f})")
+                md_parts.append(f"\n### Source [{i + 1}] (Score: {node_with_score.score:.3f})")
                 md_parts.append(f"\n```\n{text}\n```")
 
         return "".join(md_parts)

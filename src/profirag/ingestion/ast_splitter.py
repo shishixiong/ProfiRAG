@@ -5,18 +5,18 @@ Supports Python, Java, C/C++, and Go source files.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from abc import ABC, abstractmethod
-
+from abc import ABC
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CodeChunk:
     """Represents a chunk of code with metadata."""
+
     code: str
     language: str
     entity_name: str
@@ -29,18 +29,25 @@ class CodeChunk:
     def to_text_node(self):
         """Convert to llama_index TextNode."""
         from llama_index.core.schema import TextNode
+
         return TextNode(
             text=self.code,
             metadata={
                 "language": self.language,
-                "function_name": self.entity_name if self.entity_type in ("function", "method") else None,
-                "class_name": self.parent_class if self.entity_type == "method" else self.entity_name if self.entity_type in ("class", "class_header") else None,
+                "function_name": self.entity_name
+                if self.entity_type in ("function", "method")
+                else None,
+                "class_name": self.parent_class
+                if self.entity_type == "method"
+                else self.entity_name
+                if self.entity_type in ("class", "class_header")
+                else None,
                 "method_name": self.entity_name if self.entity_type == "method" else None,
                 "source_file": self.file_path,
                 "start_line": self.start_line,
                 "end_line": self.end_line,
                 "entity_type": self.entity_type,
-            }
+            },
         )
 
 
@@ -48,16 +55,18 @@ class CodeChunk:
 # Abstract parser base
 # ---------------------------------------------------------------------------
 
+
 class BaseLanguageParser(ABC):
     """Abstract base class for language-specific AST parsers."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
-                 extract_class_methods: bool = True):
+    def __init__(
+        self, chunk_size: int = 512, chunk_overlap: int = 50, extract_class_methods: bool = True
+    ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.extract_class_methods = extract_class_methods
 
-    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+    def parse(self, source_code: str, file_path: str = "") -> list[CodeChunk]:
         """Parse source code and return list of code chunks."""
         raise NotImplementedError
 
@@ -69,7 +78,7 @@ class BaseLanguageParser(ABC):
         """Estimate token count from code string."""
         return len(code) // 4  # rough estimate
 
-    def _split_if_needed(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_if_needed(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split oversized chunk into smaller pieces.
 
         Functions, methods, constructors, and classes are kept intact regardless of size.
@@ -85,7 +94,7 @@ class BaseLanguageParser(ABC):
         # Try to split by logical blocks (subclasses override for language-specific)
         return self._split_by_blocks(chunk)
 
-    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_by_blocks(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Language-specific block splitting."""
         raise NotImplementedError
 
@@ -95,11 +104,13 @@ class BaseLanguageParser(ABC):
 # (full implementations added in subsequent tasks)
 # ---------------------------------------------------------------------------
 
+
 class PythonParser(BaseLanguageParser):
     """Parser for Python code using tree-sitter."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
-                 extract_class_methods: bool = True):
+    def __init__(
+        self, chunk_size: int = 512, chunk_overlap: int = 50, extract_class_methods: bool = True
+    ):
         super().__init__(chunk_size, chunk_overlap, extract_class_methods)
         self._parser = None
         self._ensure_parser()
@@ -110,6 +121,7 @@ class PythonParser(BaseLanguageParser):
             try:
                 import tree_sitter_python as tspython
                 from tree_sitter import Language, Parser
+
                 self._language = Language(tspython.language())
                 self._parser = Parser(self._language)
             except ImportError:
@@ -120,15 +132,21 @@ class PythonParser(BaseLanguageParser):
     def get_language_name(self) -> str:
         return "python"
 
-    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+    def parse(self, source_code: str, file_path: str = "") -> list[CodeChunk]:
         """Parse Python source and return function/class chunks."""
         tree = self._parser.parse(bytes(source_code, "utf8"))
         chunks = []
         self._extract_entities(tree.root_node, source_code, file_path, chunks)
         return chunks
 
-    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk],
-                          in_class: bool = False):
+    def _extract_entities(
+        self,
+        node,
+        source_code: str,
+        file_path: str,
+        chunks: list[CodeChunk],
+        in_class: bool = False,
+    ):
         """Recursively extract functions and classes.
 
         Args:
@@ -154,8 +172,9 @@ class PythonParser(BaseLanguageParser):
                 # Recurse into other structures to find nested functions
                 self._extract_entities(child, source_code, file_path, chunks, in_class)
 
-    def _extract_class_with_methods(self, class_node, source_code: str, file_path: str,
-                                     chunks: List[CodeChunk]):
+    def _extract_class_with_methods(
+        self, class_node, source_code: str, file_path: str, chunks: list[CodeChunk]
+    ):
         """Extract class and its methods as separate chunks.
 
         This approach:
@@ -172,17 +191,24 @@ class PythonParser(BaseLanguageParser):
         # Extract each method in the class
         for child in class_node.children:
             if child.type in ("function_definition", "async_generator_function_definition"):
-                self._create_chunk_from_node(child, source_code, file_path, chunks, "method",
-                                              parent_class=class_name)
+                self._create_chunk_from_node(
+                    child, source_code, file_path, chunks, "method", parent_class=class_name
+                )
 
         # Optionally, create a class overview chunk (class header without method bodies)
         # This is useful for understanding the class structure
         class_header_parts = []
         for child in class_node.children:
             # Include class header elements but not method bodies
-            if child.type in ("identifier", "name", "argument_list", "parenthesized_list",
-                              "expression_list", "simple_statement"):
-                class_header_parts.append(source_code[child.start_byte:child.end_byte])
+            if child.type in (
+                "identifier",
+                "name",
+                "argument_list",
+                "parenthesized_list",
+                "expression_list",
+                "simple_statement",
+            ):
+                class_header_parts.append(source_code[child.start_byte : child.end_byte])
             elif child.type == "block":
                 # Look for docstring or class-level statements (not methods)
                 for block_child in child.children:
@@ -191,29 +217,38 @@ class PythonParser(BaseLanguageParser):
                         for expr_child in block_child.children:
                             if expr_child.type == "string":
                                 class_header_parts.append(
-                                    source_code[block_child.start_byte:block_child.end_byte])
+                                    source_code[block_child.start_byte : block_child.end_byte]
+                                )
                     elif block_child.type in ("assignment", "expression_statement"):
                         # Class-level variable/constant
-                        if not any(c.type in ("function_definition", "async_generator_function_definition")
-                                   for c in block_child.children):
+                        if not any(
+                            c.type in ("function_definition", "async_generator_function_definition")
+                            for c in block_child.children
+                        ):
                             class_header_parts.append(
-                                source_code[block_child.start_byte:block_child.end_byte])
+                                source_code[block_child.start_byte : block_child.end_byte]
+                            )
 
         if class_header_parts:
             header_code = "\n".join(class_header_parts)
             if header_code.strip():
-                chunks.append(CodeChunk(
-                    code=f"class {class_name}:\n{header_code}" if not header_code.startswith("class") else header_code,
-                    language="python",
-                    entity_name=class_name,
-                    entity_type="class_header",
-                    file_path=file_path,
-                    start_line=class_node.start_point[0] + 1,
-                    end_line=class_node.start_point[0] + len(class_header_parts) + 1
-                ))
+                chunks.append(
+                    CodeChunk(
+                        code=f"class {class_name}:\n{header_code}"
+                        if not header_code.startswith("class")
+                        else header_code,
+                        language="python",
+                        entity_name=class_name,
+                        entity_type="class_header",
+                        file_path=file_path,
+                        start_line=class_node.start_point[0] + 1,
+                        end_line=class_node.start_point[0] + len(class_header_parts) + 1,
+                    )
+                )
 
-    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
-                                 chunks: List[CodeChunk], entity_type: str):
+    def _create_chunk_from_node(
+        self, node, source_code: str, file_path: str, chunks: list[CodeChunk], entity_type: str
+    ):
         """Create CodeChunk from tree-sitter node."""
         start_byte = node.start_byte
         end_byte = node.end_byte
@@ -233,13 +268,13 @@ class PythonParser(BaseLanguageParser):
             entity_type=entity_type,
             file_path=file_path,
             start_line=node.start_point[0] + 1,
-            end_line=node.end_point[0] + 1
+            end_line=node.end_point[0] + 1,
         )
 
         split_chunks = self._split_if_needed(chunk)
         chunks.extend(split_chunks)
 
-    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_by_blocks(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split Python chunk by internal blocks."""
         source_code = chunk.code
         tree = self._parser.parse(bytes(source_code, "utf8"))
@@ -252,8 +287,14 @@ class PythonParser(BaseLanguageParser):
 
         return sub_chunks
 
-    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
-                                sub_chunks: List[CodeChunk], offset: int = 0):
+    def _split_by_control_flow(
+        self,
+        node,
+        source_code: str,
+        parent_chunk: CodeChunk,
+        sub_chunks: list[CodeChunk],
+        offset: int = 0,
+    ):
         """Split by if/while/for blocks."""
         for child in node.children:
             if child.type in ("if_statement", "while_statement", "for_statement"):
@@ -266,7 +307,7 @@ class PythonParser(BaseLanguageParser):
                         break
 
                 if body_start is not None:
-                    body_code = source_code[body_start - offset:body_end - offset]
+                    body_code = source_code[body_start - offset : body_end - offset]
                     if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
                         sub_chunk = CodeChunk(
                             code=body_code.strip(),
@@ -275,14 +316,14 @@ class PythonParser(BaseLanguageParser):
                             entity_type="block",
                             file_path=parent_chunk.file_path,
                             start_line=parent_chunk.start_line,
-                            end_line=parent_chunk.end_line
+                            end_line=parent_chunk.end_line,
                         )
                         sub_chunks.extend(self._split_if_needed(sub_chunk))
                         continue
 
             self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
 
-    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> list[CodeChunk]:
         """Hard split by lines when no semantic split possible."""
         if max_tokens is None:
             max_tokens = self.chunk_size
@@ -296,15 +337,17 @@ class PythonParser(BaseLanguageParser):
             line_tokens = self._estimate_tokens(line)
             if current_tokens + line_tokens > max_tokens and current_lines:
                 code = "\n".join(current_lines)
-                chunks.append(CodeChunk(
-                    code=code,
-                    language=chunk.language,
-                    entity_name=chunk.entity_name,
-                    entity_type=chunk.entity_type,
-                    file_path=chunk.file_path,
-                    start_line=chunk.start_line,
-                    end_line=chunk.start_line + len(current_lines) - 1
-                ))
+                chunks.append(
+                    CodeChunk(
+                        code=code,
+                        language=chunk.language,
+                        entity_name=chunk.entity_name,
+                        entity_type=chunk.entity_type,
+                        file_path=chunk.file_path,
+                        start_line=chunk.start_line,
+                        end_line=chunk.start_line + len(current_lines) - 1,
+                    )
+                )
                 current_lines = [line]
                 current_tokens = line_tokens
             else:
@@ -313,15 +356,17 @@ class PythonParser(BaseLanguageParser):
 
         if current_lines:
             code = "\n".join(current_lines)
-            chunks.append(CodeChunk(
-                code=code,
-                language=chunk.language,
-                entity_name=chunk.entity_name,
-                entity_type=chunk.entity_type,
-                file_path=chunk.file_path,
-                start_line=chunk.start_line,
-                end_line=chunk.start_line + len(current_lines) - 1
-            ))
+            chunks.append(
+                CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1,
+                )
+            )
 
         return chunks
 
@@ -340,6 +385,7 @@ class JavaParser(BaseLanguageParser):
             try:
                 import tree_sitter_java as tsjava
                 from tree_sitter import Language, Parser
+
                 self._language = Language(tsjava.language())
                 self._parser = Parser(self._language)
             except ImportError:
@@ -350,14 +396,14 @@ class JavaParser(BaseLanguageParser):
     def get_language_name(self) -> str:
         return "java"
 
-    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+    def parse(self, source_code: str, file_path: str = "") -> list[CodeChunk]:
         """Parse Java source and return class/method/constructor chunks."""
         tree = self._parser.parse(bytes(source_code, "utf8"))
         chunks = []
         self._extract_entities(tree.root_node, source_code, file_path, chunks)
         return chunks
 
-    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: list[CodeChunk]):
         """Recursively extract classes, methods, constructors, interfaces."""
         for child in node.children:
             if child.type == "class_declaration":
@@ -371,8 +417,9 @@ class JavaParser(BaseLanguageParser):
             else:
                 self._extract_entities(child, source_code, file_path, chunks)
 
-    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
-                                chunks: List[CodeChunk], entity_type: str):
+    def _create_chunk_from_node(
+        self, node, source_code: str, file_path: str, chunks: list[CodeChunk], entity_type: str
+    ):
         """Create CodeChunk from tree-sitter node."""
         start_byte = node.start_byte
         end_byte = node.end_byte
@@ -392,13 +439,13 @@ class JavaParser(BaseLanguageParser):
             entity_type=entity_type,
             file_path=file_path,
             start_line=node.start_point[0] + 1,
-            end_line=node.end_point[0] + 1
+            end_line=node.end_point[0] + 1,
         )
 
         split_chunks = self._split_if_needed(chunk)
         chunks.extend(split_chunks)
 
-    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_by_blocks(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split Java chunk by internal blocks."""
         source_code = chunk.code
         tree = self._parser.parse(bytes(source_code, "utf8"))
@@ -411,12 +458,23 @@ class JavaParser(BaseLanguageParser):
 
         return sub_chunks
 
-    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
-                                sub_chunks: List[CodeChunk], offset: int = 0):
+    def _split_by_control_flow(
+        self,
+        node,
+        source_code: str,
+        parent_chunk: CodeChunk,
+        sub_chunks: list[CodeChunk],
+        offset: int = 0,
+    ):
         """Split by if/while/for blocks."""
         for child in node.children:
-            if child.type in ("if_statement", "while_statement", "for_statement",
-                              "enhanced_for_statement", "do_statement"):
+            if child.type in (
+                "if_statement",
+                "while_statement",
+                "for_statement",
+                "enhanced_for_statement",
+                "do_statement",
+            ):
                 body_start = None
                 body_end = None
                 for c in child.children:
@@ -426,7 +484,7 @@ class JavaParser(BaseLanguageParser):
                         break
 
                 if body_start is not None:
-                    body_code = source_code[body_start - offset:body_end - offset]
+                    body_code = source_code[body_start - offset : body_end - offset]
                     if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
                         sub_chunk = CodeChunk(
                             code=body_code.strip(),
@@ -435,14 +493,14 @@ class JavaParser(BaseLanguageParser):
                             entity_type="block",
                             file_path=parent_chunk.file_path,
                             start_line=parent_chunk.start_line,
-                            end_line=parent_chunk.end_line
+                            end_line=parent_chunk.end_line,
                         )
                         sub_chunks.extend(self._split_if_needed(sub_chunk))
                         continue
 
             self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
 
-    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> list[CodeChunk]:
         """Hard split by lines when no semantic split possible."""
         if max_tokens is None:
             max_tokens = self.chunk_size
@@ -456,15 +514,17 @@ class JavaParser(BaseLanguageParser):
             line_tokens = self._estimate_tokens(line)
             if current_tokens + line_tokens > max_tokens and current_lines:
                 code = "\n".join(current_lines)
-                chunks.append(CodeChunk(
-                    code=code,
-                    language=chunk.language,
-                    entity_name=chunk.entity_name,
-                    entity_type=chunk.entity_type,
-                    file_path=chunk.file_path,
-                    start_line=chunk.start_line,
-                    end_line=chunk.start_line + len(current_lines) - 1
-                ))
+                chunks.append(
+                    CodeChunk(
+                        code=code,
+                        language=chunk.language,
+                        entity_name=chunk.entity_name,
+                        entity_type=chunk.entity_type,
+                        file_path=chunk.file_path,
+                        start_line=chunk.start_line,
+                        end_line=chunk.start_line + len(current_lines) - 1,
+                    )
+                )
                 current_lines = [line]
                 current_tokens = line_tokens
             else:
@@ -473,15 +533,17 @@ class JavaParser(BaseLanguageParser):
 
         if current_lines:
             code = "\n".join(current_lines)
-            chunks.append(CodeChunk(
-                code=code,
-                language=chunk.language,
-                entity_name=chunk.entity_name,
-                entity_type=chunk.entity_type,
-                file_path=chunk.file_path,
-                start_line=chunk.start_line,
-                end_line=chunk.start_line + len(current_lines) - 1
-            ))
+            chunks.append(
+                CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1,
+                )
+            )
 
         return chunks
 
@@ -500,24 +562,23 @@ class CppParser(BaseLanguageParser):
             try:
                 import tree_sitter_cpp as tscpp
                 from tree_sitter import Language, Parser
+
                 self._language = Language(tscpp.language())
                 self._parser = Parser(self._language)
             except ImportError:
-                raise ImportError(
-                    "tree-sitter-cpp not installed. Run: pip install tree-sitter-cpp"
-                )
+                raise ImportError("tree-sitter-cpp not installed. Run: pip install tree-sitter-cpp")
 
     def get_language_name(self) -> str:
         return "cpp"
 
-    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+    def parse(self, source_code: str, file_path: str = "") -> list[CodeChunk]:
         """Parse C/C++ source and return function/class/struct/namespace chunks."""
         tree = self._parser.parse(bytes(source_code, "utf8"))
         chunks = []
         self._extract_entities(tree.root_node, source_code, file_path, chunks)
         return chunks
 
-    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: list[CodeChunk]):
         """Recursively extract functions, classes, structs, namespaces."""
         for child in node.children:
             if child.type == "function_definition":
@@ -531,8 +592,9 @@ class CppParser(BaseLanguageParser):
             else:
                 self._extract_entities(child, source_code, file_path, chunks)
 
-    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
-                                chunks: List[CodeChunk], entity_type: str):
+    def _create_chunk_from_node(
+        self, node, source_code: str, file_path: str, chunks: list[CodeChunk], entity_type: str
+    ):
         """Create CodeChunk from tree-sitter node."""
         start_byte = node.start_byte
         end_byte = node.end_byte
@@ -552,13 +614,13 @@ class CppParser(BaseLanguageParser):
             entity_type=entity_type,
             file_path=file_path,
             start_line=node.start_point[0] + 1,
-            end_line=node.end_point[0] + 1
+            end_line=node.end_point[0] + 1,
         )
 
         split_chunks = self._split_if_needed(chunk)
         chunks.extend(split_chunks)
 
-    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_by_blocks(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split C/C++ chunk by internal blocks."""
         source_code = chunk.code
         tree = self._parser.parse(bytes(source_code, "utf8"))
@@ -571,12 +633,23 @@ class CppParser(BaseLanguageParser):
 
         return sub_chunks
 
-    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
-                                sub_chunks: List[CodeChunk], offset: int = 0):
+    def _split_by_control_flow(
+        self,
+        node,
+        source_code: str,
+        parent_chunk: CodeChunk,
+        sub_chunks: list[CodeChunk],
+        offset: int = 0,
+    ):
         """Split by if/while/for/switch blocks."""
         for child in node.children:
-            if child.type in ("if_statement", "while_statement", "for_statement",
-                              "switch_statement", "do_statement"):
+            if child.type in (
+                "if_statement",
+                "while_statement",
+                "for_statement",
+                "switch_statement",
+                "do_statement",
+            ):
                 body_start = None
                 body_end = None
                 for c in child.children:
@@ -586,7 +659,7 @@ class CppParser(BaseLanguageParser):
                         break
 
                 if body_start is not None:
-                    body_code = source_code[body_start - offset:body_end - offset]
+                    body_code = source_code[body_start - offset : body_end - offset]
                     if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
                         sub_chunk = CodeChunk(
                             code=body_code.strip(),
@@ -595,14 +668,14 @@ class CppParser(BaseLanguageParser):
                             entity_type="block",
                             file_path=parent_chunk.file_path,
                             start_line=parent_chunk.start_line,
-                            end_line=parent_chunk.end_line
+                            end_line=parent_chunk.end_line,
                         )
                         sub_chunks.extend(self._split_if_needed(sub_chunk))
                         continue
 
             self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
 
-    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> list[CodeChunk]:
         """Hard split by lines when no semantic split possible."""
         if max_tokens is None:
             max_tokens = self.chunk_size
@@ -616,15 +689,17 @@ class CppParser(BaseLanguageParser):
             line_tokens = self._estimate_tokens(line)
             if current_tokens + line_tokens > max_tokens and current_lines:
                 code = "\n".join(current_lines)
-                chunks.append(CodeChunk(
-                    code=code,
-                    language=chunk.language,
-                    entity_name=chunk.entity_name,
-                    entity_type=chunk.entity_type,
-                    file_path=chunk.file_path,
-                    start_line=chunk.start_line,
-                    end_line=chunk.start_line + len(current_lines) - 1
-                ))
+                chunks.append(
+                    CodeChunk(
+                        code=code,
+                        language=chunk.language,
+                        entity_name=chunk.entity_name,
+                        entity_type=chunk.entity_type,
+                        file_path=chunk.file_path,
+                        start_line=chunk.start_line,
+                        end_line=chunk.start_line + len(current_lines) - 1,
+                    )
+                )
                 current_lines = [line]
                 current_tokens = line_tokens
             else:
@@ -633,15 +708,17 @@ class CppParser(BaseLanguageParser):
 
         if current_lines:
             code = "\n".join(current_lines)
-            chunks.append(CodeChunk(
-                code=code,
-                language=chunk.language,
-                entity_name=chunk.entity_name,
-                entity_type=chunk.entity_type,
-                file_path=chunk.file_path,
-                start_line=chunk.start_line,
-                end_line=chunk.start_line + len(current_lines) - 1
-            ))
+            chunks.append(
+                CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1,
+                )
+            )
 
         return chunks
 
@@ -660,24 +737,23 @@ class GoParser(BaseLanguageParser):
             try:
                 import tree_sitter_go as tsgo
                 from tree_sitter import Language, Parser
+
                 self._language = Language(tsgo.language())
                 self._parser = Parser(self._language)
             except ImportError:
-                raise ImportError(
-                    "tree-sitter-go not installed. Run: pip install tree-sitter-go"
-                )
+                raise ImportError("tree-sitter-go not installed. Run: pip install tree-sitter-go")
 
     def get_language_name(self) -> str:
         return "go"
 
-    def parse(self, source_code: str, file_path: str = "") -> List[CodeChunk]:
+    def parse(self, source_code: str, file_path: str = "") -> list[CodeChunk]:
         """Parse Go source and return function/method/type chunks."""
         tree = self._parser.parse(bytes(source_code, "utf8"))
         chunks = []
         self._extract_entities(tree.root_node, source_code, file_path, chunks)
         return chunks
 
-    def _extract_entities(self, node, source_code: str, file_path: str, chunks: List[CodeChunk]):
+    def _extract_entities(self, node, source_code: str, file_path: str, chunks: list[CodeChunk]):
         """Recursively extract functions, methods, type declarations."""
         for child in node.children:
             if child.type == "function_declaration":
@@ -689,8 +765,9 @@ class GoParser(BaseLanguageParser):
             else:
                 self._extract_entities(child, source_code, file_path, chunks)
 
-    def _create_chunk_from_node(self, node, source_code: str, file_path: str,
-                                chunks: List[CodeChunk], entity_type: str):
+    def _create_chunk_from_node(
+        self, node, source_code: str, file_path: str, chunks: list[CodeChunk], entity_type: str
+    ):
         """Create CodeChunk from tree-sitter node."""
         start_byte = node.start_byte
         end_byte = node.end_byte
@@ -710,13 +787,13 @@ class GoParser(BaseLanguageParser):
             entity_type=entity_type,
             file_path=file_path,
             start_line=node.start_point[0] + 1,
-            end_line=node.end_point[0] + 1
+            end_line=node.end_point[0] + 1,
         )
 
         split_chunks = self._split_if_needed(chunk)
         chunks.extend(split_chunks)
 
-    def _split_by_blocks(self, chunk: CodeChunk) -> List[CodeChunk]:
+    def _split_by_blocks(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split Go chunk by internal blocks."""
         source_code = chunk.code
         tree = self._parser.parse(bytes(source_code, "utf8"))
@@ -729,8 +806,14 @@ class GoParser(BaseLanguageParser):
 
         return sub_chunks
 
-    def _split_by_control_flow(self, node, source_code: str, parent_chunk: CodeChunk,
-                                sub_chunks: List[CodeChunk], offset: int = 0):
+    def _split_by_control_flow(
+        self,
+        node,
+        source_code: str,
+        parent_chunk: CodeChunk,
+        sub_chunks: list[CodeChunk],
+        offset: int = 0,
+    ):
         """Split by if/for/switch blocks."""
         for child in node.children:
             if child.type in ("if_statement", "for_statement", "switch_statement"):
@@ -743,7 +826,7 @@ class GoParser(BaseLanguageParser):
                         break
 
                 if body_start is not None:
-                    body_code = source_code[body_start - offset:body_end - offset]
+                    body_code = source_code[body_start - offset : body_end - offset]
                     if self._estimate_tokens(body_code) > self.chunk_size * 0.5:
                         sub_chunk = CodeChunk(
                             code=body_code.strip(),
@@ -752,14 +835,14 @@ class GoParser(BaseLanguageParser):
                             entity_type="block",
                             file_path=parent_chunk.file_path,
                             start_line=parent_chunk.start_line,
-                            end_line=parent_chunk.end_line
+                            end_line=parent_chunk.end_line,
                         )
                         sub_chunks.extend(self._split_if_needed(sub_chunk))
                         continue
 
             self._split_by_control_flow(child, source_code, parent_chunk, sub_chunks, offset)
 
-    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> List[CodeChunk]:
+    def _hard_split(self, chunk: CodeChunk, max_tokens: int = None) -> list[CodeChunk]:
         """Hard split by lines when no semantic split possible."""
         if max_tokens is None:
             max_tokens = self.chunk_size
@@ -773,15 +856,17 @@ class GoParser(BaseLanguageParser):
             line_tokens = self._estimate_tokens(line)
             if current_tokens + line_tokens > max_tokens and current_lines:
                 code = "\n".join(current_lines)
-                chunks.append(CodeChunk(
-                    code=code,
-                    language=chunk.language,
-                    entity_name=chunk.entity_name,
-                    entity_type=chunk.entity_type,
-                    file_path=chunk.file_path,
-                    start_line=chunk.start_line,
-                    end_line=chunk.start_line + len(current_lines) - 1
-                ))
+                chunks.append(
+                    CodeChunk(
+                        code=code,
+                        language=chunk.language,
+                        entity_name=chunk.entity_name,
+                        entity_type=chunk.entity_type,
+                        file_path=chunk.file_path,
+                        start_line=chunk.start_line,
+                        end_line=chunk.start_line + len(current_lines) - 1,
+                    )
+                )
                 current_lines = [line]
                 current_tokens = line_tokens
             else:
@@ -790,15 +875,17 @@ class GoParser(BaseLanguageParser):
 
         if current_lines:
             code = "\n".join(current_lines)
-            chunks.append(CodeChunk(
-                code=code,
-                language=chunk.language,
-                entity_name=chunk.entity_name,
-                entity_type=chunk.entity_type,
-                file_path=chunk.file_path,
-                start_line=chunk.start_line,
-                end_line=chunk.start_line + len(current_lines) - 1
-            ))
+            chunks.append(
+                CodeChunk(
+                    code=code,
+                    language=chunk.language,
+                    entity_name=chunk.entity_name,
+                    entity_type=chunk.entity_type,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + len(current_lines) - 1,
+                )
+            )
 
         return chunks
 
@@ -807,7 +894,7 @@ class GoParser(BaseLanguageParser):
 # Supported language registry
 # ---------------------------------------------------------------------------
 
-LANGUAGE_PARSERS: Dict[str, type] = {
+LANGUAGE_PARSERS: dict[str, type] = {
     "python": PythonParser,
     "java": JavaParser,
     "cpp": CppParser,
@@ -816,7 +903,7 @@ LANGUAGE_PARSERS: Dict[str, type] = {
 }
 
 # File-extension to language mapping
-EXTENSION_TO_LANGUAGE: Dict[str, str] = {
+EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".java": "java",
     ".cpp": "cpp",
@@ -832,6 +919,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Main splitter
 # ---------------------------------------------------------------------------
+
 
 class ASTSplitter:
     """Semantic code splitter backed by tree-sitter AST parsing.
@@ -860,7 +948,7 @@ class ASTSplitter:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.fallback_to_text = fallback_to_text
-        self._parser_cache: Dict[str, BaseLanguageParser] = {}
+        self._parser_cache: dict[str, BaseLanguageParser] = {}
 
     def _get_parser(self, language: str) -> BaseLanguageParser:
         """Return (and cache) a parser for *language*.
@@ -879,8 +967,7 @@ class ASTSplitter:
             parser_cls = LANGUAGE_PARSERS.get(language)
             if parser_cls is None:
                 raise ValueError(
-                    f"Unsupported language: {language!r}. "
-                    f"Supported: {sorted(LANGUAGE_PARSERS)}"
+                    f"Unsupported language: {language!r}. Supported: {sorted(LANGUAGE_PARSERS)}"
                 )
             self._parser_cache[language] = parser_cls()
         return self._parser_cache[language]
@@ -889,8 +976,8 @@ class ASTSplitter:
         self,
         source: str,
         language: str,
-        file_path: Optional[str] = None,
-    ) -> List[CodeChunk]:
+        file_path: str | None = None,
+    ) -> list[CodeChunk]:
         """Split *source* into semantic chunks.
 
         Args:
@@ -909,7 +996,7 @@ class ASTSplitter:
                 chunk.metadata.setdefault("source_file", file_path)
         return chunks
 
-    def detect_language(self, file_path: str) -> Optional[str]:
+    def detect_language(self, file_path: str) -> str | None:
         """Detect the programming language from a file extension.
 
         Args:
@@ -919,6 +1006,7 @@ class ASTSplitter:
             A language identifier string, or *None* if unrecognised.
         """
         import pathlib
+
         suffix = pathlib.Path(file_path).suffix.lower()
         return EXTENSION_TO_LANGUAGE.get(suffix)
 
@@ -926,8 +1014,7 @@ class ASTSplitter:
 class ASTSplitter:
     """Main AST-based splitter for code files."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50,
-                 language: str = "python"):
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50, language: str = "python"):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.language = language
@@ -946,19 +1033,19 @@ class ASTSplitter:
             raise ValueError(f"Unsupported language: {language}. Supported: {list(parsers.keys())}")
         return parser_class(chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
 
-    def split_text(self, text: str, file_path: str = "") -> List:
+    def split_text(self, text: str, file_path: str = "") -> list:
         """Split code text into TextNode chunks."""
         chunks = self._parser.parse(text, file_path)
         return [chunk.to_text_node() for chunk in chunks]
 
-    def split_document(self, document) -> List:
+    def split_document(self, document) -> list:
         """Split a document into code chunks."""
         code = document.text
         # Support both source_file and file_path for compatibility
         file_path = document.metadata.get("source_file") or document.metadata.get("file_path", "")
         return self.split_text(code, file_path)
 
-    def split_documents(self, documents: List) -> List:
+    def split_documents(self, documents: list) -> list:
         """Split multiple documents."""
         nodes = []
         for doc in documents:

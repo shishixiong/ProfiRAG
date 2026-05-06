@@ -1,14 +1,12 @@
 """Configuration management using Pydantic with .env support"""
 
-import os
 from pathlib import Path
-from typing import Dict, Any, List, Literal, Optional
+from typing import Any, Literal
 
+from llama_index.core.llms import LLMMetadata
+from llama_index.llms.openai import OpenAI
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from llama_index.llms.openai import OpenAI
-from llama_index.core.llms import LLMMetadata
-
 
 # FastEmbed model dimension mapping for auto-detection
 FASTEMBED_MODEL_DIMENSIONS: dict[str, int] = {
@@ -30,15 +28,17 @@ class EnvSettings(BaseSettings):
     )
 
     # OpenAI Configuration
-    openai_api_key: Optional[str] = None
-    openai_base_url: Optional[str] = None  # Custom API endpoint for LLM
-    openai_embedding_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
-    openai_embedding_base_url: Optional[str] = None  # Custom API endpoint for Embedding, fallback to openai_base_url
+    openai_api_key: str | None = None
+    openai_base_url: str | None = None  # Custom API endpoint for LLM
+    openai_embedding_api_key: str | None = None  # Fallback to openai_api_key if not set
+    openai_embedding_base_url: str | None = (
+        None  # Custom API endpoint for Embedding, fallback to openai_base_url
+    )
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimension: int = 1536
     openai_llm_model: str = "gpt-4-turbo"
     openai_llm_temperature: float = 0.0
-    openai_llm_max_tokens: Optional[int] = None
+    openai_llm_max_tokens: int | None = None
 
     # Embedding Provider Configuration
     profirag_embedding_provider: Literal["openai", "fastembed", "ollama"] = "openai"
@@ -48,21 +48,25 @@ class EnvSettings(BaseSettings):
     ollama_embedding_dimension: int = 768
     ollama_base_url: str = "http://localhost:11434/v1"
     profirag_embedding_model: str = "BAAI/bge-small-en-v1.5"
-    profirag_embedding_dimension: Optional[int] = None  # Auto-detected for FastEmbed
-    profirag_embedding_cache_dir: Optional[str] = None
+    profirag_embedding_dimension: int | None = None  # Auto-detected for FastEmbed
+    profirag_embedding_cache_dir: str | None = None
 
     # MiniMax Vision Configuration (for image understanding)
-    minimax_api_key: Optional[str] = None
+    minimax_api_key: str | None = None
     minimax_api_host: str = "https://api.minimax.chat"
 
     # Image Processing Configuration
     profirag_image_processing_enabled: bool = True
     profirag_generate_image_descriptions: bool = True
     profirag_image_storage_path: str = "./images"
-    profirag_image_description_prompt: str = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
-    profirag_image_provider: Literal["minimax", "openai"] = "minimax"  # Image understanding provider
-    profirag_image_openai_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
-    profirag_image_openai_base_url: Optional[str] = None  # Fallback to openai_base_url if not set
+    profirag_image_description_prompt: str = (
+        "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
+    )
+    profirag_image_provider: Literal["minimax", "openai"] = (
+        "minimax"  # Image understanding provider
+    )
+    profirag_image_openai_api_key: str | None = None  # Fallback to openai_api_key if not set
+    profirag_image_openai_base_url: str | None = None  # Fallback to openai_base_url if not set
     profirag_image_openai_model: str = "gpt-4o"  # Vision model for OpenAI provider
     profirag_image_timeout: int = 60  # Image understanding API timeout
 
@@ -72,9 +76,9 @@ class EnvSettings(BaseSettings):
     # Qdrant Configuration
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
-    qdrant_api_key: Optional[str] = None
+    qdrant_api_key: str | None = None
     qdrant_collection_name: str = "profirag"
-    qdrant_url: Optional[str] = None
+    qdrant_url: str | None = None
 
     # Dense Vector Configuration
     # profirag_dense_vector_name is deprecated - index_mode controls this
@@ -84,7 +88,7 @@ class EnvSettings(BaseSettings):
     postgres_port: int = 5432
     postgres_database: str = "profirag"
     postgres_user: str = "postgres"
-    postgres_password: Optional[str] = None
+    postgres_password: str | None = None
 
     # Local Storage Configuration
     local_storage_path: str = "./storage"
@@ -108,8 +112,8 @@ class EnvSettings(BaseSettings):
     profirag_rerank_provider: Literal["local", "cohere", "dashscope"] = "local"
     profirag_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     profirag_rerank_top_n: int = 5
-    profirag_rerank_api_key: Optional[str] = None
-    profirag_rerank_base_url: Optional[str] = None
+    profirag_rerank_api_key: str | None = None
+    profirag_rerank_base_url: str | None = None
     profirag_rerank_timeout: int = 30
 
     # Pre-Retrieval Configuration
@@ -122,7 +126,7 @@ class EnvSettings(BaseSettings):
     profirag_agent_mode: str = "react"
     profirag_agent_max_iterations: int = 10
     profirag_agent_verbose: bool = True
-    profirag_agent_markdown_base_path: Optional[str] = None
+    profirag_agent_markdown_base_path: str | None = None
 
 
 class CustomOpenAILLM(OpenAI):
@@ -146,50 +150,57 @@ class CustomOpenAILLM(OpenAI):
 
         return LLMMetadata(
             context_window=128000,  # Fixed context window for custom models
-            num_output=model_dict.get('max_tokens') or -1,
+            num_output=model_dict.get("max_tokens") or -1,
             is_chat_model=True,  # All modern APIs use chat mode
             is_function_calling_model=True,
-            model_name=model_dict.get('model', 'unknown'),
+            model_name=model_dict.get("model", "unknown"),
         )
 
 
 class StorageConfig(BaseModel):
     """Vector store configuration"""
+
     type: Literal["qdrant", "local", "postgres"] = "qdrant"
-    config: Dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class EmbeddingConfig(BaseModel):
     """Embedding configuration supporting OpenAI and FastEmbed providers"""
+
     provider: Literal["openai", "fastembed", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
     dimension: int = 1536
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    cache_dir: Optional[str] = None  # For FastEmbed model cache
+    api_key: str | None = None
+    base_url: str | None = None
+    cache_dir: str | None = None  # For FastEmbed model cache
 
 
 class LLMConfig(BaseModel):
     """OpenAI LLM configuration"""
+
     provider: Literal["openai"] = "openai"
     model: str = "gpt-4-turbo"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     temperature: float = 0.0
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
 
 
 class PreRetrievalConfig(BaseModel):
     """Pre-retrieval configuration"""
+
     use_hyde: bool = False
     use_rewrite: bool = False
     multi_query: bool = False
-    hyde_prompt: Optional[str] = None
+    hyde_prompt: str | None = None
 
 
 class ChunkingConfig(BaseModel):
     """Chunking configuration"""
-    splitter_type: Literal["sentence", "token", "semantic", "chinese", "ast", "markdown"] = "sentence"
+
+    splitter_type: Literal["sentence", "token", "semantic", "chinese", "ast", "markdown"] = (
+        "sentence"
+    )
     chunk_size: int = 512
     chunk_overlap: int = 50
     language: Literal["en", "zh"] = "en"
@@ -200,6 +211,7 @@ class ChunkingConfig(BaseModel):
 
 class RetrievalConfig(BaseModel):
     """Retrieval configuration"""
+
     top_k: int = 10
     alpha: float = 0.5  # Vector search weight (1-alpha for BM25)
     retrieve_mode: Literal["hybrid", "sparse", "vector"] = "hybrid"
@@ -207,60 +219,66 @@ class RetrievalConfig(BaseModel):
 
 class RerankingConfig(BaseModel):
     """Reranking configuration"""
+
     enabled: bool = True
     provider: Literal["local", "cohere", "dashscope"] = "local"
     model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     top_n: int = 5
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     timeout: int = 30
 
 
 class GenerationConfig(BaseModel):
     """Generation configuration"""
+
     response_mode: str = "compact"
     streaming: bool = False
 
 
 class ImageProcessingConfig(BaseModel):
     """Image processing configuration for PDF image handling"""
+
     enabled: bool = True
     generate_descriptions: bool = True
     storage_path: str = "./images"
     description_prompt: str = "描述这张图片的内容，包括图片中的文字、图形、图表等关键信息"
-    minimax_api_key: Optional[str] = None
+    minimax_api_key: str | None = None
     minimax_api_host: str = "https://api.minimax.chat"
 
 
 class PlanAgentConfig(BaseModel):
     """PlanAgent specific configuration"""
-    require_approval: bool = True       # 计划确认
-    max_replan_attempts: int = 3        # 失败重规划上限
-    show_plan: bool = True              # 显示计划
-    verbose_steps: bool = True          # 详细日志
-    auto_approve_simple: bool = True    # 简单问题自动批准
+
+    require_approval: bool = True  # 计划确认
+    max_replan_attempts: int = 3  # 失败重规划上限
+    show_plan: bool = True  # 显示计划
+    verbose_steps: bool = True  # 详细日志
+    auto_approve_simple: bool = True  # 简单问题自动批准
 
 
 class ConversationConfig(BaseModel):
     """ConversationManager configuration."""
-    max_history_turns: int = 6      # Turns before summarization
-    keep_recent_turns: int = 2      # Turns kept verbatim after summarization
-    auto_context: bool = True       # Enable LLM-based context decision
+
+    max_history_turns: int = 6  # Turns before summarization
+    keep_recent_turns: int = 2  # Turns kept verbatim after summarization
+    auto_context: bool = True  # Enable LLM-based context decision
 
 
 class AgentConfig(BaseModel):
     """Agent configuration for ReAct-based question answering"""
+
     enabled: bool = False  # 默认关闭，使用Pipeline模式
     mode: str = "react"  # "react", "plan", or "pipeline"
     max_iterations: int = 10
     verbose: bool = True
-    markdown_base_path: Optional[str] = None  # Markdown文件目录路径（用于表格索引解析）
+    markdown_base_path: str | None = None  # Markdown文件目录路径（用于表格索引解析）
     # PlanAgent 配置
     plan_config: PlanAgentConfig = PlanAgentConfig()
     # Conversation 配置
     conversation_config: ConversationConfig = ConversationConfig()
     # 可用的工具列表
-    tools: List[str] = [
+    tools: list[str] = [
         "vector_search",
         "keyword_search",
         "multi_query_search",
@@ -275,6 +293,7 @@ class AgentConfig(BaseModel):
 
 class RAGConfig(BaseModel):
     """Complete RAG configuration"""
+
     storage: StorageConfig
     embedding: EmbeddingConfig = EmbeddingConfig()
     llm: LLMConfig = LLMConfig()
@@ -293,12 +312,13 @@ class RAGConfig(BaseModel):
     def from_yaml(cls, path: str) -> "RAGConfig":
         """Load configuration from YAML file"""
         import yaml
-        with open(path, "r") as f:
+
+        with open(path) as f:
             data = yaml.safe_load(f)
         return cls(**data)
 
     @classmethod
-    def from_env(cls, env_file: Optional[str] = None) -> "RAGConfig":
+    def from_env(cls, env_file: str | None = None) -> "RAGConfig":
         """Load configuration from .env file and environment variables.
 
         Args:
@@ -314,9 +334,7 @@ class RAGConfig(BaseModel):
             env_path = Path.cwd() / ".env"
 
         # Load environment settings
-        env_settings = EnvSettings(
-            _env_file=env_path if env_path.exists() else None
-        )
+        env_settings = EnvSettings(_env_file=env_path if env_path.exists() else None)
 
         # Build storage config based on type
         storage_type = env_settings.profirag_storage_type
@@ -325,7 +343,9 @@ class RAGConfig(BaseModel):
         # Build embedding config based on provider
         if env_settings.profirag_embedding_provider == "fastembed":
             model = env_settings.profirag_embedding_model
-            dimension = env_settings.profirag_embedding_dimension or FASTEMBED_MODEL_DIMENSIONS.get(model, 768)
+            dimension = env_settings.profirag_embedding_dimension or FASTEMBED_MODEL_DIMENSIONS.get(
+                model, 768
+            )
             api_key = None
             base_url = None
         elif env_settings.profirag_embedding_provider == "ollama":
@@ -400,7 +420,7 @@ class RAGConfig(BaseModel):
         )
 
     @staticmethod
-    def _build_storage_config(env: EnvSettings, storage_type: str) -> Dict[str, Any]:
+    def _build_storage_config(env: EnvSettings, storage_type: str) -> dict[str, Any]:
         """Build storage configuration dictionary based on storage type.
 
         Args:
@@ -448,7 +468,7 @@ class RAGConfig(BaseModel):
             return {}
 
 
-def load_config(env_file: Optional[str] = None) -> RAGConfig:
+def load_config(env_file: str | None = None) -> RAGConfig:
     """Load RAG configuration from .env file.
 
     This is a convenience function that wraps RAGConfig.from_env().

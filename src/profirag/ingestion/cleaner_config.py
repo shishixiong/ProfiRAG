@@ -1,78 +1,86 @@
 """Configuration and data models for document cleaner."""
 
-import re
-from typing import List, Optional, Dict, Any, Set, Literal
-from pydantic import BaseModel, Field
 from pathlib import Path
+from typing import Literal
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # Data Models for Structured Document Output
 # ============================================================================
 
+
 class TroubleshootingStep(BaseModel):
     """排查步骤"""
+
     description: str = Field(default="", description="步骤描述")
-    command: Optional[str] = Field(default=None, description="执行的命令")
-    result: Optional[str] = Field(default=None, description="排查结果")
+    command: str | None = Field(default=None, description="执行的命令")
+    result: str | None = Field(default=None, description="排查结果")
 
 
 class ProblemElement(BaseModel):
     """问题现象"""
+
     description: str = Field(default="", description="问题现象的简洁描述")
-    symptoms: List[str] = Field(default_factory=list, description="症状列表")
-    affected_components: List[str] = Field(default_factory=list, description="受影响的组件")
+    symptoms: list[str] = Field(default_factory=list, description="症状列表")
+    affected_components: list[str] = Field(default_factory=list, description="受影响的组件")
 
 
 class CauseAnalysis(BaseModel):
     """原因分析"""
+
     root_cause: str = Field(default="", description="根本原因")
-    contributing_factors: List[str] = Field(default_factory=list, description="促成因素")
+    contributing_factors: list[str] = Field(default_factory=list, description="促成因素")
 
 
 class Solution(BaseModel):
     """解决方案"""
-    troubleshooting_steps: List[TroubleshootingStep] = Field(
+
+    troubleshooting_steps: list[TroubleshootingStep] = Field(
         default_factory=list, description="排查步骤"
     )
-    steps: List[str] = Field(default_factory=list, description="解决步骤")
-    commands: List[str] = Field(default_factory=list, description="执行命令")
-    verification: Optional[str] = Field(default=None, description="验证方法")
+    steps: list[str] = Field(default_factory=list, description="解决步骤")
+    commands: list[str] = Field(default_factory=list, description="执行命令")
+    verification: str | None = Field(default=None, description="验证方法")
 
 
 class DocumentMetadata(BaseModel):
     """提取的元数据"""
-    error_codes: List[str] = Field(default_factory=list, description="错误码如GAUSS-00123")
-    log_patterns: List[str] = Field(default_factory=list, description="日志特征")
-    environment: Dict[str, str] = Field(default_factory=dict, description="环境信息")
-    service_components: List[str] = Field(default_factory=list, description="相关服务组件")
-    keywords: List[str] = Field(default_factory=list, description="问题分类关键词")
+
+    error_codes: list[str] = Field(default_factory=list, description="错误码如GAUSS-00123")
+    log_patterns: list[str] = Field(default_factory=list, description="日志特征")
+    environment: dict[str, str] = Field(default_factory=dict, description="环境信息")
+    service_components: list[str] = Field(default_factory=list, description="相关服务组件")
+    keywords: list[str] = Field(default_factory=list, description="问题分类关键词")
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0, description="提取置信度")
 
 
 class QualityCheckResult(BaseModel):
     """质量检查结果"""
+
     passed: bool = Field(default=False, description="是否通过质量检查")
     has_solution: bool = Field(default=False, description="是否有明确的解决方案")
     no_contradictions: bool = Field(default=True, description="是否无矛盾")
     completeness_score: float = Field(default=0.0, ge=0.0, le=1.0, description="三要素完整性分数")
-    issues: List[str] = Field(default_factory=list, description="发现的问题")
-    rejection_reason: Optional[str] = Field(default=None, description="拒绝原因")
+    issues: list[str] = Field(default_factory=list, description="发现的问题")
+    rejection_reason: str | None = Field(default=None, description="拒绝原因")
 
 
 class ImageInfo(BaseModel):
     """图片信息"""
+
     image_id: str = Field(default="", description="图片ID")
     original_path: str = Field(default="", description="原始图片路径")
-    relative_path: Optional[str] = Field(default=None, description="相对输出文件的路径")
-    description: Optional[str] = Field(default=None, description="图片描述(LLM生成)")
-    alt_text: Optional[str] = Field(default=None, description="原始alt文本")
-    surrounding_context: Optional[str] = Field(default=None, description="图片周围的文本上下文")
-    section: Optional[str] = Field(default=None, description="图片所属章节(problem/cause/solution)")
+    relative_path: str | None = Field(default=None, description="相对输出文件的路径")
+    description: str | None = Field(default=None, description="图片描述(LLM生成)")
+    alt_text: str | None = Field(default=None, description="原始alt文本")
+    surrounding_context: str | None = Field(default=None, description="图片周围的文本上下文")
+    section: str | None = Field(default=None, description="图片所属章节(problem/cause/solution)")
 
 
 class StructureResult(BaseModel):
     """LLM提取的结构结果"""
+
     problem: ProblemElement = Field(default_factory=ProblemElement)
     cause: CauseAnalysis = Field(default_factory=CauseAnalysis)
     solution: Solution = Field(default_factory=Solution)
@@ -81,24 +89,26 @@ class StructureResult(BaseModel):
 
 class RuleResult(BaseModel):
     """规则提取结果"""
-    error_codes: List[str] = Field(default_factory=list)
-    log_patterns: List[str] = Field(default_factory=list)
-    environment: Dict[str, str] = Field(default_factory=dict)
-    service_components: List[str] = Field(default_factory=list)
-    keywords: List[str] = Field(default_factory=list)
+
+    error_codes: list[str] = Field(default_factory=list)
+    log_patterns: list[str] = Field(default_factory=list)
+    environment: dict[str, str] = Field(default_factory=dict)
+    service_components: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
 
 
 class CleanedDocument(BaseModel):
     """清理后的结构化文档"""
+
     source_file: str = Field(default="", description="原始文件路径")
-    original_title: Optional[str] = Field(default=None, description="原始标题")
+    original_title: str | None = Field(default=None, description="原始标题")
     problem: ProblemElement = Field(default_factory=ProblemElement)
     cause: CauseAnalysis = Field(default_factory=CauseAnalysis)
     solution: Solution = Field(default_factory=Solution)
     metadata: DocumentMetadata = Field(default_factory=DocumentMetadata)
     quality: QualityCheckResult = Field(default_factory=QualityCheckResult)
-    images: List[ImageInfo] = Field(default_factory=list, description="文档中的图片信息")
-    original_text: Optional[str] = Field(default=None, description="原文内容")
+    images: list[ImageInfo] = Field(default_factory=list, description="文档中的图片信息")
+    original_text: str | None = Field(default=None, description="原文内容")
 
     def to_markdown(self) -> str:
         """转换为结构化Markdown格式"""
@@ -238,8 +248,10 @@ class CleanedDocument(BaseModel):
 # Configuration
 # ============================================================================
 
+
 class CleanerConfig(BaseModel):
     """文档清理器配置"""
+
     # 规则提取配置
     min_document_length: int = Field(default=100, description="最小文档长度")
     max_document_length: int = Field(default=10000, description="最大文档长度(截取)")
@@ -247,17 +259,27 @@ class CleanerConfig(BaseModel):
     # 质量检查配置
     min_completeness_score: float = Field(default=0.5, ge=0.0, le=1.0, description="最小完整性分数")
     require_solution_steps: bool = Field(default=True, description="必须包含解决步骤")
-    solution_keywords: Set[str] = Field(
-        default_factory=lambda: {"执行", "运行", "修改", "配置", "重启", "安装", "更新", "设置", "调整"},
-        description="解决方案关键词"
+    solution_keywords: set[str] = Field(
+        default_factory=lambda: {
+            "执行",
+            "运行",
+            "修改",
+            "配置",
+            "重启",
+            "安装",
+            "更新",
+            "设置",
+            "调整",
+        },
+        description="解决方案关键词",
     )
 
     # LLM配置
     llm_model: str = Field(default="gpt-4-turbo", description="LLM模型")
-    llm_api_key: Optional[str] = Field(default=None, description="LLM API密钥")
-    llm_base_url: Optional[str] = Field(default=None, description="LLM API Base URL (兼容OpenAI API)")
+    llm_api_key: str | None = Field(default=None, description="LLM API密钥")
+    llm_base_url: str | None = Field(default=None, description="LLM API Base URL (兼容OpenAI API)")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=1.0, description="LLM温度")
-    llm_max_tokens: Optional[int] = Field(default=None, description="LLM最大输出token")
+    llm_max_tokens: int | None = Field(default=None, description="LLM最大输出token")
 
     # 输出配置
     output_format: str = Field(default="markdown", description="输出格式")
@@ -270,17 +292,21 @@ class CleanerConfig(BaseModel):
     )
     image_description_prompt: str = Field(
         default="描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息",
-        description="图片描述prompt"
+        description="图片描述prompt",
     )
     include_images_in_output: bool = Field(default=True, description="是否在输出中包含图片")
-    image_output_dir: Optional[str] = Field(default=None, description="图片输出目录(相对于输出文件)")
+    image_output_dir: str | None = Field(default=None, description="图片输出目录(相对于输出文件)")
     # MiniMax配置
-    minimax_api_key: Optional[str] = Field(default=None, description="MiniMax API密钥(用于图片理解)")
+    minimax_api_key: str | None = Field(default=None, description="MiniMax API密钥(用于图片理解)")
     minimax_api_host: str = Field(default="https://api.minimax.chat", description="MiniMax API地址")
     # OpenAI兼容配置(用于图片理解)
-    image_openai_api_key: Optional[str] = Field(default=None, description="图片理解OpenAI API密钥")
-    image_openai_base_url: Optional[str] = Field(default=None, description="图片理解OpenAI API Base URL")
-    image_openai_model: str = Field(default="gpt-4o", description="图片理解模型(如gpt-4o, deepseek-vl等)")
+    image_openai_api_key: str | None = Field(default=None, description="图片理解OpenAI API密钥")
+    image_openai_base_url: str | None = Field(
+        default=None, description="图片理解OpenAI API Base URL"
+    )
+    image_openai_model: str = Field(
+        default="gpt-4o", description="图片理解模型(如gpt-4o, deepseek-vl等)"
+    )
     image_timeout: int = Field(default=60, description="图片理解API超时时间(秒)")
 
     @classmethod
@@ -294,6 +320,7 @@ class CleanerConfig(BaseModel):
         """
         try:
             from ..config.settings import EnvSettings
+
             env = EnvSettings()
 
             # OpenAI API key fallback: image_openai_api_key -> openai_api_key
@@ -318,5 +345,6 @@ class CleanerConfig(BaseModel):
         except Exception as e:
             # Fallback to defaults if env loading fails
             import logging
+
             logging.getLogger(__name__).warning(f"Failed to load env config: {e}")
             return cls()

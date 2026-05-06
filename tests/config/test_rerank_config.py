@@ -1,6 +1,7 @@
 """Tests for rerank configuration"""
 
 import os
+
 from profirag.config.settings import EnvSettings, RerankingConfig
 
 

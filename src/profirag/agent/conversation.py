@@ -1,10 +1,10 @@
 """Multi-turn conversation support for RAG Agents."""
 
+import json
 import re
 import uuid
-import json
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -52,17 +52,19 @@ SUMMARIZATION_PROMPT = """请将以下对话历史压缩为简洁的摘要，保
 
 class ConversationTurn(BaseModel):
     """Single conversation exchange."""
+
     query: str
     response: str
     timestamp: datetime
-    tool_calls: List[Dict] = Field(default_factory=list)
+    tool_calls: list[dict] = Field(default_factory=list)
     mode: str  # "react" or "plan"
 
 
 class ConversationState(BaseModel):
     """Session conversation state."""
+
     session_id: str
-    turns: List[ConversationTurn] = Field(default_factory=list)
+    turns: list[ConversationTurn] = Field(default_factory=list)
     summary: str = ""
     created_at: datetime
     last_activity: datetime
@@ -78,6 +80,7 @@ class ConversationState(BaseModel):
 
 class QueryEnrichmentResult(BaseModel):
     """Result of query processing."""
+
     original_query: str
     enriched_query: str
     injected_context: bool = False
@@ -127,7 +130,7 @@ class ConversationManager:
             last_activity=datetime.now(),
         )
 
-    def get_history(self) -> List[ConversationTurn]:
+    def get_history(self) -> list[ConversationTurn]:
         """Return full conversation history."""
         return self.state.turns.copy()
 
@@ -135,7 +138,7 @@ class ConversationManager:
         """Return current conversation summary."""
         return self.state.summary
 
-    def export_state(self) -> Dict:
+    def export_state(self) -> dict:
         """Export state for debugging/testing."""
         return {
             "session_id": self.state.session_id,
@@ -145,14 +148,18 @@ class ConversationManager:
             "last_activity": self.state.last_activity.isoformat(),
         }
 
-    def import_state(self, state_dict: Dict) -> None:
+    def import_state(self, state_dict: dict) -> None:
         """Import previous state for testing/debugging."""
         self.state = ConversationState(
             session_id=state_dict.get("session_id", str(uuid.uuid4())[:8]),
             turns=[ConversationTurn(**t) for t in state_dict.get("turns", [])],
             summary=state_dict.get("summary", ""),
-            created_at=datetime.fromisoformat(state_dict["created_at"]) if "created_at" in state_dict else datetime.now(),
-            last_activity=datetime.fromisoformat(state_dict["last_activity"]) if "last_activity" in state_dict else datetime.now(),
+            created_at=datetime.fromisoformat(state_dict["created_at"])
+            if "created_at" in state_dict
+            else datetime.now(),
+            last_activity=datetime.fromisoformat(state_dict["last_activity"])
+            if "last_activity" in state_dict
+            else datetime.now(),
         )
 
     def _detect_explicit_reference(self, query: str) -> bool:
@@ -186,7 +193,7 @@ class ConversationManager:
             context_parts.append(f"摘要: {self.state.summary}")
 
         if use_recent_turns and self.state.turns:
-            recent = self.state.turns[-self.keep_recent_turns:]
+            recent = self.state.turns[-self.keep_recent_turns :]
             for turn in recent:
                 context_parts.append(f"问: {turn.query}")
                 context_parts.append(f"答: {turn.response[:200]}")
@@ -234,7 +241,7 @@ class ConversationManager:
             # Parse JSON response
             text = response.text.strip()
             # Find JSON in response
-            json_match = re.search(r'\{[\s\S]*\}', text)
+            json_match = re.search(r"\{[\s\S]*\}", text)
             if json_match:
                 data = json.loads(json_match.group())
                 return data.get("needs_context", False)
@@ -243,7 +250,7 @@ class ConversationManager:
 
         return False
 
-    def _summarize_history(self, turns: List[ConversationTurn]) -> str:
+    def _summarize_history(self, turns: list[ConversationTurn]) -> str:
         """Generate summary from conversation turns.
 
         Args:
@@ -277,8 +284,8 @@ class ConversationManager:
             return
 
         # Turns to summarize (all except recent)
-        turns_to_summarize = self.state.turns[:-self.keep_recent_turns]
-        recent_turns = self.state.turns[-self.keep_recent_turns:]
+        turns_to_summarize = self.state.turns[: -self.keep_recent_turns]
+        recent_turns = self.state.turns[-self.keep_recent_turns :]
 
         # Generate new summary (combine with existing)
         new_summary = self._summarize_history(turns_to_summarize)
@@ -294,7 +301,7 @@ class ConversationManager:
         if self.verbose:
             print(f"📋 Summarized {len(turns_to_summarize)} turns into summary")
 
-    def query(self, question: str, **agent_kwargs) -> Dict[str, Any]:
+    def query(self, question: str, **agent_kwargs) -> dict[str, Any]:
         """
         Process query with conversation context.
 
@@ -323,7 +330,9 @@ class ConversationManager:
 
             if explicit_ref:
                 # Enrich with recent turns + summary
-                enrichment_result.enriched_query = self._enrich_query(question, use_recent_turns=True)
+                enrichment_result.enriched_query = self._enrich_query(
+                    question, use_recent_turns=True
+                )
                 enrichment_result.injected_context = True
                 enrichment_result.reference_detected = True
                 enrichment_result.context_source = "recent_turns"
@@ -331,7 +340,9 @@ class ConversationManager:
                 # Use LLM to decide
                 needs_context = self._should_inject_context_llm(question)
                 if needs_context:
-                    enrichment_result.enriched_query = self._enrich_query(question, use_recent_turns=False)
+                    enrichment_result.enriched_query = self._enrich_query(
+                        question, use_recent_turns=False
+                    )
                     enrichment_result.injected_context = True
                     enrichment_result.context_source = "summary"
 

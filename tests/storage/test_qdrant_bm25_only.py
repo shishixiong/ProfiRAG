@@ -1,9 +1,9 @@
 """Tests for QdrantStore index_mode functionality"""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, SparseVectorParams
 
 from src.profirag.storage.qdrant_store import QdrantStore
 

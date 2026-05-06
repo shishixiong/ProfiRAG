@@ -1,8 +1,8 @@
 """Tests for retrieve_mode configuration"""
 
 import os
-from pathlib import Path
-from profirag.config.settings import EnvSettings, RetrievalConfig, RAGConfig
+
+from profirag.config.settings import EnvSettings, RAGConfig, RetrievalConfig
 
 
 def test_env_settings_retrieve_mode_default():
@@ -20,6 +20,7 @@ def test_env_settings_retrieve_mode_values():
     """Test that retrieve_mode accepts valid values."""
     # Test via environment variable simulation
     import os
+
     os.environ["PROFIRAG_RETRIEVE_INDEX_MODE"] = "sparse"
     settings = EnvSettings()
     assert settings.profirag_retrieve_index_mode == "sparse"
@@ -40,6 +41,7 @@ def test_retrieval_config_retrieve_mode():
 def test_rag_config_from_env_includes_retrieve_mode():
     """Test that RAGConfig.from_env passes retrieve_mode."""
     import os
+
     os.environ["PROFIRAG_RETRIEVE_INDEX_MODE"] = "vector"
     config = RAGConfig.from_env()
     assert config.retrieval.retrieve_mode == "vector"

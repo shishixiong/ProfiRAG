@@ -1,6 +1,7 @@
 """Pre-retrieval query transformation components"""
 
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from llama_index.core import QueryBundle
 from llama_index.core.indices.query.query_transform.base import BaseQueryTransform
 
@@ -12,12 +13,7 @@ class HyDEQueryTransform(BaseQueryTransform):
     then uses its embedding for retrieval.
     """
 
-    def __init__(
-        self,
-        llm: Any,
-        hyde_prompt: Optional[str] = None,
-        **kwargs
-    ):
+    def __init__(self, llm: Any, hyde_prompt: str | None = None, **kwargs):
         """Initialize HyDE transform.
 
         Args:
@@ -62,21 +58,14 @@ class HyDEQueryTransform(BaseQueryTransform):
         """
         hypothetical_doc = self._run_query(query_str, **kwargs)
         return QueryBundle(
-            query_str=query_str,
-            custom_embedding_strs=[hypothetical_doc],
-            embedding_mode="custom"
+            query_str=query_str, custom_embedding_strs=[hypothetical_doc], embedding_mode="custom"
         )
 
 
 class QueryRewriter:
     """Query rewriting component for improving query quality."""
 
-    def __init__(
-        self,
-        llm: Any,
-        rewrite_prompt: Optional[str] = None,
-        **kwargs
-    ):
+    def __init__(self, llm: Any, rewrite_prompt: str | None = None, **kwargs):
         """Initialize query rewriter.
 
         Args:
@@ -119,11 +108,7 @@ class MultiQueryGenerator:
     """Generate multiple query variants for broader retrieval coverage."""
 
     def __init__(
-        self,
-        llm: Any,
-        num_queries: int = 3,
-        prompt_template: Optional[str] = None,
-        **kwargs
+        self, llm: Any, num_queries: int = 3, prompt_template: str | None = None, **kwargs
     ):
         """Initialize multi-query generator.
 
@@ -151,7 +136,7 @@ class MultiQueryGenerator:
 
 输出格式（每行一个变体，无需编号）:"""
 
-    def generate(self, query_str: str) -> List[str]:
+    def generate(self, query_str: str) -> list[str]:
         """Generate query variants.
 
         Args:
@@ -160,10 +145,7 @@ class MultiQueryGenerator:
         Returns:
             List of query variant strings
         """
-        prompt = self.prompt_template.format(
-            query_str=query_str,
-            num_queries=self.num_queries
-        )
+        prompt = self.prompt_template.format(query_str=query_str, num_queries=self.num_queries)
         response = self.llm.complete(prompt)
 
         # Parse variants
@@ -177,7 +159,7 @@ class MultiQueryGenerator:
                 variants.append(line)
 
         # Limit to requested number
-        return variants[:self.num_queries]
+        return variants[: self.num_queries]
 
 
 class PreRetrievalPipeline:
@@ -189,12 +171,7 @@ class PreRetrievalPipeline:
     - Multi-Query generation
     """
 
-    def __init__(
-        self,
-        llm: Any,
-        config: Optional[Dict[str, Any]] = None,
-        **kwargs
-    ):
+    def __init__(self, llm: Any, config: dict[str, Any] | None = None, **kwargs):
         """Initialize pre-retrieval pipeline.
 
         Args:
@@ -212,30 +189,28 @@ class PreRetrievalPipeline:
         self.config = config or {}
 
         # Initialize transforms
-        self._hyde_transform: Optional[HyDEQueryTransform] = None
-        self._query_rewriter: Optional[QueryRewriter] = None
-        self._multi_query_generator: Optional[MultiQueryGenerator] = None
+        self._hyde_transform: HyDEQueryTransform | None = None
+        self._query_rewriter: QueryRewriter | None = None
+        self._multi_query_generator: MultiQueryGenerator | None = None
 
         if self.config.get("use_hyde"):
             self._hyde_transform = HyDEQueryTransform(
-                llm=llm,
-                hyde_prompt=self.config.get("hyde_prompt")
+                llm=llm, hyde_prompt=self.config.get("hyde_prompt")
             )
 
         if self.config.get("use_rewrite"):
             self._query_rewriter = QueryRewriter(
-                llm=llm,
-                rewrite_prompt=self.config.get("rewrite_prompt")
+                llm=llm, rewrite_prompt=self.config.get("rewrite_prompt")
             )
 
         if self.config.get("multi_query"):
             self._multi_query_generator = MultiQueryGenerator(
                 llm=llm,
                 num_queries=self.config.get("num_queries", 3),
-                prompt_template=self.config.get("multi_query_prompt")
+                prompt_template=self.config.get("multi_query_prompt"),
             )
 
-    def transform(self, query_str: str) -> List[QueryBundle]:
+    def transform(self, query_str: str) -> list[QueryBundle]:
         """Transform the query, returning one or more query variants.
 
         Args:

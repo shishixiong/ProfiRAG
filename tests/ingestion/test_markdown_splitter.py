@@ -1,14 +1,14 @@
 """Tests for the Markdown splitter."""
 
-import pytest
+from llama_index.core.node_parser.relational.base_element import Element
+
 from profirag.ingestion.splitters import (
-    extract_markdown_elements,
+    Section,
     build_header_chain,
     build_sections,
-    Section,
     chunk_sections,
+    extract_markdown_elements,
 )
-from llama_index.core.node_parser.relational.base_element import Element
 
 
 class TestExtractMarkdownElements:
@@ -178,7 +178,7 @@ class TestChunkSections:
         """Small section produces single chunk."""
         section = Section(
             heading_stack=[(1, "Title")],
-            elements=[Element(id="0", type="text", element="Short content")]
+            elements=[Element(id="0", type="text", element="Short content")],
         )
         chunks = chunk_sections([section], chunk_size=512)
         assert len(chunks) == 1
@@ -189,7 +189,7 @@ class TestChunkSections:
         """Each chunk starts with header chain."""
         section = Section(
             heading_stack=[(1, "API"), (2, "Users")],
-            elements=[Element(id="0", type="text", element="Content")]
+            elements=[Element(id="0", type="text", element="Content")],
         )
         chunks = chunk_sections([section], chunk_size=512)
         assert "# API" in chunks[0].text
@@ -205,7 +205,7 @@ class TestChunkSections:
         """Chunk has header_path metadata."""
         section = Section(
             heading_stack=[(1, "API"), (2, "Users")],
-            elements=[Element(id="0", type="text", element="Content")]
+            elements=[Element(id="0", type="text", element="Content")],
         )
         chunks = chunk_sections([section], chunk_size=512)
         assert chunks[0].metadata["header_path"] == "/API/Users/"
@@ -224,7 +224,7 @@ class TestChunkSectionsAtomic:
             elements=[
                 Element(id="0", type="text", element="Intro"),
                 Element(id="1", type="code", element=f"```python\n{long_text}\n```"),
-            ]
+            ],
         )
         chunks = chunk_sections([section], chunk_size=100)
         assert len(chunks) >= 2
@@ -239,7 +239,7 @@ class TestChunkSectionsAtomic:
             heading_stack=[(1, "Title")],
             elements=[
                 Element(id="0", type="table", element="| A | B |\n|---|---|\n| 1 | 2 |"),
-            ]
+            ],
         )
         chunks = chunk_sections([section], chunk_size=50)
         assert len(chunks) == 1
@@ -259,7 +259,7 @@ class TestChunkSectionsRepetition:
             elements=[
                 Element(id="0", type="text", element=long_content),
                 Element(id="1", type="text", element=long_content2),
-            ]
+            ],
         )
         chunks = chunk_sections([section], chunk_size=300)
         assert len(chunks) >= 2
@@ -274,6 +274,7 @@ class TestMarkdownSplitter:
     def test_splitter_init_defaults(self):
         """Default constructor sets sensible values."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter()
         assert splitter.chunk_size == 512
         assert splitter.chunk_overlap == 50
@@ -281,6 +282,7 @@ class TestMarkdownSplitter:
     def test_splitter_init_custom(self):
         """Custom constructor values are stored."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter(chunk_size=256, chunk_overlap=20)
         assert splitter.chunk_size == 256
         assert splitter.chunk_overlap == 20
@@ -288,6 +290,7 @@ class TestMarkdownSplitter:
     def test_split_text_returns_nodes(self):
         """split_text returns list of TextNode."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter()
         text = "# Title\nContent here"
         nodes = splitter.split_text(text)
@@ -298,6 +301,7 @@ class TestMarkdownSplitter:
     def test_split_text_with_headers(self):
         """split_text handles headers correctly."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter()
         text = "# API\n## Users\nUser content here"
         nodes = splitter.split_text(text)
@@ -307,8 +311,10 @@ class TestMarkdownSplitter:
 
     def test_split_document(self):
         """split_document handles Document objects."""
-        from profirag.ingestion.splitters import MarkdownSplitter
         from llama_index.core.schema import Document
+
+        from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter()
         doc = Document(text="# Title\nContent", metadata={"file_path": "/test.md"})
         nodes = splitter.split_document(doc)
@@ -317,8 +323,10 @@ class TestMarkdownSplitter:
 
     def test_split_documents(self):
         """split_documents handles multiple Documents."""
-        from profirag.ingestion.splitters import MarkdownSplitter
         from llama_index.core.schema import Document
+
+        from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter()
         docs = [
             Document(text="# A\nContent A"),
@@ -334,19 +342,24 @@ class TestMarkdownSplitterEdgeCases:
     def test_no_headers_plain_text(self):
         """Document without headers has correct metadata."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter(chunk_size=100)
         text = "Plain text paragraph one. " * 20 + "\n" + "Plain text paragraph two. " * 20
         nodes = splitter.split_text(text)
         # Headerless docs produce nodes with root path metadata
         assert len(nodes) >= 1
         for node in nodes:
-            assert node.metadata["header_path"] in ("/", "//")  # Root path (may have trailing/leading variations)
+            assert node.metadata["header_path"] in (
+                "/",
+                "//",
+            )  # Root path (may have trailing/leading variations)
             assert node.metadata["current_heading"] == ""
             assert node.metadata["heading_level"] == 0
 
     def test_no_headers_with_code_block(self):
         """Code block in headerless doc is preserved."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter(chunk_size=100)
         text = "Some intro text.\n```python\ndef foo(): pass\n```"
         nodes = splitter.split_text(text)
@@ -360,6 +373,7 @@ class TestMarkdownSplitterIntegration:
     def test_full_api_document(self):
         """Test realistic API documentation structure."""
         from profirag.ingestion.splitters import MarkdownSplitter
+
         splitter = MarkdownSplitter(chunk_size=300)
         text = """
 # API Documentation
@@ -409,9 +423,16 @@ Returns a list of all users.
         assert len(table_nodes) >= 1
 
         # Header chain should appear in nodes
-        login_nodes = [n for n in nodes if "Login" in n.metadata.get("current_heading", "") or "Login" in n.text]
+        login_nodes = [
+            n
+            for n in nodes
+            if "Login" in n.metadata.get("current_heading", "") or "Login" in n.text
+        ]
         assert len(login_nodes) >= 1
         for node in login_nodes:
             # Should have header chain from parent headers
             if node.metadata.get("header_path"):
-                assert "API Documentation" in node.metadata["header_path"] or "User Module" in node.metadata["header_path"]
+                assert (
+                    "API Documentation" in node.metadata["header_path"]
+                    or "User Module" in node.metadata["header_path"]
+                )

@@ -1,17 +1,16 @@
 """RAG evaluation runner - combines retrieval and response evaluation"""
 
 import time
-from typing import List, Dict, Any, Optional
-
-from pydantic import BaseModel
+from typing import Any
 
 from llama_index.core.llms.llm import LLM
 from llama_index.core.schema import NodeWithScore
+from pydantic import BaseModel
 
 from ..pipeline.rag_pipeline import RAGPipeline
-from .retrieval import RetrievalEvaluator, RetrievalEvalResult
-from .response import ResponseEvaluator, EvaluationResult
 from .dataset import EvalDataset, EvalItem
+from .response import EvaluationResult, ResponseEvaluator
+from .retrieval import RetrievalEvalResult, RetrievalEvaluator
 
 
 class EvalResultItem(BaseModel):
@@ -28,8 +27,8 @@ class EvalResultItem(BaseModel):
 
     query: str
     response: str
-    retrieval_metrics: Dict[str, float]
-    response_metrics: Dict[str, Any]
+    retrieval_metrics: dict[str, float]
+    response_metrics: dict[str, Any]
     source_count: int
     elapsed_time: float
 
@@ -44,9 +43,9 @@ class RAGEvalResults(BaseModel):
         total_time: Total evaluation time
     """
 
-    items: List[EvalResultItem]
-    retrieval_summary: Dict[str, float]
-    response_summary: Dict[str, Dict[str, float]]
+    items: list[EvalResultItem]
+    retrieval_summary: dict[str, float]
+    response_summary: dict[str, dict[str, float]]
     total_time: float
 
     def save(self, path: str) -> None:
@@ -110,9 +109,9 @@ class RAGEvalRunner:
     def __init__(
         self,
         pipeline: RAGPipeline,
-        llm: Optional[LLM] = None,
-        retrieval_metrics: List[str] = ["hit_rate", "mrr", "precision", "recall"],
-        response_metrics: List[str] = ["faithfulness", "relevancy"],
+        llm: LLM | None = None,
+        retrieval_metrics: list[str] = ["hit_rate", "mrr", "precision", "recall"],
+        response_metrics: list[str] = ["faithfulness", "relevancy"],
         top_k: int = 10,
     ):
         """Initialize RAG evaluation runner.
@@ -163,7 +162,7 @@ class RAGEvalRunner:
 
         # Extract response and contexts
         response = result["response"]
-        source_nodes: List[NodeWithScore] = result["source_nodes"]
+        source_nodes: list[NodeWithScore] = result["source_nodes"]
         contexts = [node.node.text for node in source_nodes]
 
         # 2. Evaluate retrieval
@@ -218,7 +217,7 @@ class RAGEvalRunner:
 
         for i, item in enumerate(dataset):
             if show_progress:
-                print(f"Evaluating query {i+1}/{len(dataset)}: {item.query[:50]}...")
+                print(f"Evaluating query {i + 1}/{len(dataset)}: {item.query[:50]}...")
 
             result_item = self.run_single(item)
             results.append(result_item)
@@ -258,10 +257,7 @@ class RAGEvalRunner:
         """Create RetrievalEvalResult from EvalResultItem for summary calculation."""
         from llama_index.core.evaluation.retrieval.metrics_base import RetrievalMetricResult
 
-        metric_dict = {
-            k: RetrievalMetricResult(score=v)
-            for k, v in item.retrieval_metrics.items()
-        }
+        metric_dict = {k: RetrievalMetricResult(score=v) for k, v in item.retrieval_metrics.items()}
 
         return RetrievalEvalResult(
             query=item.query,
@@ -273,9 +269,9 @@ class RAGEvalRunner:
 
     def quick_eval(
         self,
-        queries: List[str],
-        expected_ids_list: List[List[str]],
-        references: Optional[List[str]] = None,
+        queries: list[str],
+        expected_ids_list: list[list[str]],
+        references: list[str] | None = None,
     ) -> RAGEvalResults:
         """Quick evaluation with minimal setup.
 
@@ -299,7 +295,7 @@ class RAGEvalRunner:
         dataset = EvalDataset(items=items)
         return self.run_evaluation(dataset)
 
-    def get_available_metrics(self) -> Dict[str, List[str]]:
+    def get_available_metrics(self) -> dict[str, list[str]]:
         """Get all available metrics for retrieval and response.
 
         Returns:

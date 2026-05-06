@@ -1,10 +1,10 @@
 """Evaluation dataset definitions"""
 
+import json
 import random
 import re
 from pathlib import Path
-from typing import List, Optional, Any
-import json
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -23,9 +23,9 @@ class EvalItem(BaseModel):
     """
 
     query: str
-    expected_ids: List[str]
-    expected_texts: Optional[List[str]] = None
-    reference_answer: Optional[str] = None
+    expected_ids: list[str]
+    expected_texts: list[str] | None = None
+    reference_answer: str | None = None
 
 
 class EvalDataset(BaseModel):
@@ -35,7 +35,7 @@ class EvalDataset(BaseModel):
         items: List of EvalItem objects
     """
 
-    items: List[EvalItem]
+    items: list[EvalItem]
 
     @classmethod
     def from_json(cls, path: str) -> "EvalDataset":
@@ -64,7 +64,7 @@ class EvalDataset(BaseModel):
         if not path.exists():
             raise FileNotFoundError(f"Dataset file not found: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         items = [EvalItem(**item) for item in data.get("items", data)]
@@ -91,7 +91,7 @@ class EvalDataset(BaseModel):
             raise FileNotFoundError(f"Dataset file not found: {path}")
 
         items = []
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 expected_ids = row.get("expected_ids", "").split(",")
@@ -138,15 +138,15 @@ class EvalDataset(BaseModel):
     def __getitem__(self, index: int) -> EvalItem:
         return self.items[index]
 
-    def get_queries(self) -> List[str]:
+    def get_queries(self) -> list[str]:
         """Get all queries."""
         return [item.query for item in self.items]
 
-    def get_expected_ids(self) -> List[List[str]]:
+    def get_expected_ids(self) -> list[list[str]]:
         """Get all expected IDs."""
         return [item.expected_ids for item in self.items]
 
-    def get_reference_answers(self) -> List[Optional[str]]:
+    def get_reference_answers(self) -> list[str | None]:
         """Get all reference answers."""
         return [item.reference_answer for item in self.items]
 
@@ -177,7 +177,7 @@ def create_sample_dataset() -> EvalDataset:
     return EvalDataset(items=items)
 
 
-def extract_keywords_from_text(text: str, max_keywords: int = 5) -> List[str]:
+def extract_keywords_from_text(text: str, max_keywords: int = 5) -> list[str]:
     """Extract keywords from text for generating queries.
 
     Args:
@@ -190,18 +190,114 @@ def extract_keywords_from_text(text: str, max_keywords: int = 5) -> List[str]:
     # Simple keyword extraction using common patterns
     # Remove common stop words
     stop_words = {
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "must", "shall", "can", "need", "dare",
-        "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
-        "from", "as", "into", "through", "during", "before", "after", "above",
-        "below", "between", "under", "again", "further", "then", "once",
-        "here", "there", "when", "where", "why", "how", "all", "each", "few",
-        "more", "most", "other", "some", "such", "no", "nor", "not", "only",
-        "own", "same", "so", "than", "too", "very", "just", "and", "but",
-        "if", "or", "because", "until", "while", "although", "though",
-        "这", "那", "是", "有", "和", "的", "了", "在", "不", "也", "就", "都",
-        "可以", "会", "要", "能", "一个", "这个", "那个", "什么", "怎么", "如何",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "and",
+        "but",
+        "if",
+        "or",
+        "because",
+        "until",
+        "while",
+        "although",
+        "though",
+        "这",
+        "那",
+        "是",
+        "有",
+        "和",
+        "的",
+        "了",
+        "在",
+        "不",
+        "也",
+        "就",
+        "都",
+        "可以",
+        "会",
+        "要",
+        "能",
+        "一个",
+        "这个",
+        "那个",
+        "什么",
+        "怎么",
+        "如何",
     }
 
     # Extract words (English and Chinese)
@@ -249,11 +345,11 @@ def generate_query_from_text(text: str, style: str = "question") -> str:
 
 
 def create_dataset_from_nodes(
-    nodes: List[Any],
+    nodes: list[Any],
     num_samples: int = 10,
     query_style: str = "question",
     include_texts: bool = True,
-    llm: Optional[Any] = None,
+    llm: Any | None = None,
     generate_answers: bool = False,
 ) -> EvalDataset:
     """Create evaluation dataset from a list of nodes.
@@ -447,7 +543,7 @@ def create_dataset_from_pipeline(
     nodes = []
     try:
         # Get ref_doc_info to find node IDs
-        if hasattr(vector_store, 'get_ref_doc_info'):
+        if hasattr(vector_store, "get_ref_doc_info"):
             # Sample some document IDs
             # This is a simplified approach - may need adjustment based on store type
             pass

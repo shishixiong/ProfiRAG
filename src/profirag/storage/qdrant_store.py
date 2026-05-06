@@ -1,17 +1,22 @@
 """Qdrant vector store implementation with hybrid search support"""
 
-from typing import List, Optional, Dict, Any, Tuple, ClassVar
-from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode, MetadataMode, BaseNode
+from typing import Any, ClassVar
+
+from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore, QueryBundle, TextNode
 from llama_index.core.storage.docstore.types import RefDocInfo
 from llama_index.core.utils import iter_batch
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import (
-    Distance, VectorParams, SparseVectorParams, PointStruct, SparseVector,
-    Filter, FieldCondition, MatchValue
-)
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as rest
+from qdrant_client.http.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    SparseVectorParams,
+    VectorParams,
+)
 
 from .base import BaseVectorStore
 from .registry import StorageRegistry
@@ -29,17 +34,28 @@ class MinimalPayloadQdrantVectorStore(QdrantVectorStore):
     """
 
     # Metadata keys to exclude from storage (too large or redundant)
-    LARGE_METADATA_KEYS: ClassVar[frozenset] = frozenset({
-        "image_map", "b64_image", "image_data", "original_image",
-        "combined_text", "_document", "page_content", "b64_json",
-        "base64", "embeddings", "text_vector", "content_vector",
-        "chunk_images",  # Image data can be large
-    })
+    LARGE_METADATA_KEYS: ClassVar[frozenset] = frozenset(
+        {
+            "image_map",
+            "b64_image",
+            "image_data",
+            "original_image",
+            "combined_text",
+            "_document",
+            "page_content",
+            "b64_json",
+            "base64",
+            "embeddings",
+            "text_vector",
+            "content_vector",
+            "chunk_images",  # Image data can be large
+        }
+    )
 
     # Maximum metadata value length (50KB per value)
     MAX_METADATA_VALUE_LEN: ClassVar[int] = 50 * 1024
 
-    def _filter_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _filter_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """Filter metadata to exclude large/redundant fields.
 
         Args:
@@ -64,7 +80,7 @@ class MinimalPayloadQdrantVectorStore(QdrantVectorStore):
             filtered[k] = v
         return filtered
 
-    def _build_minimal_payload(self, node: BaseNode) -> Dict[str, Any]:
+    def _build_minimal_payload(self, node: BaseNode) -> dict[str, Any]:
         """Build minimal payload for Qdrant storage without _node_content.
 
         Args:
@@ -92,8 +108,8 @@ class MinimalPayloadQdrantVectorStore(QdrantVectorStore):
         return payload
 
     def _build_points(
-        self, nodes: List[BaseNode], sparse_vector_name: str
-    ) -> Tuple[List[Any], List[str]]:
+        self, nodes: list[BaseNode], sparse_vector_name: str
+    ) -> tuple[list[Any], list[str]]:
         """Build Qdrant points with minimal payload (no _node_content).
 
         This overrides the parent method to store minimal payload instead of
@@ -111,17 +127,14 @@ class MinimalPayloadQdrantVectorStore(QdrantVectorStore):
 
         for node_batch in iter_batch(nodes, self.batch_size):
             node_ids = []
-            vectors: List[Any] = []
-            sparse_vectors: List[List[float]] = []
-            sparse_indices: List[List[int]] = []
+            vectors: list[Any] = []
+            sparse_vectors: list[list[float]] = []
+            sparse_indices: list[list[int]] = []
             payloads = []
 
             if self.enable_hybrid and self._sparse_doc_fn is not None:
                 sparse_indices, sparse_vectors = self._sparse_doc_fn(
-                    [
-                        node.get_content(metadata_mode=MetadataMode.EMBED)
-                        for node in node_batch
-                    ],
+                    [node.get_content(metadata_mode=MetadataMode.EMBED) for node in node_batch],
                 )
 
             for i, node in enumerate(node_batch):
@@ -191,9 +204,9 @@ class QdrantStore(BaseVectorStore):
         dimension: int = 1536,
         distance: str = "Cosine",
         prefer_grpc: bool = False,
-        aclient: Optional[AsyncQdrantClient] = None,
+        aclient: AsyncQdrantClient | None = None,
         index_mode: str = "hybrid",
-        **kwargs
+        **kwargs,
     ):
         """Initialize Qdrant vector store.
 
@@ -227,7 +240,7 @@ class QdrantStore(BaseVectorStore):
                 aclient=aclient,
                 enable_hybrid=True,
                 fastembed_sparse_model="Qdrant/bm42-all-minilm-l6-v2-attentions",
-                **kwargs
+                **kwargs,
             )
         else:
             # Vector-only mode: dense vectors only
@@ -237,7 +250,7 @@ class QdrantStore(BaseVectorStore):
                 prefer_grpc=prefer_grpc,
                 aclient=aclient,
                 enable_hybrid=False,
-                **kwargs
+                **kwargs,
             )
 
     @property
@@ -256,22 +269,24 @@ class QdrantStore(BaseVectorStore):
                 self._client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config={
-                        self.DENSE_VECTOR_NAME: VectorParams(size=self.dimension, distance=self.distance),
+                        self.DENSE_VECTOR_NAME: VectorParams(
+                            size=self.dimension, distance=self.distance
+                        ),
                     },
-                    sparse_vectors_config={
-                        self.SPARSE_VECTOR_NAME: SparseVectorParams()
-                    },
+                    sparse_vectors_config={self.SPARSE_VECTOR_NAME: SparseVectorParams()},
                 )
             else:
                 # Vector-only mode: dense vectors only
                 self._client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config={
-                        self.DENSE_VECTOR_NAME: VectorParams(size=self.dimension, distance=self.distance),
+                        self.DENSE_VECTOR_NAME: VectorParams(
+                            size=self.dimension, distance=self.distance
+                        ),
                     },
                 )
 
-    def add(self, nodes: List[TextNode], **kwargs) -> List[str]:
+    def add(self, nodes: list[TextNode], **kwargs) -> list[str]:
         """Add nodes to the Qdrant collection.
 
         Args:
@@ -287,7 +302,9 @@ class QdrantStore(BaseVectorStore):
         ids = self._vector_store.add(nodes, **kwargs)
         return ids
 
-    def delete(self, ref_doc_id: Optional[str] = None, node_ids: Optional[List[str]] = None, **kwargs) -> bool:
+    def delete(
+        self, ref_doc_id: str | None = None, node_ids: list[str] | None = None, **kwargs
+    ) -> bool:
         """Delete nodes from Qdrant.
 
         Args:
@@ -303,12 +320,7 @@ class QdrantStore(BaseVectorStore):
             self._client.delete(
                 collection_name=self.collection_name,
                 points_selector=Filter(
-                    must=[
-                        FieldCondition(
-                            key="ref_doc_id",
-                            match=MatchValue(value=ref_doc_id)
-                        )
-                    ]
+                    must=[FieldCondition(key="ref_doc_id", match=MatchValue(value=ref_doc_id))]
                 ),
             )
         elif node_ids:
@@ -323,7 +335,9 @@ class QdrantStore(BaseVectorStore):
             self._ensure_collection_exists()
         return True
 
-    def query(self, query: QueryBundle, similarity_top_k: int = 10, **kwargs) -> List[NodeWithScore]:
+    def query(
+        self, query: QueryBundle, similarity_top_k: int = 10, **kwargs
+    ) -> list[NodeWithScore]:
         """Query Qdrant for similar nodes.
 
         Args:
@@ -337,7 +351,7 @@ class QdrantStore(BaseVectorStore):
         # Use LlamaIndex vector store for query (handles both hybrid and vector modes)
         return self._vector_store.query(query, similarity_top_k=similarity_top_k, **kwargs)
 
-    def get_node(self, node_id: str) -> Optional[TextNode]:
+    def get_node(self, node_id: str) -> TextNode | None:
         """Get a specific node by ID from Qdrant.
 
         Args:
@@ -350,7 +364,7 @@ class QdrantStore(BaseVectorStore):
             collection_name=self.collection_name,
             ids=[node_id],
             with_payload=True,
-            with_vectors=False
+            with_vectors=False,
         )
 
         if not results:
@@ -360,10 +374,10 @@ class QdrantStore(BaseVectorStore):
         return TextNode(
             id_=str(point.id),
             text=point.payload.get("text", ""),
-            metadata=point.payload.get("metadata", {}) or {}
+            metadata=point.payload.get("metadata", {}) or {},
         )
 
-    def get_ref_doc_info(self, ref_doc_id: str) -> Optional[RefDocInfo]:
+    def get_ref_doc_info(self, ref_doc_id: str) -> RefDocInfo | None:
         """Get reference document info from Qdrant.
 
         Args:
@@ -376,15 +390,10 @@ class QdrantStore(BaseVectorStore):
             results = self._client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=Filter(
-                    must=[
-                        FieldCondition(
-                            key="ref_doc_id",
-                            match=MatchValue(value=ref_doc_id)
-                        )
-                    ]
+                    must=[FieldCondition(key="ref_doc_id", match=MatchValue(value=ref_doc_id))]
                 ),
                 limit=100,
-                with_payload=True
+                with_payload=True,
             )[0]
 
             if not results:
@@ -393,13 +402,13 @@ class QdrantStore(BaseVectorStore):
             node_ids = [str(r.id) for r in results]
             return RefDocInfo(node_ids=node_ids)
         except Exception as ex:
-            if hasattr(ex, 'status_code') and ex.status_code == 404:
+            if hasattr(ex, "status_code") and ex.status_code == 404:
                 return None
             if "404" in str(ex) or "Not found" in str(ex):
                 return None
             raise
 
-    def persist(self, persist_path: Optional[str] = None, **kwargs) -> None:
+    def persist(self, persist_path: str | None = None, **kwargs) -> None:
         """Persist Qdrant storage.
 
         Note: Qdrant handles persistence automatically. This method
@@ -432,7 +441,7 @@ class QdrantStore(BaseVectorStore):
         self._ensure_collection_exists()
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "QdrantStore":
+    def from_config(cls, config: dict[str, Any]) -> "QdrantStore":
         """Create QdrantStore from configuration.
 
         Args:
@@ -484,5 +493,5 @@ class QdrantStore(BaseVectorStore):
             distance=config.get("distance", "Cosine"),
             prefer_grpc=config.get("prefer_grpc", False),
             index_mode=config.get("index_mode", "hybrid"),
-            **config.get("store_options", {})
+            **config.get("store_options", {}),
         )

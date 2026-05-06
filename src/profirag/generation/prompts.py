@@ -1,8 +1,5 @@
 """Prompt templates for RAG generation"""
 
-from typing import Optional, List
-
-
 # Default RAG prompt template
 DEFAULT_PROMPT_TEMPLATE = """Please answer the question based on the provided reference documents.
 
@@ -182,7 +179,7 @@ class PromptTemplates:
             return mode_map_en.get(mode, DEFAULT_PROMPT_TEMPLATE)
 
     @staticmethod
-    def format_context(nodes: List, max_length: Optional[int] = None) -> str:
+    def format_context(nodes: list, max_length: int | None = None) -> str:
         """Format context from nodes.
 
         Args:
@@ -204,17 +201,14 @@ class PromptTemplates:
                     text = text[:remaining] + "..."
                 break
 
-            context_parts.append(f"[{i+1}] {text}")
+            context_parts.append(f"[{i + 1}] {text}")
             total_length += len(text)
 
         return "\n\n".join(context_parts)
 
     @staticmethod
     def format_prompt(
-        query_str: str,
-        context_str: str,
-        template: Optional[str] = None,
-        **kwargs
+        query_str: str, context_str: str, template: str | None = None, **kwargs
     ) -> str:
         """Format complete prompt.
 
@@ -228,8 +222,4 @@ class PromptTemplates:
             Formatted prompt string
         """
         template = template or DEFAULT_PROMPT_TEMPLATE
-        return template.format(
-            query_str=query_str,
-            context_str=context_str,
-            **kwargs
-        )
+        return template.format(query_str=query_str, context_str=context_str, **kwargs)

@@ -2,8 +2,7 @@
 
 import asyncio
 import logging
-import warnings
-from typing import List, Any, Optional
+from typing import Any
 
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
@@ -24,16 +23,10 @@ class FastEmbedEmbedding(BaseEmbedding):
 
     model: str
     dimension: int
-    cache_dir: Optional[str] = None
-    _model: Optional[Any] = None  # TextEmbedding instance
+    cache_dir: str | None = None
+    _model: Any | None = None  # TextEmbedding instance
 
-    def __init__(
-        self,
-        model: str,
-        dimension: int,
-        cache_dir: Optional[str] = None,
-        **kwargs: Any
-    ):
+    def __init__(self, model: str, dimension: int, cache_dir: str | None = None, **kwargs: Any):
         """Initialize FastEmbed embedding model.
 
         Args:
@@ -42,12 +35,7 @@ class FastEmbedEmbedding(BaseEmbedding):
             cache_dir: Optional cache directory for model files
             **kwargs: Additional arguments passed to BaseEmbedding
         """
-        super().__init__(
-            model=model,
-            dimension=dimension,
-            cache_dir=cache_dir,
-            **kwargs
-        )
+        super().__init__(model=model, dimension=dimension, cache_dir=cache_dir, **kwargs)
         self._model = None
 
     @classmethod
@@ -71,18 +59,13 @@ class FastEmbedEmbedding(BaseEmbedding):
         try:
             from fastembed import TextEmbedding
         except ImportError:
-            raise ImportError(
-                "fastembed package not installed. Run: uv add fastembed"
-            )
+            raise ImportError("fastembed package not installed. Run: uv add fastembed")
 
         try:
-            self._model = TextEmbedding(
-                model_name=self.model,
-                cache_dir=self.cache_dir
-            )
+            self._model = TextEmbedding(model_name=self.model, cache_dir=self.cache_dir)
             logger.info(f"Loaded FastEmbed model: {self.model}")
             return self._model
-        except ValueError as e:
+        except ValueError:
             # Get list of supported models for error message
             try:
                 supported = TextEmbedding.list_supported_models()
@@ -90,15 +73,12 @@ class FastEmbedEmbedding(BaseEmbedding):
             except Exception:
                 model_names = []
             raise ValueError(
-                f"Invalid FastEmbed model '{self.model}'. "
-                f"Available models: {model_names}"
+                f"Invalid FastEmbed model '{self.model}'. Available models: {model_names}"
             )
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to load FastEmbed model '{self.model}': {e}"
-            )
+            raise RuntimeError(f"Failed to load FastEmbed model '{self.model}': {e}")
 
-    def _get_embedding(self, text: str) -> List[float]:
+    def _get_embedding(self, text: str) -> list[float]:
         """Get embedding for a single text.
 
         Args:
@@ -120,7 +100,7 @@ class FastEmbedEmbedding(BaseEmbedding):
         except Exception as e:
             raise RuntimeError(f"FastEmbed embedding failed: {e}")
 
-    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts in batch.
 
         Args:
@@ -157,26 +137,26 @@ class FastEmbedEmbedding(BaseEmbedding):
             raise RuntimeError(f"FastEmbed batch embedding failed: {e}")
 
     # Required BaseEmbedding method implementations
-    def _get_query_embedding(self, query: str) -> List[float]:
+    def _get_query_embedding(self, query: str) -> list[float]:
         """Get query embedding."""
         return self._get_embedding(query)
 
-    async def _aget_query_embedding(self, query: str) -> List[float]:
+    async def _aget_query_embedding(self, query: str) -> list[float]:
         """Get query embedding asynchronously."""
         return await asyncio.to_thread(self._get_embedding, query)
 
-    def _get_text_embedding(self, text: str) -> List[float]:
+    def _get_text_embedding(self, text: str) -> list[float]:
         """Get text embedding."""
         return self._get_embedding(text)
 
-    async def _aget_text_embedding(self, text: str) -> List[float]:
+    async def _aget_text_embedding(self, text: str) -> list[float]:
         """Get text embedding asynchronously."""
         return await asyncio.to_thread(self._get_embedding, text)
 
-    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get text embeddings in batch."""
         return self._get_embeddings(texts)
 
-    async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get text embeddings asynchronously in batch."""
         return await asyncio.to_thread(self._get_embeddings, texts)

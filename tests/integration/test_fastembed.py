@@ -1,18 +1,18 @@
 """Integration tests for FastEmbed with RAGPipeline"""
 
-import pytest
 import os
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
-from profirag.config.settings import RAGConfig, EmbeddingConfig, StorageConfig
+import pytest
+
+from profirag.config.settings import EmbeddingConfig, RAGConfig, StorageConfig
 from profirag.embedding import FastEmbedEmbedding
 from profirag.pipeline.rag_pipeline import RAGPipeline
-
 
 # Skip tests if fastembed not installed or if network unavailable
 pytestmark = pytest.mark.skipif(
     os.environ.get("SKIP_FASTEMBED_TESTS", "true").lower() == "true",
-    reason="FastEmbed integration tests skipped (set SKIP_FASTEMBED_TESTS=false to run)"
+    reason="FastEmbed integration tests skipped (set SKIP_FASTEMBED_TESTS=false to run)",
 )
 
 
@@ -29,7 +29,7 @@ class TestFastEmbedPipelineIntegration:
                     "persist_path": "/tmp/test_fastembed_storage",
                     "collection_name": "test_fastembed",
                     "dimension": 384,
-                }
+                },
             ),
             embedding=EmbeddingConfig(
                 provider="fastembed",
@@ -74,7 +74,7 @@ class TestFastEmbedProviderSelection:
                     "persist_path": "/tmp/test_openai_storage",
                     "collection_name": "test_openai",
                     "dimension": 1536,
-                }
+                },
             ),
             embedding=EmbeddingConfig(
                 provider="openai",
@@ -95,7 +95,7 @@ class TestFastEmbedProviderSelection:
                     "persist_path": "/tmp/test_fastembed_storage2",
                     "collection_name": "test_fastembed2",
                     "dimension": 384,
-                }
+                },
             ),
             embedding=EmbeddingConfig(
                 provider="fastembed",
@@ -110,13 +110,17 @@ class TestFastEmbedProviderSelection:
 class TestFastEmbedConfigFromEnv:
     """Tests for loading FastEmbed config from environment"""
 
-    @patch.dict(os.environ, {
-        "PROFIRAG_STORAGE_TYPE": "local",
-        "LOCAL_STORAGE_PATH": "/tmp/test_env_storage",
-        "LOCAL_COLLECTION_NAME": "test_env",
-        "PROFIRAG_EMBEDDING_PROVIDER": "fastembed",
-        "PROFIRAG_EMBEDDING_MODEL": "BAAI/bge-base-en-v1.5",
-    }, clear=False)
+    @patch.dict(
+        os.environ,
+        {
+            "PROFIRAG_STORAGE_TYPE": "local",
+            "LOCAL_STORAGE_PATH": "/tmp/test_env_storage",
+            "LOCAL_COLLECTION_NAME": "test_env",
+            "PROFIRAG_EMBEDDING_PROVIDER": "fastembed",
+            "PROFIRAG_EMBEDDING_MODEL": "BAAI/bge-base-en-v1.5",
+        },
+        clear=False,
+    )
     def test_config_from_env_fastembed(self):
         """Test loading FastEmbed config from environment variables"""
         config = RAGConfig.from_env()
@@ -126,22 +130,30 @@ class TestFastEmbedConfigFromEnv:
         # Dimension should be auto-detected (768 for bge-base)
         assert config.embedding.dimension == 768
 
-    @patch.dict(os.environ, {
-        "PROFIRAG_EMBEDDING_PROVIDER": "fastembed",
-        "PROFIRAG_EMBEDDING_MODEL": "unknown-model",
-        "PROFIRAG_EMBEDDING_DIMENSION": "512",
-    }, clear=False)
+    @patch.dict(
+        os.environ,
+        {
+            "PROFIRAG_EMBEDDING_PROVIDER": "fastembed",
+            "PROFIRAG_EMBEDDING_MODEL": "unknown-model",
+            "PROFIRAG_EMBEDDING_DIMENSION": "512",
+        },
+        clear=False,
+    )
     def test_config_dimension_override(self):
         """Test dimension override for unknown models"""
         config = RAGConfig.from_env()
 
         assert config.embedding.dimension == 512
 
-    @patch.dict(os.environ, {
-        "PROFIRAG_EMBEDDING_PROVIDER": "openai",
-        "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
-        "OPENAI_EMBEDDING_DIMENSION": "1536",
-    }, clear=False)
+    @patch.dict(
+        os.environ,
+        {
+            "PROFIRAG_EMBEDDING_PROVIDER": "openai",
+            "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
+            "OPENAI_EMBEDDING_DIMENSION": "1536",
+        },
+        clear=False,
+    )
     def test_config_openai_provider_default(self):
         """Test that openai remains default provider"""
         config = RAGConfig.from_env()

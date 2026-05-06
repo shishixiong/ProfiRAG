@@ -1,30 +1,27 @@
 """Document loaders for various file types with pymupdf4llm PDF support"""
 
-import os
 import re
 import tempfile
-import shutil
 from collections import Counter
-from typing import List, Optional, Dict, Any, Union, Set, Tuple
 from pathlib import Path
-from llama_index.core import Document, SimpleDirectoryReader
-from llama_index.core.readers.base import BaseReader
+from typing import Any
 
+from llama_index.core import Document, SimpleDirectoryReader
 
 # Pattern for markdown image references: ![alt](path)
-IMAGE_REFERENCE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+IMAGE_REFERENCE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 # Pattern for markdown table rows (starts with |)
-TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+TABLE_ROW_PATTERN = re.compile(r"^\|.+\|$")
 
 # Pattern for markdown table separator (|---|---|)
-TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+TABLE_SEPARATOR_PATTERN = re.compile(r"^[\|\s\-:]+$")
 
 # Pattern for table title (表 X-X 标题)
-TABLE_TITLE_PATTERN = re.compile(r'^表\s*(\d+[-\.\d]*)\s*(.+)?$', re.MULTILINE)
+TABLE_TITLE_PATTERN = re.compile(r"^表\s*(\d+[-\.\d]*)\s*(.+)?$", re.MULTILINE)
 
 
-def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str, Any]]:
+def extract_image_map(text: str, context_chars: int = 200) -> dict[str, dict[str, Any]]:
     """Extract image references from markdown and create image_map.
 
     Scans the markdown text for image references and creates a mapping
@@ -55,10 +52,12 @@ def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str
 
         # Clean surrounding text (remove the image reference itself)
         before_text = text[start_context:position].strip()
-        after_text = text[match.end():end_context].strip()
-        context = (before_text[-context_chars//2:] if before_text else "") + \
-                  " " + \
-                  (after_text[:context_chars//2] if after_text else "")
+        after_text = text[match.end() : end_context].strip()
+        context = (
+            (before_text[-context_chars // 2 :] if before_text else "")
+            + " "
+            + (after_text[: context_chars // 2] if after_text else "")
+        )
 
         image_map[image_id] = {
             "path": image_path,
@@ -72,7 +71,7 @@ def extract_image_map(text: str, context_chars: int = 200) -> Dict[str, Dict[str
     return image_map
 
 
-def extract_tables_from_markdown(text: str, pdf_name: str = "") -> Tuple[str, List[Dict[str, Any]]]:
+def extract_tables_from_markdown(text: str, pdf_name: str = "") -> tuple[str, list[dict[str, Any]]]:
     """从Markdown文本中提取表格，替换为索引链接。
 
     Args:
@@ -123,19 +122,29 @@ def extract_tables_from_markdown(text: str, pdf_name: str = "") -> Tuple[str, Li
                 for j in range(table_start - 1, max(table_start - 10, -1), -1):
                     prev_line = lines[j].strip()
                     # Match pattern like "表 1-1 gsql高级功能" or "表1-1"
-                    title_match = re.match(r'表\s*(\d+[-\.\d]*)\s*(.+)?$', prev_line)
+                    title_match = re.match(r"表\s*(\d+[-\.\d]*)\s*(.+)?$", prev_line)
                     if title_match:
                         title_num = title_match.group(1)
                         title_suffix = title_match.group(2) or ""
-                        title = f"表 {title_num} {title_suffix.strip()}" if title_suffix.strip() else f"表 {title_num}"
+                        title = (
+                            f"表 {title_num} {title_suffix.strip()}"
+                            if title_suffix.strip()
+                            else f"表 {title_num}"
+                        )
                         title_line_idx = j
                         break
                     # Also check for bold format: **表 1-1** 标题
-                    bold_match = re.match(r'\*{0,2}表\s*\*{0,2}(\d+[-\.\d]*)\s*\*{0,2}\s*(.+)?$', prev_line)
+                    bold_match = re.match(
+                        r"\*{0,2}表\s*\*{0,2}(\d+[-\.\d]*)\s*\*{0,2}\s*(.+)?$", prev_line
+                    )
                     if bold_match:
                         title_num = bold_match.group(1)
                         title_suffix = bold_match.group(2) or ""
-                        title = f"表 {title_num} {title_suffix.strip()}" if title_suffix.strip() else f"表 {title_num}"
+                        title = (
+                            f"表 {title_num} {title_suffix.strip()}"
+                            if title_suffix.strip()
+                            else f"表 {title_num}"
+                        )
                         title_line_idx = j
                         break
                     # Stop looking if we hit another heading or significant content
@@ -145,23 +154,29 @@ def extract_tables_from_markdown(text: str, pdf_name: str = "") -> Tuple[str, Li
                 # Generate filename
                 table_id += 1
                 # Clean title for filename (remove special chars)
-                clean_title = re.sub(r'[^\w\-\u4e00-\u9fff]', '_', title)[:50]
-                pdf_clean = re.sub(r'[^\w\-\u4e00-\u9fff]', '_', pdf_name)[:30]
-                filename = f"{pdf_clean}_table_{table_id}_{clean_title}.md" if pdf_clean else f"table_{table_id}_{clean_title}.md"
+                clean_title = re.sub(r"[^\w\-\u4e00-\u9fff]", "_", title)[:50]
+                pdf_clean = re.sub(r"[^\w\-\u4e00-\u9fff]", "_", pdf_name)[:30]
+                filename = (
+                    f"{pdf_clean}_table_{table_id}_{clean_title}.md"
+                    if pdf_clean
+                    else f"table_{table_id}_{clean_title}.md"
+                )
 
                 # Create index link
                 index_link = f"[{title}](tables/{filename})"
 
-                tables.append({
-                    "table_id": table_id,
-                    "title": title,
-                    "title_num": title_num,
-                    "content": table_content,
-                    "filename": filename,
-                    "start_line": table_start,
-                    "end_line": table_end,
-                    "title_line": title_line_idx,
-                })
+                tables.append(
+                    {
+                        "table_id": table_id,
+                        "title": title,
+                        "title_num": title_num,
+                        "content": table_content,
+                        "filename": filename,
+                        "start_line": table_start,
+                        "end_line": table_end,
+                        "title_line": title_line_idx,
+                    }
+                )
 
                 # Replace table with index in result_lines
                 # First, mark lines to be removed (we'll do actual replacement later)
@@ -171,7 +186,7 @@ def extract_tables_from_markdown(text: str, pdf_name: str = "") -> Tuple[str, Li
                 lines_to_replace = table_end - table_start
                 if title_line_idx >= 0 and title_line_idx < table_start:
                     # Also replace the title line
-                    lines_to_replace += (table_start - title_line_idx)
+                    lines_to_replace += table_start - title_line_idx
                     table_start = title_line_idx
 
                 i = table_end - 1  # Continue from after the table
@@ -224,7 +239,7 @@ def detect_header_footer_patterns(
     min_occurrences: int = 3,
     min_line_length: int = 5,
     max_line_length: int = 100,
-) -> Set[str]:
+) -> set[str]:
     """Auto-detect header/footer patterns from repeating lines.
 
     Args:
@@ -238,17 +253,18 @@ def detect_header_footer_patterns(
     """
     # Pattern for markdown table separator rows (e.g., |---|---|)
     # Matches lines containing only |, -, :, and whitespace
-    TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+    TABLE_SEPARATOR_PATTERN = re.compile(r"^[\|\s\-:]+$")
 
     # Pattern for markdown table rows (starts with |)
-    TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+    TABLE_ROW_PATTERN = re.compile(r"^\|.+\|$")
 
     lines = text.split("\n")
     # Filter lines by length and clean whitespace
     # Exclude table separator rows and table rows (critical for markdown table formatting)
     # Table headers that repeat across multiple tables should not be filtered as header/footer
     candidate_lines = [
-        line.strip() for line in lines
+        line.strip()
+        for line in lines
         if min_line_length <= len(line.strip()) <= max_line_length
         and not TABLE_SEPARATOR_PATTERN.match(line.strip())  # Skip table separators
         and not TABLE_ROW_PATTERN.match(line.strip())  # Skip table rows (including headers)
@@ -258,20 +274,17 @@ def detect_header_footer_patterns(
     line_counts = Counter(candidate_lines)
 
     # Find lines that repeat frequently (likely headers/footers)
-    patterns = {
-        line for line, count in line_counts.items()
-        if count >= min_occurrences
-    }
+    patterns = {line for line, count in line_counts.items() if count >= min_occurrences}
 
     return patterns
 
 
 def filter_header_footer(
     text: str,
-    patterns: Optional[Set[str]] = None,
+    patterns: set[str] | None = None,
     auto_detect: bool = True,
     min_occurrences: int = 3,
-    custom_patterns: Optional[List[str]] = None,
+    custom_patterns: list[str] | None = None,
 ) -> str:
     """Remove header/footer content from text.
 
@@ -287,18 +300,16 @@ def filter_header_footer(
     """
     # Pattern for markdown table separator rows (e.g., |---|---|)
     # Matches lines containing only |, -, :, and whitespace
-    TABLE_SEPARATOR_PATTERN = re.compile(r'^[\|\s\-:]+$')
+    TABLE_SEPARATOR_PATTERN = re.compile(r"^[\|\s\-:]+$")
 
     # Pattern for markdown table rows (starts with |)
-    TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
+    TABLE_ROW_PATTERN = re.compile(r"^\|.+\|$")
 
-    all_patterns: Set[str] = patterns or set()
+    all_patterns: set[str] = patterns or set()
 
     # Auto-detect patterns
     if auto_detect:
-        detected = detect_header_footer_patterns(
-            text, min_occurrences=min_occurrences
-        )
+        detected = detect_header_footer_patterns(text, min_occurrences=min_occurrences)
         all_patterns.update(detected)
 
     # Add custom patterns
@@ -346,11 +357,12 @@ def filter_header_footer(
 # - ## 1 heading text (plain)
 # - ## 1.1.1 heading text (plain)
 HEADING_NUMBER_PATTERN = re.compile(
-    r'^(#+)\s*'  # Markdown heading prefix (##, ###, etc.)
-    r'(?:\*{2})?'  # Optional opening bold marker **
-    r'(\d+(?:\.\d+)*)'  # Section number: 1, 1.1, 1.1.1, etc.
-    r'(?:\*{2})?\s+'  # Optional closing bold ** followed by space
+    r"^(#+)\s*"  # Markdown heading prefix (##, ###, etc.)
+    r"(?:\*{2})?"  # Optional opening bold marker **
+    r"(\d+(?:\.\d+)*)"  # Section number: 1, 1.1, 1.1.1, etc.
+    r"(?:\*{2})?\s+"  # Optional closing bold ** followed by space
 )
+
 
 def remove_non_heading_markers(text: str) -> str:
     """Remove markdown heading markers from non-heading content.
@@ -381,7 +393,7 @@ def remove_non_heading_markers(text: str) -> str:
 
     for line in lines:
         # Check if this line is a markdown heading
-        heading_match = re.match(r'^(#+)\s+(.+)$', line)
+        heading_match = re.match(r"^(#+)\s+(.+)$", line)
         if not heading_match:
             cleaned_lines.append(line)
             continue
@@ -437,12 +449,12 @@ def fix_heading_levels(text: str) -> str:
             level = min(level, 6)
 
             # Get the rest of the line after the matched portion
-            rest = line[match.end():]
+            rest = line[match.end() :]
 
             # Clean up remaining bold markers in heading text
             # Remove trailing ** that might be left from partial bold formatting
-            rest = re.sub(r'\*{2}(?:\s|$)', '', rest)  # Remove ** followed by space or end
-            rest = re.sub(r'^\*{2}\s*', '', rest)  # Remove leading ** at start of rest
+            rest = re.sub(r"\*{2}(?:\s|$)", "", rest)  # Remove ** followed by space or end
+            rest = re.sub(r"^\*{2}\s*", "", rest)  # Remove leading ** at start of rest
 
             # Build new line with correct heading level
             new_line = "#" * level + " " + number + " " + rest.strip()
@@ -481,15 +493,15 @@ class PDFLoader:
         self,
         use_pymupdf4llm: bool = True,
         write_images: bool = False,
-        image_path: Optional[str] = None,
-        pages: Optional[List[int]] = None,
+        image_path: str | None = None,
+        pages: list[int] | None = None,
         as_llama_index_docs: bool = True,
         exclude_header_footer: bool = False,
-        header_footer_patterns: Optional[List[str]] = None,
+        header_footer_patterns: list[str] | None = None,
         header_footer_auto_detect: bool = True,
         header_footer_min_occurrences: int = 3,
         fix_heading_levels: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """Initialize PDF loader.
 
@@ -525,15 +537,12 @@ class PDFLoader:
         """Check if pymupdf4llm is installed."""
         try:
             import pymupdf4llm
+
             return True
         except ImportError:
             return False
 
-    def load_pdf(
-        self,
-        file_path: str,
-        **kwargs
-    ) -> List[Document]:
+    def load_pdf(self, file_path: str, **kwargs) -> list[Document]:
         """Load a PDF file and convert to Markdown.
 
         Args:
@@ -655,7 +664,7 @@ class PDFLoader:
     def _load_pdf_fallback(
         self,
         file_path: str,
-    ) -> List[Document]:
+    ) -> list[Document]:
         """Fallback to LlamaIndex default PDF reader.
 
         Args:
@@ -670,11 +679,8 @@ class PDFLoader:
         return reader.load_data()
 
     def load_pdf_directory(
-        self,
-        directory: str,
-        recursive: bool = True,
-        **kwargs
-    ) -> List[Document]:
+        self, directory: str, recursive: bool = True, **kwargs
+    ) -> list[Document]:
         """Load all PDFs from a directory.
 
         Args:
@@ -724,10 +730,28 @@ class DocumentLoader:
     """
 
     SUPPORTED_EXTENSIONS = [
-        ".pdf", ".txt", ".md", ".docx", ".html", ".htm",
-        ".json", ".csv", ".xlsx", ".pptx",
+        ".pdf",
+        ".txt",
+        ".md",
+        ".docx",
+        ".html",
+        ".htm",
+        ".json",
+        ".csv",
+        ".xlsx",
+        ".pptx",
         # Code files for AST splitter
-        ".py", ".java", ".cpp", ".c", ".h", ".hpp", ".go", ".js", ".ts", ".jsx", ".tsx",
+        ".py",
+        ".java",
+        ".cpp",
+        ".c",
+        ".h",
+        ".hpp",
+        ".go",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
     ]
 
     def __init__(
@@ -736,14 +760,14 @@ class DocumentLoader:
         extract_metadata: bool = True,
         use_pymupdf4llm: bool = True,
         pdf_write_images: bool = False,
-        pdf_image_path: Optional[str] = None,
-        pdf_pages: Optional[List[int]] = None,
+        pdf_image_path: str | None = None,
+        pdf_pages: list[int] | None = None,
         exclude_header_footer: bool = False,
-        header_footer_patterns: Optional[List[str]] = None,
+        header_footer_patterns: list[str] | None = None,
         header_footer_auto_detect: bool = True,
         header_footer_min_occurrences: int = 3,
         fix_heading_levels: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """Initialize document loader.
 
@@ -788,11 +812,8 @@ class DocumentLoader:
         )
 
     def _load_md_file(
-        self,
-        file_path: str,
-        base_path: Optional[str] = None,
-        **kwargs
-    ) -> List[Document]:
+        self, file_path: str, base_path: str | None = None, **kwargs
+    ) -> list[Document]:
         """Load a Markdown file with image extraction.
 
         Args:
@@ -809,7 +830,7 @@ class DocumentLoader:
             raise FileNotFoundError(f"MD file not found: {file_path}")
 
         # Read file content
-        with open(path, 'r', encoding=self.encoding) as f:
+        with open(path, encoding=self.encoding) as f:
             text = f.read()
 
         # Apply heading level fix if enabled
@@ -833,7 +854,9 @@ class DocumentLoader:
 
                 # Strategy 2: If img_path starts with base_dir's name, try from parent
                 # This handles cases where markdown has "markdown/images/..." and file is in ./markdown/
-                if img_path.startswith(base_dir.name + "/") or img_path.startswith(base_dir.name + "\\"):
+                if img_path.startswith(base_dir.name + "/") or img_path.startswith(
+                    base_dir.name + "\\"
+                ):
                     candidate2 = (base_dir.parent / img_path).resolve()
                     # Use candidate2 if file exists there, otherwise fallback to candidate1
                     if candidate2.exists():
@@ -865,12 +888,8 @@ class DocumentLoader:
         return [doc]
 
     def load_directory(
-        self,
-        directory: str,
-        recursive: bool = True,
-        exclude: Optional[List[str]] = None,
-        **kwargs
-    ) -> List[Document]:
+        self, directory: str, recursive: bool = True, exclude: list[str] | None = None, **kwargs
+    ) -> list[Document]:
         """Load all documents from a directory.
 
         Args:
@@ -891,7 +910,8 @@ class DocumentLoader:
         pdf_files = [f for f in all_files if f.suffix.lower() == ".pdf" and f.is_file()]
         md_files = [f for f in all_files if f.suffix.lower() == ".md" and f.is_file()]
         other_files = [
-            f for f in all_files
+            f
+            for f in all_files
             if f.suffix.lower() in self.SUPPORTED_EXTENSIONS
             and f.suffix.lower() not in [".pdf", ".md"]
             and f.is_file()
@@ -900,17 +920,15 @@ class DocumentLoader:
         # Apply exclude patterns
         if exclude:
             import fnmatch
+
             pdf_files = [
-                f for f in pdf_files
-                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
+                f for f in pdf_files if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
             ]
             md_files = [
-                f for f in md_files
-                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
+                f for f in md_files if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
             ]
             other_files = [
-                f for f in other_files
-                if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
+                f for f in other_files if not any(fnmatch.fnmatch(str(f), ex) for ex in exclude)
             ]
 
         documents = []
@@ -938,11 +956,7 @@ class DocumentLoader:
 
         return documents
 
-    def load_file(
-        self,
-        file_path: str,
-        **kwargs
-    ) -> List[Document]:
+    def load_file(self, file_path: str, **kwargs) -> list[Document]:
         """Load a single file.
 
         Args:
@@ -966,18 +980,10 @@ class DocumentLoader:
             return self._load_md_file(file_path, **kwargs)
 
         # Use SimpleDirectoryReader for other files
-        reader = SimpleDirectoryReader(
-            input_files=[file_path],
-            encoding=self.encoding,
-            **kwargs
-        )
+        reader = SimpleDirectoryReader(input_files=[file_path], encoding=self.encoding, **kwargs)
         return reader.load_data()
 
-    def load_files(
-        self,
-        file_paths: List[str],
-        **kwargs
-    ) -> List[Document]:
+    def load_files(self, file_paths: list[str], **kwargs) -> list[Document]:
         """Load multiple files.
 
         Args:
@@ -998,10 +1004,7 @@ class DocumentLoader:
         # Separate files by type
         pdf_files = [f for f in valid_files if Path(f).suffix.lower() == ".pdf"]
         md_files = [f for f in valid_files if Path(f).suffix.lower() == ".md"]
-        other_files = [
-            f for f in valid_files
-            if Path(f).suffix.lower() not in [".pdf", ".md"]
-        ]
+        other_files = [f for f in valid_files if Path(f).suffix.lower() not in [".pdf", ".md"]]
 
         documents = []
 
@@ -1020,9 +1023,7 @@ class DocumentLoader:
         # Load other files
         if other_files:
             reader = SimpleDirectoryReader(
-                input_files=other_files,
-                encoding=self.encoding,
-                **kwargs
+                input_files=other_files, encoding=self.encoding, **kwargs
             )
             other_docs = reader.load_data()
             documents.extend(other_docs)
@@ -1032,8 +1033,8 @@ class DocumentLoader:
     def load_text(
         self,
         text: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        doc_id: Optional[str] = None,
+        metadata: dict[str, Any] | None = None,
+        doc_id: str | None = None,
     ) -> Document:
         """Create a Document from raw text.
 
@@ -1053,9 +1054,9 @@ class DocumentLoader:
 
     def load_texts(
         self,
-        texts: List[str],
-        metadatas: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Document]:
+        texts: list[str],
+        metadatas: list[dict[str, Any]] | None = None,
+    ) -> list[Document]:
         """Create Documents from multiple texts.
 
         Args:
@@ -1066,10 +1067,7 @@ class DocumentLoader:
             List of Document objects
         """
         metadatas = metadatas or [{} for _ in texts]
-        return [
-            Document(text=text, metadata=meta)
-            for text, meta in zip(texts, metadatas)
-        ]
+        return [Document(text=text, metadata=meta) for text, meta in zip(texts, metadatas)]
 
     @staticmethod
     def is_supported(file_path: str) -> bool:
@@ -1088,12 +1086,12 @@ class DocumentLoader:
         self,
         pdf_path: str,
         output_md_path: str,
-        exclude_header_footer: Optional[bool] = None,
-        fix_headings: Optional[bool] = None,
+        exclude_header_footer: bool | None = None,
+        fix_headings: bool | None = None,
         extract_tables: bool = False,
-        tables_output_dir: Optional[str] = None,
-        **kwargs
-    ) -> Tuple[str, List[str]]:
+        tables_output_dir: str | None = None,
+        **kwargs,
+    ) -> tuple[str, list[str]]:
         """Convert PDF to Markdown file and save it.
 
         Args:
@@ -1115,7 +1113,11 @@ class DocumentLoader:
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
         # Use instance defaults if not specified
-        do_filter = exclude_header_footer if exclude_header_footer is not None else self.exclude_header_footer
+        do_filter = (
+            exclude_header_footer
+            if exclude_header_footer is not None
+            else self.exclude_header_footer
+        )
         do_fix_headings = fix_headings if fix_headings is not None else self.fix_heading_levels
 
         # Convert to Markdown
@@ -1176,16 +1178,16 @@ class DocumentLoader:
 
 def convert_pdf_to_markdown(
     pdf_path: str,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     write_images: bool = False,
-    image_path: Optional[str] = None,
-    pages: Optional[List[int]] = None,
+    image_path: str | None = None,
+    pages: list[int] | None = None,
     exclude_header_footer: bool = False,
-    header_footer_patterns: Optional[List[str]] = None,
+    header_footer_patterns: list[str] | None = None,
     header_footer_auto_detect: bool = True,
     header_footer_min_occurrences: int = 3,
     fix_heading_levels: bool = True,
-) -> Union[str, List[Document]]:
+) -> str | list[Document]:
     """Convenience function to convert PDF to Markdown.
 
     Args:

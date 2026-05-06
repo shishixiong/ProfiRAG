@@ -1,17 +1,15 @@
 """Quality checker for document validation."""
 
 import logging
-from typing import Optional, Set
 
 from llama_index.core.llms import LLM
 
 from .cleaner_config import (
+    CleanerConfig,
     QualityCheckResult,
     StructureResult,
-    CleanerConfig,
 )
 from .llm_extractor import LLMExtractor
-
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +19,13 @@ class QualityChecker:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        config: Optional[CleanerConfig] = None,
+        llm: LLM | None = None,
+        config: CleanerConfig | None = None,
     ):
         self.config = config or CleanerConfig()
         self._llm_extractor = LLMExtractor(llm, config) if llm else None
 
-    def check(
-        self,
-        original_text: str,
-        structure: StructureResult
-    ) -> QualityCheckResult:
+    def check(self, original_text: str, structure: StructureResult) -> QualityCheckResult:
         """执行质量检查"""
 
         issues: list = []
@@ -59,7 +53,10 @@ class QualityChecker:
         if self._llm_extractor:
             # 2.1 检查三要素完整性
             completeness_result = self._llm_extractor.check_completeness(structure)
-            if completeness_result.get("completeness_score", 0) < self.config.min_completeness_score:
+            if (
+                completeness_result.get("completeness_score", 0)
+                < self.config.min_completeness_score
+            ):
                 missing = completeness_result.get("missing_elements", [])
                 issues.append(f"完整性不足: {', '.join(missing)}")
 

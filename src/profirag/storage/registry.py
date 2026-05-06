@@ -1,6 +1,7 @@
 """Storage backend registry for managing multiple vector store implementations"""
 
-from typing import Dict, Type, Any, List
+from typing import Any
+
 from .base import BaseVectorStore
 
 
@@ -11,7 +12,7 @@ class StorageRegistry:
     Supports dynamic registration of new backends.
     """
 
-    _stores: Dict[str, Type[BaseVectorStore]] = {}
+    _stores: dict[str, type[BaseVectorStore]] = {}
 
     @classmethod
     def register(cls, name: str) -> callable:
@@ -28,15 +29,17 @@ class StorageRegistry:
             class QdrantStore(BaseVectorStore):
                 ...
         """
-        def decorator(store_class: Type[BaseVectorStore]) -> Type[BaseVectorStore]:
+
+        def decorator(store_class: type[BaseVectorStore]) -> type[BaseVectorStore]:
             if name in cls._stores:
                 raise ValueError(f"Store '{name}' is already registered")
             cls._stores[name] = store_class
             return store_class
+
         return decorator
 
     @classmethod
-    def get_store_class(cls, name: str) -> Type[BaseVectorStore]:
+    def get_store_class(cls, name: str) -> type[BaseVectorStore]:
         """Get the registered store class by name.
 
         Args:
@@ -54,7 +57,7 @@ class StorageRegistry:
         return cls._stores[name]
 
     @classmethod
-    def get_store(cls, name: str, config: Dict[str, Any]) -> BaseVectorStore:
+    def get_store(cls, name: str, config: dict[str, Any]) -> BaseVectorStore:
         """Create and return a store instance by name and config.
 
         Args:
@@ -71,7 +74,7 @@ class StorageRegistry:
         return store_class.from_config(config)
 
     @classmethod
-    def list_stores(cls) -> List[str]:
+    def list_stores(cls) -> list[str]:
         """List all registered store names.
 
         Returns:

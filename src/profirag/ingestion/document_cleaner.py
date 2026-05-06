@@ -1,11 +1,10 @@
 """Document Cleaner - Main module for cleaning issue/ticket documents."""
 
-import json
-import logging
 import argparse
+import logging
 import shutil
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from llama_index.core import Document
 from llama_index.core.llms import LLM
@@ -15,15 +14,13 @@ from .cleaner_config import (
     CleanedDocument,
     CleanerConfig,
     DocumentMetadata,
-    QualityCheckResult,
     ImageInfo,
 )
-from .rule_extractor import RuleExtractor
-from .llm_extractor import LLMExtractor
-from .quality_checker import QualityChecker
-from .loaders import DocumentLoader, extract_image_map
 from .image_processor import ImageProcessor, understand_image
-
+from .llm_extractor import LLMExtractor
+from .loaders import DocumentLoader, extract_image_map
+from .quality_checker import QualityChecker
+from .rule_extractor import RuleExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +43,8 @@ class DocumentCleaner:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        config: Optional[CleanerConfig] = None,
+        llm: LLM | None = None,
+        config: CleanerConfig | None = None,
     ):
         """Initialize document cleaner.
 
@@ -64,7 +61,7 @@ class DocumentCleaner:
         self._quality_checker = QualityChecker(self._llm, self.config)
 
         # Initialize image processor if enabled
-        self._image_processor: Optional[ImageProcessor] = None
+        self._image_processor: ImageProcessor | None = None
         if self.config.process_images:
             self._image_processor = self._create_image_processor()
 
@@ -82,6 +79,7 @@ class DocumentCleaner:
         # Try to get config from RAGConfig if available
         try:
             from ..config.settings import RAGConfig
+
             rag_config = RAGConfig.from_env()
             llm_kwargs = {
                 "model": rag_config.llm.model,
@@ -121,10 +119,8 @@ class DocumentCleaner:
         )
 
     def _process_images(
-        self,
-        document: Document,
-        output_dir: Optional[Path] = None
-    ) -> List[ImageInfo]:
+        self, document: Document, output_dir: Path | None = None
+    ) -> list[ImageInfo]:
         """Process images in document and return ImageInfo list.
 
         Args:
@@ -134,7 +130,7 @@ class DocumentCleaner:
         Returns:
             List of ImageInfo objects with descriptions
         """
-        images: List[ImageInfo] = []
+        images: list[ImageInfo] = []
 
         # Get image_map from document metadata
         image_map = document.metadata.get("image_map", {})
@@ -173,13 +169,17 @@ class DocumentCleaner:
             description = None
             if self._image_processor:
                 try:
-                    logger.debug(f"Generating description for image: {original_path} (provider: {self.config.image_provider})")
+                    logger.debug(
+                        f"Generating description for image: {original_path} (provider: {self.config.image_provider})"
+                    )
                     description = understand_image(
                         image_path=original_path,
                         prompt=self.config.image_description_prompt,
                         provider=self.config.image_provider,
                         # MiniMax params
-                        api_key=self.config.minimax_api_key if self.config.image_provider == "minimax" else self.config.image_openai_api_key,
+                        api_key=self.config.minimax_api_key
+                        if self.config.image_provider == "minimax"
+                        else self.config.image_openai_api_key,
                         api_host=self.config.minimax_api_host,
                         # OpenAI params
                         base_url=self.config.image_openai_base_url,
@@ -203,18 +203,20 @@ class DocumentCleaner:
                     shutil.copy2(original_path, dest_path)
                 relative_path = f"images/{Path(original_path).name}"
 
-            images.append(ImageInfo(
-                image_id=image_id,
-                original_path=original_path,
-                relative_path=relative_path,
-                description=description,
-                alt_text=img_info.get("alt_text"),
-                surrounding_context=img_info.get("surrounding_text"),
-            ))
+            images.append(
+                ImageInfo(
+                    image_id=image_id,
+                    original_path=original_path,
+                    relative_path=relative_path,
+                    description=description,
+                    alt_text=img_info.get("alt_text"),
+                    surrounding_context=img_info.get("surrounding_text"),
+                )
+            )
 
         return images
 
-    def _build_image_context(self, images: List[ImageInfo]) -> str:
+    def _build_image_context(self, images: list[ImageInfo]) -> str:
         """Build context string from image descriptions for LLM prompt."""
         if not images:
             return ""
@@ -228,7 +230,7 @@ class DocumentCleaner:
 
         return "\n".join(context_parts) if len(context_parts) > 1 else ""
 
-    def clean(self, document: Document, output_dir: Optional[str] = None) -> Optional[CleanedDocument]:
+    def clean(self, document: Document, output_dir: str | None = None) -> CleanedDocument | None:
         """Clean a single document.
 
         Args:
@@ -242,7 +244,7 @@ class DocumentCleaner:
 
         try:
             # Step 0: 图片预处理 (如果启用)
-            images: List[ImageInfo] = []
+            images: list[ImageInfo] = []
             image_context = ""
             if self.config.process_images and self._image_processor:
                 logger.debug("Step 0: Image processing...")
@@ -264,10 +266,12 @@ class DocumentCleaner:
 
             # Step 3: 质量检查
             logger.debug("Step 3: Quality check...")
-            logger.debug(f"Extracted structure: problem={structure.problem.description}, "
-                        f"cause={structure.cause.root_cause}, "
-                        f"solution_steps={len(structure.solution.steps)}, "
-                        f"solution_commands={len(structure.solution.commands)}")
+            logger.debug(
+                f"Extracted structure: problem={structure.problem.description}, "
+                f"cause={structure.cause.root_cause}, "
+                f"solution_steps={len(structure.solution.steps)}, "
+                f"solution_commands={len(structure.solution.commands)}"
+            )
             quality = self._quality_checker.check(document.text, structure)
 
             if self._quality_checker.should_reject(quality):
@@ -311,25 +315,23 @@ class DocumentCleaner:
             logger.error(f"Document cleaning failed: {e}", exc_info=True)
             return None
 
-    def _extract_title(self, text: str) -> Optional[str]:
+    def _extract_title(self, text: str) -> str | None:
         """Extract title from document text."""
         import re
+
         # Look for markdown heading
-        match = re.match(r'^#\s+(.+)$', text)
+        match = re.match(r"^#\s+(.+)$", text)
         if match:
             return match.group(1).strip()
         # Look for first significant line
-        lines = text.strip().split('\n')
+        lines = text.strip().split("\n")
         for line in lines[:5]:
             line = line.strip()
-            if line and not line.startswith('#') and len(line) > 10:
+            if line and not line.startswith("#") and len(line) > 10:
                 return line[:50]  # First 50 chars as title
         return None
 
-    def clean_documents(
-        self,
-        documents: List[Document]
-    ) -> List[CleanedDocument]:
+    def clean_documents(self, documents: list[Document]) -> list[CleanedDocument]:
         """Clean multiple documents.
 
         Args:
@@ -349,8 +351,8 @@ class DocumentCleaner:
         self,
         directory: str,
         recursive: bool = True,
-        file_types: Optional[List[str]] = None,
-    ) -> List[CleanedDocument]:
+        file_types: list[str] | None = None,
+    ) -> list[CleanedDocument]:
         """Clean all documents in a directory.
 
         Args:
@@ -361,7 +363,7 @@ class DocumentCleaner:
         Returns:
             List of cleaned documents
         """
-        file_types = file_types or ['.md', '.txt']
+        file_types = file_types or [".md", ".txt"]
         loader = DocumentLoader()
 
         # Load documents
@@ -372,7 +374,8 @@ class DocumentCleaner:
 
         # Filter by file type
         filtered = [
-            doc for doc in documents
+            doc
+            for doc in documents
             if Path(doc.metadata.get("source_file", "")).suffix.lower() in file_types
         ]
 
@@ -381,10 +384,10 @@ class DocumentCleaner:
 
     def save_results(
         self,
-        results: List[CleanedDocument],
+        results: list[CleanedDocument],
         output_dir: str,
-        filename_prefix: Optional[str] = None,
-    ) -> List[str]:
+        filename_prefix: str | None = None,
+    ) -> list[str]:
         """Save cleaned documents to output directory.
 
         Args:
@@ -413,7 +416,7 @@ class DocumentCleaner:
 
         return saved_paths
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get processing statistics."""
         return self._stats.copy()
 
@@ -427,7 +430,7 @@ class DocumentCleaner:
         }
 
     @classmethod
-    def from_env(cls, env_file: Optional[str] = None) -> "DocumentCleaner":
+    def from_env(cls, env_file: str | None = None) -> "DocumentCleaner":
         """Create DocumentCleaner from environment configuration.
 
         Args:
@@ -437,7 +440,8 @@ class DocumentCleaner:
             DocumentCleaner instance
         """
         try:
-            from ..config.settings import RAGConfig, EnvSettings
+            from ..config.settings import EnvSettings, RAGConfig
+
             config = RAGConfig.from_env(env_file)
             env = EnvSettings()
 
@@ -493,41 +497,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="Clean and structure issue/ticket documents for RAG"
     )
+    parser.add_argument("--input", "-i", required=True, help="Input directory or file path")
+    parser.add_argument("--output", "-o", required=True, help="Output directory path")
     parser.add_argument(
-        "--input", "-i",
-        required=True,
-        help="Input directory or file path"
+        "--env-file", default=".env", help="Path to .env config file (default: .env)"
     )
-    parser.add_argument(
-        "--output", "-o",
-        required=True,
-        help="Output directory path"
-    )
-    parser.add_argument(
-        "--env-file",
-        default=".env",
-        help="Path to .env config file (default: .env)"
-    )
-    parser.add_argument(
-        "--recursive", "-r",
-        action="store_true",
-        help="Process subdirectories"
-    )
+    parser.add_argument("--recursive", "-r", action="store_true", help="Process subdirectories")
     parser.add_argument(
         "--file-types",
         nargs="+",
         default=[".md", ".txt"],
-        help="File types to process (default: .md .txt)"
+        help="File types to process (default: .md .txt)",
     )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show processing statistics after completion"
+        "--stats", action="store_true", help="Show processing statistics after completion"
     )
 
     args = parser.parse_args()
@@ -563,7 +547,7 @@ def main():
 
     if args.stats:
         stats = cleaner.get_stats()
-        print(f"\nStatistics:")
+        print("\nStatistics:")
         print(f"  Total processed: {stats['total_processed']}")
         print(f"  Passed: {stats['passed']}")
         print(f"  Rejected: {stats['rejected']}")

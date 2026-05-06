@@ -10,6 +10,6 @@ def test_create_ast_splitter():
     splitter = ASTSplitter(
         chunk_size=config.chunk_size,
         chunk_overlap=config.chunk_overlap,
-        language=config.ast_language
+        language=config.ast_language,
     )
     assert splitter.language == "python"

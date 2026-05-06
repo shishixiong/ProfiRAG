@@ -1,18 +1,17 @@
 """Response evaluation module"""
 
-from typing import List, Dict, Any, Optional, Sequence
+from typing import Any
 
-from llama_index.core.llms.llm import LLM
 from llama_index.core.evaluation import (
+    AnswerRelevancyEvaluator,
+    BatchEvalRunner,
+    ContextRelevancyEvaluator,
+    CorrectnessEvaluator,
+    EvaluationResult,
     FaithfulnessEvaluator,
     RelevancyEvaluator,
-    CorrectnessEvaluator,
-    AnswerRelevancyEvaluator,
-    ContextRelevancyEvaluator,
-    BatchEvalRunner,
-    EvaluationResult,
 )
-
+from llama_index.core.llms.llm import LLM
 
 # Available response evaluators
 AVAILABLE_RESPONSE_EVALUATORS = {
@@ -41,8 +40,8 @@ class ResponseEvaluator:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        evaluators: List[str] = ["faithfulness", "relevancy"],
+        llm: LLM | None = None,
+        evaluators: list[str] = ["faithfulness", "relevancy"],
     ):
         """Initialize response evaluator.
 
@@ -62,7 +61,7 @@ class ResponseEvaluator:
         self.evaluator_names = evaluators
 
         # Create evaluator instances
-        self.evaluators: Dict[str, Any] = {}
+        self.evaluators: dict[str, Any] = {}
         for name in evaluators:
             self.evaluators[name] = AVAILABLE_RESPONSE_EVALUATORS[name](llm=llm)
 
@@ -70,9 +69,9 @@ class ResponseEvaluator:
         self,
         query: str,
         response: str,
-        contexts: List[str],
-        reference: Optional[str] = None,
-    ) -> Dict[str, EvaluationResult]:
+        contexts: list[str],
+        reference: str | None = None,
+    ) -> dict[str, EvaluationResult]:
         """Evaluate a single response.
 
         Args:
@@ -109,9 +108,9 @@ class ResponseEvaluator:
         self,
         query: str,
         response: str,
-        contexts: List[str],
-        reference: Optional[str] = None,
-    ) -> Dict[str, EvaluationResult]:
+        contexts: list[str],
+        reference: str | None = None,
+    ) -> dict[str, EvaluationResult]:
         """Async evaluate a single response.
 
         Args:
@@ -145,13 +144,13 @@ class ResponseEvaluator:
 
     def evaluate_batch(
         self,
-        queries: List[str],
-        responses: List[str],
-        contexts_list: List[List[str]],
-        references: Optional[List[str]] = None,
+        queries: list[str],
+        responses: list[str],
+        contexts_list: list[list[str]],
+        references: list[str] | None = None,
         workers: int = 2,
         show_progress: bool = False,
-    ) -> Dict[str, List[EvaluationResult]]:
+    ) -> dict[str, list[EvaluationResult]]:
         """Evaluate multiple responses in batch.
 
         Args:
@@ -186,13 +185,13 @@ class ResponseEvaluator:
 
     async def aevaluate_batch(
         self,
-        queries: List[str],
-        responses: List[str],
-        contexts_list: List[List[str]],
-        references: Optional[List[str]] = None,
+        queries: list[str],
+        responses: list[str],
+        contexts_list: list[list[str]],
+        references: list[str] | None = None,
         workers: int = 2,
         show_progress: bool = False,
-    ) -> Dict[str, List[EvaluationResult]]:
+    ) -> dict[str, list[EvaluationResult]]:
         """Async evaluate multiple responses in batch.
 
         Args:
@@ -225,8 +224,8 @@ class ResponseEvaluator:
 
     def get_metrics_summary(
         self,
-        results: Dict[str, List[EvaluationResult]],
-    ) -> Dict[str, Dict[str, float]]:
+        results: dict[str, list[EvaluationResult]],
+    ) -> dict[str, dict[str, float]]:
         """Compute summary statistics from batch results.
 
         Args:
@@ -257,12 +256,12 @@ class ResponseEvaluator:
         return summary
 
     @classmethod
-    def get_available_evaluators(cls) -> List[str]:
+    def get_available_evaluators(cls) -> list[str]:
         """Get list of available evaluator names."""
         return list(AVAILABLE_RESPONSE_EVALUATORS.keys())
 
 
-def format_evaluation_result(result: EvaluationResult) -> Dict[str, Any]:
+def format_evaluation_result(result: EvaluationResult) -> dict[str, Any]:
     """Format EvaluationResult for display/export.
 
     Args:

@@ -6,10 +6,10 @@ from profirag.ingestion.ast_splitter import (
     ASTSplitter,
     BaseLanguageParser,
     CodeChunk,
-    PythonParser,
-    JavaParser,
     CppParser,
     GoParser,
+    JavaParser,
+    PythonParser,
 )
 
 
@@ -59,6 +59,7 @@ class TestLanguageRegistry:
     def test_parsers_registered(self):
         """All four target language parsers are available."""
         from profirag.ingestion.ast_splitter import LANGUAGE_PARSERS
+
         assert "python" in LANGUAGE_PARSERS
         assert "java" in LANGUAGE_PARSERS
         assert "cpp" in LANGUAGE_PARSERS
@@ -109,7 +110,7 @@ def test_code_chunk_dataclass():
         entity_type="function",
         file_path="/test.py",
         start_line=1,
-        end_line=2
+        end_line=2,
     )
     assert chunk.code == "def foo(): pass"
     assert chunk.language == "python"
@@ -214,11 +215,7 @@ void world() {
 
 
 def test_ast_splitter_basic():
-    splitter = ASTSplitter(
-        chunk_size=512,
-        chunk_overlap=50,
-        language="python"
-    )
+    splitter = ASTSplitter(chunk_size=512, chunk_overlap=50, language="python")
     code = """
 def hello():
     print("hello")
@@ -228,4 +225,4 @@ def world():
 """
     nodes = splitter.split_text(code, "test.py")
     assert len(nodes) == 2
-    assert nodes[0].text == "def hello():\n    print(\"hello\")"
+    assert nodes[0].text == 'def hello():\n    print("hello")'

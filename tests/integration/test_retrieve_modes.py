@@ -1,9 +1,10 @@
 """Integration tests for retrieve_mode functionality"""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
-from llama_index.core.vector_stores.types import VectorStoreQueryMode
 from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core.vector_stores.types import VectorStoreQueryMode
 
 from profirag.config.settings import RAGConfig, RetrievalConfig
 from profirag.retrieval.hybrid import HybridRetriever
@@ -36,9 +37,11 @@ class TestRetrieveModesIntegration:
         """Create a mock vector store with native BM25 support."""
         store = MagicMock()
         store.has_native_bm25 = MagicMock(return_value=True)
-        store.query = MagicMock(return_value=[
-            NodeWithScore(node=TextNode(id_="node-2", text="BM25 result"), score=0.85)
-        ])
+        store.query = MagicMock(
+            return_value=[
+                NodeWithScore(node=TextNode(id_="node-2", text="BM25 result"), score=0.85)
+            ]
+        )
         return store
 
     @pytest.fixture
@@ -96,7 +99,9 @@ class TestRetrieveModesIntegration:
         call_kwargs = mock_vector_index.as_retriever.call_args.kwargs
         assert call_kwargs["vector_store_query_mode"] == VectorStoreQueryMode.DEFAULT
 
-    def test_retrieve_delegates_to_vector_retriever(self, mock_vector_index, mock_vector_store_no_bm25):
+    def test_retrieve_delegates_to_vector_retriever(
+        self, mock_vector_index, mock_vector_store_no_bm25
+    ):
         """Test that retrieve() delegates to the internal vector retriever when no native BM25."""
         retriever = HybridRetriever(
             vector_index=mock_vector_index,

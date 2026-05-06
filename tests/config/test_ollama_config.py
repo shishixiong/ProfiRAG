@@ -1,10 +1,9 @@
 """Unit tests for Ollama embedding provider configuration"""
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from profirag.config.settings import RAGConfig, EnvSettings, EmbeddingConfig
+from profirag.config.settings import EmbeddingConfig, EnvSettings, RAGConfig
 
 
 class TestOllamaEnvSettings:
@@ -28,24 +27,19 @@ class TestOllamaEnvSettings:
     def test_ollama_custom_model(self):
         """Test custom Ollama model override"""
         env = EnvSettings(
-            profirag_embedding_provider="ollama",
-            ollama_embedding_model="mxbai-embed-large"
+            profirag_embedding_provider="ollama", ollama_embedding_model="mxbai-embed-large"
         )
         assert env.ollama_embedding_model == "mxbai-embed-large"
 
     def test_ollama_custom_dimension(self):
         """Test custom Ollama dimension override"""
-        env = EnvSettings(
-            profirag_embedding_provider="ollama",
-            ollama_embedding_dimension=1024
-        )
+        env = EnvSettings(profirag_embedding_provider="ollama", ollama_embedding_dimension=1024)
         assert env.ollama_embedding_dimension == 1024
 
     def test_ollama_custom_base_url(self):
         """Test custom Ollama base URL override"""
         env = EnvSettings(
-            profirag_embedding_provider="ollama",
-            ollama_base_url="http://192.168.1.100:11434/v1"
+            profirag_embedding_provider="ollama", ollama_base_url="http://192.168.1.100:11434/v1"
         )
         assert env.ollama_base_url == "http://192.168.1.100:11434/v1"
 
@@ -59,7 +53,7 @@ class TestOllamaEmbeddingConfig:
             provider="ollama",
             model="nomic-embed-text",
             dimension=768,
-            base_url="http://localhost:11434/v1"
+            base_url="http://localhost:11434/v1",
         )
         assert config.provider == "ollama"
         assert config.model == "nomic-embed-text"
@@ -72,7 +66,7 @@ class TestOllamaRAGConfigFromEnv:
 
     def test_from_env_ollama_defaults(self):
         """Test from_env creates correct config with Ollama defaults"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
             f.write("PROFIRAG_EMBEDDING_PROVIDER=ollama\n")
             f.write("PROFIRAG_STORAGE_TYPE=local\n")
             f.flush()
@@ -89,7 +83,7 @@ class TestOllamaRAGConfigFromEnv:
 
     def test_from_env_ollama_custom_model(self):
         """Test from_env with custom Ollama model"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
             f.write("PROFIRAG_EMBEDDING_PROVIDER=ollama\n")
             f.write("OLLAMA_EMBEDDING_MODEL=mxbai-embed-large\n")
             f.write("OLLAMA_EMBEDDING_DIMENSION=1024\n")
@@ -105,7 +99,7 @@ class TestOllamaRAGConfigFromEnv:
 
     def test_from_env_ollama_custom_base_url(self):
         """Test from_env with custom Ollama base URL"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
             f.write("PROFIRAG_EMBEDDING_PROVIDER=ollama\n")
             f.write("OLLAMA_BASE_URL=http://remote-server:11434/v1\n")
             f.write("PROFIRAG_STORAGE_TYPE=local\n")

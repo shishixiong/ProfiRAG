@@ -1,9 +1,11 @@
 """Tests for reranker implementations"""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from profirag.retrieval.reranker import BaseReranker
 from llama_index.core.schema import NodeWithScore, TextNode
+
+from profirag.retrieval.reranker import BaseReranker
 
 
 def test_base_reranker_is_abstract():
@@ -15,7 +17,8 @@ def test_base_reranker_is_abstract():
 def test_base_reranker_has_rerank_method():
     """Test BaseReranker defines rerank abstract method."""
     from abc import ABC
-    assert hasattr(BaseReranker, 'rerank')
+
+    assert hasattr(BaseReranker, "rerank")
     # Check it's abstract
     assert BaseReranker.__bases__[0] == ABC
 
@@ -23,11 +26,9 @@ def test_base_reranker_has_rerank_method():
 def test_cohere_reranker_init():
     """Test CohereReranker initialization."""
     from profirag.retrieval.reranker import CohereReranker
+
     reranker = CohereReranker(
-        api_key="test-key",
-        base_url="https://api.cohere.ai",
-        model="rerank-v1",
-        top_n=5
+        api_key="test-key", base_url="https://api.cohere.ai", model="rerank-v1", top_n=5
     )
     assert reranker.api_key == "test-key"
     assert reranker.base_url == "https://api.cohere.ai"
@@ -38,6 +39,7 @@ def test_cohere_reranker_init():
 def test_cohere_reranker_requires_api_key():
     """Test CohereReranker raises error without api_key."""
     from profirag.retrieval.reranker import CohereReranker
+
     with pytest.raises(ValueError, match="api_key is required"):
         CohereReranker(api_key=None, base_url="https://api.cohere.ai")
 
@@ -45,6 +47,7 @@ def test_cohere_reranker_requires_api_key():
 def test_cohere_reranker_requires_base_url():
     """Test CohereReranker raises error without base_url."""
     from profirag.retrieval.reranker import CohereReranker
+
     with pytest.raises(ValueError, match="base_url is required"):
         CohereReranker(api_key="test-key", base_url=None)
 
@@ -53,27 +56,22 @@ def test_cohere_reranker_requires_base_url():
 def test_cohere_reranker_rerank(mock_post):
     """Test CohereReranker rerank method."""
     from profirag.retrieval.reranker import CohereReranker
+
     # Mock response
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "results": [
-            {"index": 1, "relevance_score": 0.95},
-            {"index": 0, "relevance_score": 0.75}
-        ]
+        "results": [{"index": 1, "relevance_score": 0.95}, {"index": 0, "relevance_score": 0.75}]
     }
     mock_response.raise_for_status = MagicMock()
     mock_post.return_value = mock_response
 
     reranker = CohereReranker(
-        api_key="test-key",
-        base_url="https://api.cohere.ai",
-        model="rerank-v1",
-        top_n=2
+        api_key="test-key", base_url="https://api.cohere.ai", model="rerank-v1", top_n=2
     )
 
     nodes = [
         NodeWithScore(node=TextNode(text="Document 0"), score=0.5),
-        NodeWithScore(node=TextNode(text="Document 1"), score=0.6)
+        NodeWithScore(node=TextNode(text="Document 1"), score=0.6),
     ]
 
     result = reranker.rerank("test query", nodes)
@@ -93,10 +91,7 @@ from profirag.retrieval.reranker import DashScopeReranker
 def test_dashscope_reranker_init():
     """Test DashScopeReranker initialization."""
     reranker = DashScopeReranker(
-        api_key="test-key",
-        base_url="https://dashscope.aliyuncs.com",
-        model="rerank-v1",
-        top_n=5
+        api_key="test-key", base_url="https://dashscope.aliyuncs.com", model="rerank-v1", top_n=5
     )
     assert reranker.api_key == "test-key"
     assert reranker.base_url == "https://dashscope.aliyuncs.com"
@@ -125,24 +120,21 @@ def test_dashscope_reranker_rerank(mock_post):
         "output": {
             "results": [
                 {"index": 1, "relevance_score": 0.92},
-                {"index": 0, "relevance_score": 0.68}
+                {"index": 0, "relevance_score": 0.68},
             ]
         },
-        "request_id": "test-req-id"
+        "request_id": "test-req-id",
     }
     mock_response.raise_for_status = MagicMock()
     mock_post.return_value = mock_response
 
     reranker = DashScopeReranker(
-        api_key="test-key",
-        base_url="https://dashscope.aliyuncs.com",
-        model="rerank-v1",
-        top_n=2
+        api_key="test-key", base_url="https://dashscope.aliyuncs.com", model="rerank-v1", top_n=2
     )
 
     nodes = [
         NodeWithScore(node=TextNode(text="Document 0"), score=0.5),
-        NodeWithScore(node=TextNode(text="Document 1"), score=0.6)
+        NodeWithScore(node=TextNode(text="Document 1"), score=0.6),
     ]
 
     result = reranker.rerank("test query", nodes)
@@ -156,18 +148,12 @@ def test_dashscope_reranker_rerank(mock_post):
 def test_dashscope_reranker_request_format(mock_post):
     """Test DashScopeReranker sends correct request format."""
     mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "output": {"results": []},
-        "request_id": "test"
-    }
+    mock_response.json.return_value = {"output": {"results": []}, "request_id": "test"}
     mock_response.raise_for_status = MagicMock()
     mock_post.return_value = mock_response
 
     reranker = DashScopeReranker(
-        api_key="test-key",
-        base_url="https://dashscope.aliyuncs.com",
-        model="rerank-v1",
-        top_n=5
+        api_key="test-key", base_url="https://dashscope.aliyuncs.com", model="rerank-v1", top_n=5
     )
 
     nodes = [NodeWithScore(node=TextNode(text="doc"), score=0.5)]
@@ -204,19 +190,19 @@ def test_cross_encoder_reranker_rerank_method(mock_ce):
     reranker = CrossEncoderReranker(model="test-model", top_n=2)
     nodes = [
         NodeWithScore(node=TextNode(text="doc1"), score=0.5),
-        NodeWithScore(node=TextNode(text="doc2"), score=0.6)
+        NodeWithScore(node=TextNode(text="doc2"), score=0.6),
     ]
 
     result = reranker.rerank("query", nodes)
 
-    assert hasattr(reranker, 'rerank')
+    assert hasattr(reranker, "rerank")
     assert len(result) == 2
 
 
 # Reranker factory tests
 
 from profirag.config.settings import RerankingConfig
-from profirag.retrieval.reranker import Reranker, CohereReranker, DashScopeReranker, CrossEncoderReranker
+from profirag.retrieval.reranker import CohereReranker, Reranker
 
 
 def test_reranker_factory_local():
@@ -229,10 +215,7 @@ def test_reranker_factory_local():
 def test_reranker_factory_cohere():
     """Test Reranker factory creates Cohere reranker."""
     config = RerankingConfig(
-        provider="cohere",
-        api_key="test-key",
-        base_url="https://api.cohere.ai",
-        top_n=5
+        provider="cohere", api_key="test-key", base_url="https://api.cohere.ai", top_n=5
     )
     reranker = Reranker(config)
     assert isinstance(reranker._impl, CohereReranker)
@@ -241,10 +224,7 @@ def test_reranker_factory_cohere():
 def test_reranker_factory_dashscope():
     """Test Reranker factory creates DashScope reranker."""
     config = RerankingConfig(
-        provider="dashscope",
-        api_key="test-key",
-        base_url="https://dashscope.aliyuncs.com",
-        top_n=5
+        provider="dashscope", api_key="test-key", base_url="https://dashscope.aliyuncs.com", top_n=5
     )
     reranker = Reranker(config)
     assert isinstance(reranker._impl, DashScopeReranker)

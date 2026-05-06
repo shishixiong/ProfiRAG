@@ -1,14 +1,13 @@
 """Chunking evaluation for comparing different splitting strategies"""
 
-import random
 import statistics
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from llama_index.core.llms.llm import LLM
+from llama_index.core.schema import Document, TextNode
 from pydantic import BaseModel
 
-from llama_index.core.schema import TextNode, Document
-from llama_index.core.llms.llm import LLM
-
-from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
+from ..ingestion.splitters import ChineseTextSplitter, TextSplitter
 
 
 class ChunkStatistics(BaseModel):
@@ -35,7 +34,7 @@ class ChunkStatistics(BaseModel):
     max_chunk_length: int
     std_chunk_length: float
     median_chunk_length: float
-    length_distribution: Dict[str, int]
+    length_distribution: dict[str, int]
     chunks_per_doc_avg: float
 
 
@@ -54,7 +53,7 @@ class ChunkQualityResult(BaseModel):
     boundary_quality: float
     info_density: float
     samples_evaluated: int
-    issues_found: List[str]
+    issues_found: list[str]
 
 
 class ChunkingEvalResult(BaseModel):
@@ -73,8 +72,8 @@ class ChunkingEvalResult(BaseModel):
     chunk_size: int
     chunk_overlap: int
     statistics: ChunkStatistics
-    quality: Optional[ChunkQualityResult] = None
-    retrieval_metrics: Optional[Dict[str, float]] = None
+    quality: ChunkQualityResult | None = None
+    retrieval_metrics: dict[str, float] | None = None
 
 
 class ChunkingCompareResults(BaseModel):
@@ -86,9 +85,9 @@ class ChunkingCompareResults(BaseModel):
         comparison_table: Summary comparison data
     """
 
-    results: List[ChunkingEvalResult]
-    best_config: Optional[str] = None
-    comparison_table: Dict[str, Dict[str, Any]] = {}
+    results: list[ChunkingEvalResult]
+    best_config: str | None = None
+    comparison_table: dict[str, dict[str, Any]] = {}
 
     def save(self, path: str) -> None:
         """Save results to JSON file."""
@@ -108,7 +107,9 @@ class ChunkingCompareResults(BaseModel):
             lines.append(f"## Configuration: {config_name}")
             lines.append(f"  Total chunks: {result.statistics.total_chunks}")
             lines.append(f"  Avg length: {result.statistics.avg_chunk_length:.1f}")
-            lines.append(f"  Min/Max length: {result.statistics.min_chunk_length}/{result.statistics.max_chunk_length}")
+            lines.append(
+                f"  Min/Max length: {result.statistics.min_chunk_length}/{result.statistics.max_chunk_length}"
+            )
             lines.append(f"  Std deviation: {result.statistics.std_chunk_length:.1f}")
 
             if result.quality:
@@ -116,7 +117,7 @@ class ChunkingCompareResults(BaseModel):
                 lines.append(f"  Boundary quality: {result.quality.boundary_quality:.2f}")
 
             if result.retrieval_metrics:
-                lines.append(f"  Retrieval metrics:")
+                lines.append("  Retrieval metrics:")
                 for metric, value in result.retrieval_metrics.items():
                     lines.append(f"    - {metric}: {value:.3f}")
 
@@ -175,7 +176,7 @@ class ChunkingEvaluator:
     def __init__(
         self,
         use_quality_eval: bool = False,
-        llm: Optional[LLM] = None,
+        llm: LLM | None = None,
         quality_sample_size: int = 10,
     ):
         """Initialize chunking evaluator.
@@ -189,7 +190,7 @@ class ChunkingEvaluator:
         self.llm = llm
         self.quality_sample_size = quality_sample_size
 
-    def evaluate_statistics(self, chunks: List[TextNode]) -> ChunkStatistics:
+    def evaluate_statistics(self, chunks: list[TextNode]) -> ChunkStatistics:
         """Calculate chunk statistics.
 
         Args:
@@ -256,8 +257,8 @@ class ChunkingEvaluator:
 
     def evaluate_quality(
         self,
-        chunks: List[TextNode],
-        sample_size: Optional[int] = None,
+        chunks: list[TextNode],
+        sample_size: int | None = None,
     ) -> ChunkQualityResult:
         """Evaluate chunk quality using LLM.
 
@@ -296,7 +297,8 @@ class ChunkingEvaluator:
                 response_text = semantic_response.text.strip()
                 # Extract last number from response (handles reasoning models)
                 import re
-                numbers = re.findall(r'[0-9]*\.?[0-9]+', response_text)
+
+                numbers = re.findall(r"[0-9]*\.?[0-9]+", response_text)
                 if numbers:
                     semantic_score = float(numbers[-1])
                     semantic_score = max(0, min(1, semantic_score))
@@ -312,7 +314,8 @@ class ChunkingEvaluator:
             try:
                 response_text = boundary_response.text.strip()
                 import re
-                numbers = re.findall(r'[0-9]*\.?[0-9]+', response_text)
+
+                numbers = re.findall(r"[0-9]*\.?[0-9]+", response_text)
                 if numbers:
                     boundary_score = float(numbers[-1])
                     boundary_score = max(0, min(1, boundary_score))
@@ -341,11 +344,11 @@ class ChunkingEvaluator:
 
     def evaluate_splitter_config(
         self,
-        documents: List[Document],
+        documents: list[Document],
         splitter_type: str,
         chunk_size: int,
         chunk_overlap: int,
-        embed_model: Optional[Any] = None,
+        embed_model: Any | None = None,
     ) -> ChunkingEvalResult:
         """Evaluate a specific splitter configuration.
 
@@ -394,9 +397,9 @@ class ChunkingEvaluator:
 
     def compare_configs(
         self,
-        documents: List[Document],
-        configs: List[Dict[str, Any]],
-        embed_model: Optional[Any] = None,
+        documents: list[Document],
+        configs: list[dict[str, Any]],
+        embed_model: Any | None = None,
     ) -> ChunkingCompareResults:
         """Compare multiple splitter configurations.
 
@@ -430,7 +433,9 @@ class ChunkingEvaluator:
                 "std_length": result.statistics.std_chunk_length,
             }
             if result.quality:
-                comparison_table[config_name]["semantic_score"] = result.quality.semantic_completeness
+                comparison_table[config_name]["semantic_score"] = (
+                    result.quality.semantic_completeness
+                )
                 comparison_table[config_name]["boundary_score"] = result.quality.boundary_quality
 
         # Find best config based on retrieval metrics if available
@@ -448,7 +453,7 @@ class ChunkingEvaluator:
         )
 
 
-def parse_config_string(config_str: str) -> Dict[str, Any]:
+def parse_config_string(config_str: str) -> dict[str, Any]:
     """Parse a configuration string like 'sentence:512:50'.
 
     Args:

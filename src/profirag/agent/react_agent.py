@@ -1,9 +1,9 @@
 """ReAct Agent for RAG system"""
 
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from llama_index.core.agent import ReActAgent
-from llama_index.core.tools import BaseTool
 
 from .tools import RAGTools
 
@@ -20,6 +20,7 @@ def run_async(coro):
     else:
         # Already in async context, create new thread
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)
             return future.result()
@@ -43,7 +44,7 @@ class RAGReActAgent:
         llm: Any,
         max_iterations: int = 10,
         verbose: bool = True,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
     ):
         """初始化ReAct Agent
 
@@ -75,7 +76,7 @@ class RAGReActAgent:
         )
 
         # 记录执行历史
-        self._execution_history: List[Dict[str, Any]] = []
+        self._execution_history: list[dict[str, Any]] = []
 
     def _default_system_prompt(self) -> str:
         """默认系统提示词"""
@@ -176,7 +177,7 @@ class RAGReActAgent:
 - 禁止过度迭代（超过5轮仍未终止）
 - 禁止在未检索的情况下使用 rerank_results 或 filter_results"""
 
-    def query(self, question: str) -> Dict[str, Any]:
+    def query(self, question: str) -> dict[str, Any]:
         """执行Agent问答
 
         Args:
@@ -232,13 +233,14 @@ class RAGReActAgent:
         try:
             # ReActAgent的run是异步的，使用runner
             from llama_index.core.agent.runner import AgentRunner
+
             runner = AgentRunner(self._agent)
             for chunk in runner.run_stream(question):
                 yield str(chunk)
         except Exception as e:
             yield f"Agent执行出错: {str(e)}"
 
-    def _extract_sources(self, response: Any) -> List[Dict[str, Any]]:
+    def _extract_sources(self, response: Any) -> list[dict[str, Any]]:
         """从响应中提取来源信息
 
         Args:
@@ -250,29 +252,33 @@ class RAGReActAgent:
         sources = []
 
         # 尝试从工具调用结果中提取
-        if hasattr(response, 'sources'):
+        if hasattr(response, "sources"):
             for src in response.sources:
-                if hasattr(src, 'node'):
-                    sources.append({
-                        "text": src.node.text[:300],
-                        "score": src.score if hasattr(src, 'score') else 0,
-                        "source_file": src.node.metadata.get('source_file', ''),
-                        "node_id": src.node.node_id,
-                    })
+                if hasattr(src, "node"):
+                    sources.append(
+                        {
+                            "text": src.node.text[:300],
+                            "score": src.score if hasattr(src, "score") else 0,
+                            "source_file": src.node.metadata.get("source_file", ""),
+                            "node_id": src.node.node_id,
+                        }
+                    )
 
         # 也可以从保存的检索结果中提取
         if not sources and self.tools._last_retrieved_nodes:
             for n in self.tools._last_retrieved_nodes:
-                sources.append({
-                    "text": n.node.text[:300],
-                    "score": n.score,
-                    "source_file": n.node.metadata.get('source_file', ''),
-                    "node_id": n.node.node_id,
-                })
+                sources.append(
+                    {
+                        "text": n.node.text[:300],
+                        "score": n.score,
+                        "source_file": n.node.metadata.get("source_file", ""),
+                        "node_id": n.node.node_id,
+                    }
+                )
 
         return sources
 
-    def _extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:
+    def _extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
         """提取工具调用记录
 
         Args:
@@ -285,12 +291,14 @@ class RAGReActAgent:
 
         # ReActAgent会在响应中记录工具调用
         # 具体实现取决于LlamaIndex版本
-        if hasattr(response, 'tool_calls'):
+        if hasattr(response, "tool_calls"):
             for tc in response.tool_calls:
-                tool_calls.append({
-                    "tool": tc.tool_name if hasattr(tc, 'tool_name') else str(tc),
-                    "input": tc.tool_input if hasattr(tc, 'tool_input') else {},
-                })
+                tool_calls.append(
+                    {
+                        "tool": tc.tool_name if hasattr(tc, "tool_name") else str(tc),
+                        "input": tc.tool_input if hasattr(tc, "tool_input") else {},
+                    }
+                )
 
         return tool_calls
 
@@ -312,7 +320,7 @@ class RAGReActAgent:
         self._execution_history = []
         self.tools._last_retrieved_nodes = []
         # ReActAgent的重置方法
-        if hasattr(self._agent, 'reset'):
+        if hasattr(self._agent, "reset"):
             self._agent.reset()
 
     def set_verbose(self, verbose: bool) -> None:
@@ -323,7 +331,7 @@ class RAGReActAgent:
         """
         self.verbose = verbose
         # ReActAgent的verbose设置
-        if hasattr(self._agent, 'verbose'):
+        if hasattr(self._agent, "verbose"):
             self._agent.verbose = verbose
 
 
@@ -337,7 +345,7 @@ class AgentFactory:
         llm: Any,
         max_iterations: int = 10,
         verbose: bool = True,
-        markdown_base_path: Optional[str] = None,
+        markdown_base_path: str | None = None,
         pre_retrieval: Any = None,
         reranker: Any = None,
         query_rewriter: Any = None,
@@ -383,9 +391,9 @@ class AgentFactory:
         show_plan: bool = True,
         require_approval: bool = True,
         max_replan_attempts: int = 3,
-        markdown_base_path: Optional[str] = None,
+        markdown_base_path: str | None = None,
         pre_retrieval: Any = None,
-        approval_callback: Optional[Any] = None,
+        approval_callback: Any | None = None,
         reranker: Any = None,
         query_rewriter: Any = None,
     ):
@@ -439,7 +447,7 @@ class AgentFactory:
         keep_recent_turns: int = 2,
         enable_auto_context: bool = True,
         verbose: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """Create ConversationManager wrapping specified agent type.
 
@@ -461,17 +469,11 @@ class AgentFactory:
 
         if agent_type == "plan":
             agent = AgentFactory.create_plan_agent(
-                retriever=retriever,
-                synthesizer=synthesizer,
-                llm=llm,
-                **kwargs
+                retriever=retriever, synthesizer=synthesizer, llm=llm, **kwargs
             )
         else:
             agent = AgentFactory.create_react_agent(
-                retriever=retriever,
-                synthesizer=synthesizer,
-                llm=llm,
-                **kwargs
+                retriever=retriever, synthesizer=synthesizer, llm=llm, **kwargs
             )
 
         return ConversationManager(

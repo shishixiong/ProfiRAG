@@ -1,7 +1,8 @@
 """Vector store abstraction base class"""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from llama_index.core.storage.docstore.types import RefDocInfo
 
@@ -25,7 +26,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def add(self, nodes: List[TextNode], **kwargs) -> List[str]:
+    def add(self, nodes: list[TextNode], **kwargs) -> list[str]:
         """Add nodes to the vector store.
 
         Args:
@@ -38,7 +39,9 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def delete(self, ref_doc_id: Optional[str] = None, node_ids: Optional[List[str]] = None, **kwargs) -> bool:
+    def delete(
+        self, ref_doc_id: str | None = None, node_ids: list[str] | None = None, **kwargs
+    ) -> bool:
         """Delete nodes from the vector store.
 
         Args:
@@ -52,7 +55,9 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def query(self, query: QueryBundle, similarity_top_k: int = 10, **kwargs) -> List[NodeWithScore]:
+    def query(
+        self, query: QueryBundle, similarity_top_k: int = 10, **kwargs
+    ) -> list[NodeWithScore]:
         """Query the vector store for similar nodes.
 
         Args:
@@ -66,7 +71,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def get_node(self, node_id: str) -> Optional[TextNode]:
+    def get_node(self, node_id: str) -> TextNode | None:
         """Get a specific node by ID.
 
         Args:
@@ -78,7 +83,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def get_ref_doc_info(self, ref_doc_id: str) -> Optional[RefDocInfo]:
+    def get_ref_doc_info(self, ref_doc_id: str) -> RefDocInfo | None:
         """Get reference document info by document ID.
 
         Args:
@@ -90,7 +95,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def persist(self, persist_path: Optional[str] = None, **kwargs) -> None:
+    def persist(self, persist_path: str | None = None, **kwargs) -> None:
         """Persist the vector store to storage.
 
         Args:
@@ -115,7 +120,7 @@ class BaseVectorStore(ABC):
 
     @classmethod
     @abstractmethod
-    def from_config(cls, config: Dict[str, Any]) -> "BaseVectorStore":
+    def from_config(cls, config: dict[str, Any]) -> "BaseVectorStore":
         """Create an instance from configuration dictionary.
 
         Args:

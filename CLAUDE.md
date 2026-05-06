@@ -55,7 +55,7 @@ All configuration via `.env` file. Key settings:
 PROFIRAG_STORAGE_TYPE=qdrant      # qdrant, local, postgres
 PROFIRAG_INDEX_MODE=hybrid        # hybrid (dense+BM25), vector
 PROFIRAG_RETRIEVE_INDEX_MODE=hybrid  # hybrid, sparse, vector
-PROFIRAG_EMBEDDING_PROVIDER=openai   # openai, fastembed
+PROFIRAG_EMBEDDING_PROVIDER=openai   # openai, fastembed, ollama
 PROFIRAG_AGENT_ENABLED=false      # Enable agent mode
 PROFIRAG_AGENT_MODE=react         # react, plan, pipeline
 PROFIRAG_RERANK_ENABLED=true

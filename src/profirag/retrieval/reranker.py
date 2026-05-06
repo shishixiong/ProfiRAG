@@ -1,7 +1,8 @@
 """Re-ranking component for post-retrieval processing"""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Union
+from typing import Any
+
 import httpx
 from llama_index.core.schema import NodeWithScore, QueryBundle
 
@@ -14,12 +15,7 @@ class BaseReranker(ABC):
     top_n: int = 5
 
     @abstractmethod
-    def rerank(
-        self,
-        query: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> List[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], **kwargs) -> list[NodeWithScore]:
         """Rerank nodes by relevance to query.
 
         Args:
@@ -41,12 +37,12 @@ class CohereReranker(BaseReranker):
 
     def __init__(
         self,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         model: str = "rerank-v1",
         top_n: int = 5,
         timeout: int = 30,
-        **kwargs
+        **kwargs,
     ):
         """Initialize Cohere reranker.
 
@@ -67,18 +63,13 @@ class CohereReranker(BaseReranker):
             raise ValueError("base_url is required for Cohere reranker")
 
         self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.model = model
         self.top_n = top_n
         self.timeout = timeout
         self.kwargs = kwargs
 
-    def rerank(
-        self,
-        query: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> List[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], **kwargs) -> list[NodeWithScore]:
         """Rerank nodes using Cohere API.
 
         Args:
@@ -138,12 +129,12 @@ class DashScopeReranker(BaseReranker):
 
     def __init__(
         self,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         model: str = "rerank-v1",
         top_n: int = 5,
         timeout: int = 30,
-        **kwargs
+        **kwargs,
     ):
         """Initialize DashScope reranker.
 
@@ -164,18 +155,13 @@ class DashScopeReranker(BaseReranker):
             raise ValueError("base_url is required for DashScope reranker")
 
         self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.model = model
         self.top_n = top_n
         self.timeout = timeout
         self.kwargs = kwargs
 
-    def rerank(
-        self,
-        query: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> List[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], **kwargs) -> list[NodeWithScore]:
         """Rerank nodes using DashScope API.
 
         Args:
@@ -206,7 +192,7 @@ class DashScopeReranker(BaseReranker):
                 "query": query,
                 "documents": documents,
                 "top_n": self.top_n,
-            }
+            },
         }
 
         try:
@@ -242,8 +228,8 @@ class CrossEncoderReranker(BaseReranker):
         model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         top_n: int = 5,
         batch_size: int = 32,
-        device: Optional[str] = None,
-        **kwargs
+        device: str | None = None,
+        **kwargs,
     ):
         """Initialize cross-encoder reranker.
 
@@ -267,14 +253,10 @@ class CrossEncoderReranker(BaseReranker):
         """Load cross-encoder model."""
         if self._model is None:
             from sentence_transformers import CrossEncoder
+
             self._model = CrossEncoder(self.model, device=self.device)
 
-    def rerank(
-        self,
-        query: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> List[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], **kwargs) -> list[NodeWithScore]:
         """Rerank nodes based on cross-encoder scores.
 
         Args:
@@ -298,20 +280,19 @@ class CrossEncoderReranker(BaseReranker):
 
         # Create reranked results
         reranked = [
-            NodeWithScore(node=nodes[i].node, score=float(scores[i]))
-            for i in range(len(nodes))
+            NodeWithScore(node=nodes[i].node, score=float(scores[i])) for i in range(len(nodes))
         ]
 
         # Sort by score and limit to top_n
         reranked.sort(key=lambda x: x.score, reverse=True)
 
-        return reranked[:self.top_n]
+        return reranked[: self.top_n]
 
     def _postprocess_nodes(
         self,
-        nodes: List[NodeWithScore],
-        query_bundle: Optional[QueryBundle] = None,
-    ) -> List[NodeWithScore]:
+        nodes: list[NodeWithScore],
+        query_bundle: QueryBundle | None = None,
+    ) -> list[NodeWithScore]:
         """Rerank nodes based on cross-encoder scores.
 
         Args:
@@ -350,7 +331,7 @@ class Reranker:
         self.enabled = config.enabled
         self.top_n = config.top_n
         self.model = config.model
-        self._impl: Optional[BaseReranker] = None
+        self._impl: BaseReranker | None = None
 
         if self.enabled:
             self._impl = self._create_impl(config)
@@ -399,12 +380,7 @@ class Reranker:
         else:
             raise ValueError(f"Unknown reranker provider: {config.provider}")
 
-    def rerank(
-        self,
-        query: str,
-        nodes: List[NodeWithScore],
-        **kwargs
-    ) -> List[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], **kwargs) -> list[NodeWithScore]:
         """Rerank nodes by relevance to query.
 
         Args:
@@ -416,7 +392,7 @@ class Reranker:
             Reranked list of NodeWithScore objects
         """
         if not self.enabled or not self._impl:
-            return nodes[:self.top_n]
+            return nodes[: self.top_n]
 
         if not nodes:
             return nodes
@@ -442,5 +418,3 @@ class Reranker:
         self.top_n = top_n
         if self._impl:
             self._impl.top_n = top_n
-
-

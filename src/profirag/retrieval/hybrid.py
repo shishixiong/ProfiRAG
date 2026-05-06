@@ -1,11 +1,13 @@
 """Hybrid retrieval with BM25 support"""
 
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.vector_stores.types import VectorStoreQueryMode
 
 from ..ingestion.image_processor import ImageResult, RetrievalResult
+
 
 class HybridRetriever:
     """Hybrid retriever combining vector search and BM25 keyword search.
@@ -20,9 +22,9 @@ class HybridRetriever:
         vector_index: VectorStoreIndex,
         alpha: float = 0.5,
         rrf_k: int = 60,
-        vector_store: Optional[Any] = None,
+        vector_store: Any | None = None,
         retrieve_mode: str = "hybrid",
-        **kwargs
+        **kwargs,
     ):
         """Initialize hybrid retriever.
 
@@ -49,7 +51,7 @@ class HybridRetriever:
         self._query_mode = self._map_retrieve_mode(retrieve_mode)
 
     @staticmethod
-    def _map_retrieve_mode(mode: Optional[str]) -> VectorStoreQueryMode:
+    def _map_retrieve_mode(mode: str | None) -> VectorStoreQueryMode:
         """Map retrieve_mode string to VectorStoreQueryMode enum.
 
         Args:
@@ -64,14 +66,10 @@ class HybridRetriever:
             "vector": VectorStoreQueryMode.DEFAULT,
         }
         return mode_map.get(mode, VectorStoreQueryMode.HYBRID)
-    
+
     def retrieve(
-        self,
-        query: str,
-        top_k: int = 10,
-        retrieve_mode = None,
-        **kwargs
-    ) -> List[NodeWithScore]:
+        self, query: str, top_k: int = 10, retrieve_mode=None, **kwargs
+    ) -> list[NodeWithScore]:
         """Perform hybrid retrieval.
 
         Args:
@@ -97,13 +95,9 @@ class HybridRetriever:
         vector_nodes = self.vector_index.as_retriever(**retriever_kwargs).retrieve(query)
 
         return vector_nodes[:top_k]
-    
+
     def retrieve_with_images(
-        self,
-        query: str,
-        top_k: int = 10,
-        include_images: bool = True,
-        **kwargs
+        self, query: str, top_k: int = 10, include_images: bool = True, **kwargs
     ) -> RetrievalResult:
         """Retrieve text chunks and associated images.
 
@@ -153,7 +147,7 @@ class HybridRetriever:
             images=unique_images,
         )
 
-    def _deduplicate_images(self, images: List[ImageResult]) -> List[ImageResult]:
+    def _deduplicate_images(self, images: list[ImageResult]) -> list[ImageResult]:
         """Deduplicate images by path, keeping highest score.
 
         Args:
@@ -166,7 +160,7 @@ class HybridRetriever:
             return []
 
         # Group by path, keep highest score
-        path_to_image: Dict[str, ImageResult] = {}
+        path_to_image: dict[str, ImageResult] = {}
         for img in images:
             path = img.image_path
             if path not in path_to_image or img.score > path_to_image[path].score:

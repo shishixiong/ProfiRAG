@@ -3,15 +3,15 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from llama_index.core.tools import FunctionTool
-from llama_index.core.schema import NodeWithScore
+from typing import Any
 
+from llama_index.core.schema import NodeWithScore
+from llama_index.core.tools import FunctionTool
 
 # 表格索引链接正则模式
 # 匹配格式: 表 X-X 标题 → [查看表格](tables/xxx.md)
 TABLE_INDEX_PATTERN = re.compile(
-    r'表\s*(\d+[-\.\d]*)\s*(.*?)\s*→\s*\[查看表格\]\((tables/[^)]+\.md)\)'
+    r"表\s*(\d+[-\.\d]*)\s*(.*?)\s*→\s*\[查看表格\]\((tables/[^)]+\.md)\)"
 )
 
 
@@ -24,7 +24,7 @@ class RAGTools:
         synthesizer: Any,
         llm: Any,
         pre_retrieval: Any = None,
-        markdown_base_path: Optional[str] = None,
+        markdown_base_path: str | None = None,
         reranker: Any = None,
         query_rewriter: Any = None,
     ):
@@ -48,10 +48,11 @@ class RAGTools:
         self.query_rewriter = query_rewriter
 
         # 存储最近检索的结果（供answer工具使用）
-        self._last_retrieved_nodes: List[NodeWithScore] = []
+        self._last_retrieved_nodes: list[NodeWithScore] = []
 
     def create_retrieval_tool(self) -> FunctionTool:
         """创建向量检索工具"""
+
         def vector_search(query: str, top_k: int = 5) -> str:
             """使用向量相似度搜索文档库
 
@@ -62,14 +63,14 @@ class RAGTools:
             Returns:
                 格式化的检索结果
             """
-            nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode='vector')
+            nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode="vector")
             self._last_retrieved_nodes = nodes  # 保存供后续使用
             return self._format_nodes(nodes)
 
         return FunctionTool.from_defaults(
             fn=vector_search,
             name="vector_search",
-            description="使用向量相似度搜索文档库，返回相关文档片段。适合语义搜索。"
+            description="使用向量相似度搜索文档库，返回相关文档片段。适合语义搜索。",
         )
 
     def create_bm25_tool(self) -> FunctionTool:
@@ -89,7 +90,7 @@ class RAGTools:
             """
             # 如果不是 vector 模式，就可以使用 BM25 (sparse 检索)
             if index_mode != "vector":
-                nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode='sparse')
+                nodes = self.retriever.retrieve(query, top_k=top_k, retrieve_mode="sparse")
                 self._last_retrieved_nodes = nodes
                 return self._format_nodes(nodes)
             return "BM25索引未启用（当前为vector模式），请使用vector_search工具"
@@ -97,11 +98,12 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=keyword_search,
             name="keyword_search",
-            description="使用BM25关键词搜索，适合精确匹配和关键词查询。"
+            description="使用BM25关键词搜索，适合精确匹配和关键词查询。",
         )
 
     def create_multi_query_tool(self) -> FunctionTool:
         """创建多Query检索工具"""
+
         def multi_query_search(query: str) -> str:
             """生成多个查询变体并检索
 
@@ -128,11 +130,12 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=multi_query_search,
             name="multi_query_search",
-            description="生成多个查询变体并检索，扩大检索范围，适合复杂问题。"
+            description="生成多个查询变体并检索，扩大检索范围，适合复杂问题。",
         )
 
     def create_hyde_tool(self) -> FunctionTool:
         """创建HyDE检索工具"""
+
         def hyde_search(query: str) -> str:
             """生成假设文档并检索
 
@@ -152,11 +155,12 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=hyde_search,
             name="hyde_search",
-            description="生成假设文档进行检索，适合问题表述不清晰的情况。"
+            description="生成假设文档进行检索，适合问题表述不清晰的情况。",
         )
 
     def create_rerank_tool(self) -> FunctionTool:
         """创建结果重排序工具"""
+
         def rerank_results(query: str, top_n: int = 5) -> str:
             """对最近检索的结果进行重排序，提高相关性
 
@@ -179,16 +183,14 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=rerank_results,
             name="rerank_results",
-            description="对检索结果进行重排序优化。适合检索结果质量不满意时使用，能显著提升结果相关性。必须先使用检索工具获取结果。"
+            description="对检索结果进行重排序优化。适合检索结果质量不满意时使用，能显著提升结果相关性。必须先使用检索工具获取结果。",
         )
 
     def create_filter_tool(self) -> FunctionTool:
         """创建元数据过滤工具"""
+
         def filter_results(
-            source_file: str = "",
-            min_score: float = 0.0,
-            max_score: float = 1.0,
-            top_k: int = 10
+            source_file: str = "", min_score: float = 0.0, max_score: float = 1.0, top_k: int = 10
         ) -> str:
             """按元数据过滤检索结果
 
@@ -211,7 +213,9 @@ class RAGTools:
                     continue
                 # Source file filter
                 if source_file:
-                    src = n.node.metadata.get('source_file', '') or n.node.metadata.get('source_path', '')
+                    src = n.node.metadata.get("source_file", "") or n.node.metadata.get(
+                        "source_path", ""
+                    )
                     if source_file.lower() not in src.lower():
                         continue
                 filtered.append(n)
@@ -223,11 +227,12 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=filter_results,
             name="filter_results",
-            description="按来源文件或相关度分数过滤检索结果。适合缩小结果范围或聚焦特定文档。必须先使用检索工具获取结果。"
+            description="按来源文件或相关度分数过滤检索结果。适合缩小结果范围或聚焦特定文档。必须先使用检索工具获取结果。",
         )
 
     def create_query_rewrite_tool(self) -> FunctionTool:
         """创建查询重写工具"""
+
         def rewrite_query(query: str) -> str:
             """重写查询以提高检索效果
 
@@ -263,11 +268,12 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=rewrite_query,
             name="rewrite_query",
-            description="重写模糊或不清晰的查询，使其更适合文档检索。适合用户表述不精确的情况。"
+            description="重写模糊或不清晰的查询，使其更适合文档检索。适合用户表述不精确的情况。",
         )
 
     def create_final_answer_tool(self) -> FunctionTool:
         """创建最终回答生成工具"""
+
         def generate_answer(question: str, mode: str = "default", top_k: int = 5) -> str:
             """基于检索到的上下文生成最终回答
 
@@ -291,14 +297,11 @@ class RAGTools:
 
             # 根据模式选择 prompt template
             from ..generation.prompts import PromptTemplates
+
             template = PromptTemplates.get_template_by_mode(mode)
 
             # 使用自定义 prompt 生成回答
-            response = self.synthesizer.synthesize_custom(
-                question,
-                nodes,
-                custom_prompt=template
-            )
+            response = self.synthesizer.synthesize_custom(question, nodes, custom_prompt=template)
 
             # 添加来源信息（仅在非 simple 模式）
             if mode != "simple":
@@ -318,11 +321,12 @@ class RAGTools:
 - professional: 专业回答，详细结构化，适合技术文档深度问答
 - technical: 技术规范回答，严格按文档表述，包含版本差异和适用范围
 
-必须先使用检索工具获取文档。"""
+必须先使用检索工具获取文档。""",
         )
 
     def create_retrieve_with_context_tool(self) -> FunctionTool:
         """创建带上下文信息的检索工具"""
+
         def retrieve_for_answer(question: str, mode: str = "default", top_k: int = 5) -> str:
             """检索文档并直接生成回答（一步完成）
 
@@ -344,13 +348,12 @@ class RAGTools:
 
             # 根据模式选择 prompt template
             from ..generation.prompts import PromptTemplates
+
             template = PromptTemplates.get_template_by_mode(mode)
 
             # 使用自定义 prompt 生成回答
             response = self.synthesizer.synthesize_custom(
-                question,
-                nodes[:top_k],
-                custom_prompt=template
+                question, nodes[:top_k], custom_prompt=template
             )
 
             # 添加来源信息（仅在非 simple 模式）
@@ -371,11 +374,12 @@ class RAGTools:
 - professional: 专业回答，详细结构化，适合技术文档深度问答
 - technical: 技术规范回答，严格按文档表述，包含版本差异和适用范围
 
-适用场景：问题明确、单次检索即可获取足够信息。"""
+适用场景：问题明确、单次检索即可获取足够信息。""",
         )
 
     def create_table_lookup_tool(self) -> FunctionTool:
         """创建表格内容查询工具"""
+
         def table_lookup(table_reference: str) -> str:
             """读取表格索引链接对应的表格内容
 
@@ -394,8 +398,8 @@ class RAGTools:
             match = TABLE_INDEX_PATTERN.search(table_reference)
             if match:
                 table_path = match.group(3)  # tables/xxx.md
-                table_num = match.group(1)   # X-X
-                table_title = match.group(2) # 标题
+                table_num = match.group(1)  # X-X
+                table_title = match.group(2)  # 标题
             else:
                 # 直接路径格式
                 table_path = table_reference
@@ -418,10 +422,10 @@ class RAGTools:
         return FunctionTool.from_defaults(
             fn=table_lookup,
             name="table_lookup",
-            description="读取表格索引链接指向的表格详细内容。当检索结果中包含表格索引（如 '表 X-X → [查看表格](tables/xxx.md)'）时，使用此工具获取完整表格数据。"
+            description="读取表格索引链接指向的表格详细内容。当检索结果中包含表格索引（如 '表 X-X → [查看表格](tables/xxx.md)'）时，使用此工具获取完整表格数据。",
         )
 
-    def create_all_tools(self) -> List[FunctionTool]:
+    def create_all_tools(self) -> list[FunctionTool]:
         """创建所有工具列表"""
         tools = [
             self.create_retrieval_tool(),
@@ -443,7 +447,7 @@ class RAGTools:
             tools.append(self.create_table_lookup_tool())
         return tools
 
-    def _format_nodes(self, nodes: List[NodeWithScore]) -> str:
+    def _format_nodes(self, nodes: list[NodeWithScore]) -> str:
         """格式化检索结果
 
         Args:
@@ -457,15 +461,15 @@ class RAGTools:
 
         formatted = []
         for i, n in enumerate(nodes):
-            score = n.score if hasattr(n, 'score') else 0
-            text = n.node.text if hasattr(n, 'node') else str(n)
-            metadata = n.node.metadata if hasattr(n, 'node') else {}
+            score = n.score if hasattr(n, "score") else 0
+            text = n.node.text if hasattr(n, "node") else str(n)
+            metadata = n.node.metadata if hasattr(n, "node") else {}
 
             # 截断长文本
             text_preview = text[:300] + "..." if len(text) > 300 else text
-            source = metadata.get('source_file', metadata.get('source_path', '未知来源'))
+            source = metadata.get("source_file", metadata.get("source_path", "未知来源"))
 
-            formatted.append(f"[文档{i+1}] 相关度: {score:.3f}")
+            formatted.append(f"[文档{i + 1}] 相关度: {score:.3f}")
             formatted.append(f"来源: {source}")
             formatted.append(f"内容: {text_preview}")
 
@@ -477,7 +481,7 @@ class RAGTools:
 
         return "\n".join(formatted)
 
-    def _generate_variants(self, query: str) -> List[str]:
+    def _generate_variants(self, query: str) -> list[str]:
         """生成查询变体
 
         Args:
@@ -521,7 +525,7 @@ class RAGTools:
                 variants = [query]
 
             return variants[:3]
-        except Exception as e:
+        except Exception:
             # 如果LLM调用失败，返回原查询
             return [query]
 
@@ -553,7 +557,7 @@ class RAGTools:
         except Exception:
             return query  # 失败时返回原查询
 
-    def _deduplicate(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
+    def _deduplicate(self, nodes: list[NodeWithScore]) -> list[NodeWithScore]:
         """去重节点
 
         Args:
@@ -565,13 +569,13 @@ class RAGTools:
         seen_ids = set()
         unique = []
         for n in nodes:
-            node_id = n.node.node_id if hasattr(n, 'node') else str(n)
+            node_id = n.node.node_id if hasattr(n, "node") else str(n)
             if node_id not in seen_ids:
                 seen_ids.add(node_id)
                 unique.append(n)
         return unique
 
-    def _format_sources_summary(self, nodes: List[NodeWithScore]) -> str:
+    def _format_sources_summary(self, nodes: list[NodeWithScore]) -> str:
         """格式化来源摘要（用于回答末尾）
 
         Args:
@@ -582,12 +586,12 @@ class RAGTools:
         """
         sources = []
         for i, n in enumerate(nodes[:5]):
-            metadata = n.node.metadata if hasattr(n, 'node') else {}
-            source_file = metadata.get('source_file', metadata.get('source_path', '未知'))
+            metadata = n.node.metadata if hasattr(n, "node") else {}
+            source_file = metadata.get("source_file", metadata.get("source_path", "未知"))
             # 简化来源名称
-            if '/' in source_file:
-                source_file = source_file.split('/')[-1]
-            sources.append(f"[{i+1}] {source_file}")
+            if "/" in source_file:
+                source_file = source_file.split("/")[-1]
+            sources.append(f"[{i + 1}] {source_file}")
 
         return ", ".join(sources)
 
@@ -613,7 +617,7 @@ class ToolResultFormatter:
         return "\n".join(formatted)
 
     @staticmethod
-    def extract_sources(result: str) -> List[Dict[str, str]]:
+    def extract_sources(result: str) -> list[dict[str, str]]:
         """从结果中提取来源信息
 
         Args:

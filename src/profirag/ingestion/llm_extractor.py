@@ -1,23 +1,22 @@
 """LLM-based extractor for semantic structure extraction."""
 
 import json
-import re
 import logging
-from typing import Optional, List, Dict, Any
+import re
+from typing import Any
 
 from llama_index.core.llms import LLM
 
 from ..config.settings import CustomOpenAILLM
 from .cleaner_config import (
-    StructureResult,
-    ProblemElement,
     CauseAnalysis,
-    Solution,
-    TroubleshootingStep,
-    RuleResult,
     CleanerConfig,
+    ProblemElement,
+    RuleResult,
+    Solution,
+    StructureResult,
+    TroubleshootingStep,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +144,8 @@ class LLMExtractor:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        config: Optional[CleanerConfig] = None,
+        llm: LLM | None = None,
+        config: CleanerConfig | None = None,
     ):
         self.config = config or CleanerConfig()
         self._llm = llm or self._create_default_llm()
@@ -168,10 +167,7 @@ class LLMExtractor:
         return CustomOpenAILLM(**llm_kwargs)
 
     def extract_structure(
-        self,
-        text: str,
-        hints: Optional[RuleResult] = None,
-        image_context: Optional[str] = None
+        self, text: str, hints: RuleResult | None = None, image_context: str | None = None
     ) -> StructureResult:
         """从文档中提取三要素结构"""
 
@@ -179,6 +175,7 @@ class LLMExtractor:
         rule_hints = "未识别到特定信息"
         if hints:
             from .rule_extractor import RuleExtractor
+
             extractor = RuleExtractor(self.config)
             rule_hints = extractor.get_hints_for_llm(hints)
 
@@ -216,7 +213,7 @@ class LLMExtractor:
             logger.debug(f"LLM raw response: {response[:500]}...")
 
             # 提取JSON部分
-            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+            json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
             else:
@@ -245,11 +242,13 @@ class LLMExtractor:
             solution_data = data.get("solution", {})
             troubleshooting_steps = []
             for step_data in solution_data.get("troubleshooting_steps", []):
-                troubleshooting_steps.append(TroubleshootingStep(
-                    description=step_data.get("description", ""),
-                    command=step_data.get("command"),
-                    result=step_data.get("result"),
-                ))
+                troubleshooting_steps.append(
+                    TroubleshootingStep(
+                        description=step_data.get("description", ""),
+                        command=step_data.get("command"),
+                        result=step_data.get("result"),
+                    )
+                )
             solution = Solution(
                 troubleshooting_steps=troubleshooting_steps,
                 steps=solution_data.get("steps", []),
@@ -272,10 +271,10 @@ class LLMExtractor:
             # 尝试修复常见的JSON问题
             try:
                 # 尝试找到第一个 { 和最后一个 }
-                start = response.find('{')
-                end = response.rfind('}')
+                start = response.find("{")
+                end = response.rfind("}")
                 if start != -1 and end != -1:
-                    json_str = response[start:end+1]
+                    json_str = response[start : end + 1]
                     logger.debug(f"Attempting to parse extracted JSON: {json_str[:200]}...")
                     data = json.loads(json_str)
                     # 继续正常的解析流程
@@ -293,11 +292,13 @@ class LLMExtractor:
                     solution_data = data.get("solution", {})
                     troubleshooting_steps = []
                     for step_data in solution_data.get("troubleshooting_steps", []):
-                        troubleshooting_steps.append(TroubleshootingStep(
-                            description=step_data.get("description", ""),
-                            command=step_data.get("command"),
-                            result=step_data.get("result"),
-                        ))
+                        troubleshooting_steps.append(
+                            TroubleshootingStep(
+                                description=step_data.get("description", ""),
+                                command=step_data.get("command"),
+                                result=step_data.get("result"),
+                            )
+                        )
                     solution = Solution(
                         troubleshooting_steps=troubleshooting_steps,
                         steps=solution_data.get("steps", []),
@@ -318,7 +319,7 @@ class LLMExtractor:
             logger.error(f"Structure parsing failed: {e}")
             return StructureResult()
 
-    def check_completeness(self, structure: StructureResult) -> Dict[str, Any]:
+    def check_completeness(self, structure: StructureResult) -> dict[str, Any]:
         """检查三要素完整性"""
 
         prompt = COMPLETENESS_CHECK_PROMPT.format(
@@ -338,7 +339,7 @@ class LLMExtractor:
                 "assessment": "LLM调用失败",
             }
 
-    def check_contradictions(self, structure: StructureResult) -> Dict[str, Any]:
+    def check_contradictions(self, structure: StructureResult) -> dict[str, Any]:
         """检查信息矛盾"""
 
         prompt = CONTRADICTION_CHECK_PROMPT.format(
@@ -358,10 +359,10 @@ class LLMExtractor:
                 "match_score": 0.5,
             }
 
-    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+    def _parse_json_response(self, response: str) -> dict[str, Any]:
         """解析JSON响应"""
         try:
-            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+            json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
             else:

@@ -1,10 +1,11 @@
 """PostgreSQL/pgvector vector store implementation"""
 
-from typing import List, Optional, Dict, Any
+from typing import Any
+
+import psycopg2
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from llama_index.core.storage.docstore.types import RefDocInfo
 from llama_index.vector_stores.postgres import PGVectorStore
-import psycopg2
 from psycopg2.extras import execute_values
 
 from .base import BaseVectorStore
@@ -26,7 +27,7 @@ class PostgresStore(BaseVectorStore):
         dimension: int = 1536,
         embed_dim: int = 1536,
         schema_name: str = "public",
-        **kwargs
+        **kwargs,
     ):
         """Initialize PostgreSQL vector store.
 
@@ -53,7 +54,7 @@ class PostgresStore(BaseVectorStore):
             table_name=table_name,
             schema_name=schema_name,
             embed_dim=self.dimension,
-            **kwargs
+            **kwargs,
         )
 
         # Initialize node store for full node data
@@ -99,7 +100,7 @@ class PostgresStore(BaseVectorStore):
         finally:
             conn.close()
 
-    def add(self, nodes: List[TextNode], **kwargs) -> List[str]:
+    def add(self, nodes: list[TextNode], **kwargs) -> list[str]:
         """Add nodes to PostgreSQL storage.
 
         Args:
@@ -121,12 +122,7 @@ class PostgresStore(BaseVectorStore):
             with conn.cursor() as cur:
                 # Insert node content
                 node_data = [
-                    (
-                        node.node_id,
-                        node.text,
-                        node.metadata or {},
-                        node.ref_doc_id
-                    )
+                    (node.node_id, node.text, node.metadata or {}, node.ref_doc_id)
                     for node in nodes
                 ]
                 execute_values(
@@ -140,7 +136,7 @@ class PostgresStore(BaseVectorStore):
                         metadata = EXCLUDED.metadata,
                         ref_doc_id = EXCLUDED.ref_doc_id;
                     """,
-                    node_data
+                    node_data,
                 )
 
                 # Update ref_doc info
@@ -152,7 +148,8 @@ class PostgresStore(BaseVectorStore):
                         ref_docs[node.ref_doc_id].append(node.node_id)
 
                 for ref_doc_id, node_ids_list in ref_docs.items():
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         INSERT INTO {self.schema_name}.{self.table_name}_docs
                         (ref_doc_id, node_ids)
                         VALUES (%s, %s)
@@ -161,7 +158,9 @@ class PostgresStore(BaseVectorStore):
                             SELECT node_ids FROM {self.schema_name}.{self.table_name}_docs
                             WHERE ref_doc_id = %s
                         );
-                    """, (ref_doc_id, node_ids_list, node_ids_list, ref_doc_id))
+                    """,
+                        (ref_doc_id, node_ids_list, node_ids_list, ref_doc_id),
+                    )
 
                 conn.commit()
         finally:
@@ -169,7 +168,9 @@ class PostgresStore(BaseVectorStore):
 
         return ids
 
-    def delete(self, ref_doc_id: Optional[str] = None, node_ids: Optional[List[str]] = None, **kwargs) -> bool:
+    def delete(
+        self, ref_doc_id: str | None = None, node_ids: list[str] | None = None, **kwargs
+    ) -> bool:
         """Delete nodes from PostgreSQL storage.
 
         Args:
@@ -185,31 +186,43 @@ class PostgresStore(BaseVectorStore):
             with conn.cursor() as cur:
                 if ref_doc_id:
                     # Get node IDs for this doc
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         SELECT node_ids FROM {self.schema_name}.{self.table_name}_docs
                         WHERE ref_doc_id = %s;
-                    """, (ref_doc_id,))
+                    """,
+                        (ref_doc_id,),
+                    )
                     result = cur.fetchone()
                     if result:
                         node_ids_to_delete = result[0]
                         # Delete nodes
-                        cur.execute(f"""
+                        cur.execute(
+                            f"""
                             DELETE FROM {self.schema_name}.{self.table_name}_nodes
                             WHERE node_id = ANY(%s);
-                        """, (node_ids_to_delete,))
+                        """,
+                            (node_ids_to_delete,),
+                        )
                         # Delete doc entry
-                        cur.execute(f"""
+                        cur.execute(
+                            f"""
                             DELETE FROM {self.schema_name}.{self.table_name}_docs
                             WHERE ref_doc_id = %s;
-                        """, (ref_doc_id,))
+                        """,
+                            (ref_doc_id,),
+                        )
                         # Delete from vector store
                         self._vector_store.delete(ref_doc_id=ref_doc_id, **kwargs)
                 elif node_ids:
                     # Delete specific nodes
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         DELETE FROM {self.schema_name}.{self.table_name}_nodes
                         WHERE node_id = ANY(%s);
-                    """, (node_ids,))
+                    """,
+                        (node_ids,),
+                    )
                     self._vector_store.delete(node_ids=node_ids, **kwargs)
                 else:
                     # Clear all
@@ -221,7 +234,9 @@ class PostgresStore(BaseVectorStore):
 
         return True
 
-    def query(self, query: QueryBundle, similarity_top_k: int = 10, **kwargs) -> List[NodeWithScore]:
+    def query(
+        self, query: QueryBundle, similarity_top_k: int = 10, **kwargs
+    ) -> list[NodeWithScore]:
         """Query PostgreSQL for similar nodes.
 
         Args:
@@ -240,11 +255,14 @@ class PostgresStore(BaseVectorStore):
             conn = psycopg2.connect(self.connection_string)
             try:
                 with conn.cursor() as cur:
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         SELECT node_id, text, metadata, ref_doc_id
                         FROM {self.schema_name}.{self.table_name}_nodes
                         WHERE node_id = ANY(%s);
-                    """, (node_ids,))
+                    """,
+                        (node_ids,),
+                    )
                     node_data = {row[0]: row for row in cur.fetchall()}
             finally:
                 conn.close()
@@ -269,7 +287,7 @@ class PostgresStore(BaseVectorStore):
 
         return results
 
-    def get_node(self, node_id: str) -> Optional[TextNode]:
+    def get_node(self, node_id: str) -> TextNode | None:
         """Get a specific node by ID from PostgreSQL.
 
         Args:
@@ -281,11 +299,14 @@ class PostgresStore(BaseVectorStore):
         conn = psycopg2.connect(self.connection_string)
         try:
             with conn.cursor() as cur:
-                cur.execute(f"""
+                cur.execute(
+                    f"""
                     SELECT node_id, text, metadata, ref_doc_id
                     FROM {self.schema_name}.{self.table_name}_nodes
                     WHERE node_id = %s;
-                """, (node_id,))
+                """,
+                    (node_id,),
+                )
                 result = cur.fetchone()
                 if result:
                     return TextNode(
@@ -299,7 +320,7 @@ class PostgresStore(BaseVectorStore):
 
         return None
 
-    def get_ref_doc_info(self, ref_doc_id: str) -> Optional[RefDocInfo]:
+    def get_ref_doc_info(self, ref_doc_id: str) -> RefDocInfo | None:
         """Get reference document info from PostgreSQL.
 
         Args:
@@ -311,10 +332,13 @@ class PostgresStore(BaseVectorStore):
         conn = psycopg2.connect(self.connection_string)
         try:
             with conn.cursor() as cur:
-                cur.execute(f"""
+                cur.execute(
+                    f"""
                     SELECT node_ids FROM {self.schema_name}.{self.table_name}_docs
                     WHERE ref_doc_id = %s;
-                """, (ref_doc_id,))
+                """,
+                    (ref_doc_id,),
+                )
                 result = cur.fetchone()
                 if result:
                     return RefDocInfo(node_ids=result[0])
@@ -323,7 +347,7 @@ class PostgresStore(BaseVectorStore):
 
         return None
 
-    def persist(self, persist_path: Optional[str] = None, **kwargs) -> None:
+    def persist(self, persist_path: str | None = None, **kwargs) -> None:
         """Persist PostgreSQL storage.
 
         Note: PostgreSQL handles persistence automatically. This method
@@ -370,7 +394,7 @@ class PostgresStore(BaseVectorStore):
             conn.close()
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "PostgresStore":
+    def from_config(cls, config: dict[str, Any]) -> "PostgresStore":
         """Create PostgresStore from configuration.
 
         Args:
@@ -404,5 +428,5 @@ class PostgresStore(BaseVectorStore):
             table_name=config.get("table_name", "profirag_vectors"),
             dimension=config.get("dimension", 1536),
             schema_name=config.get("schema_name", "public"),
-            **config.get("store_options", {})
+            **config.get("store_options", {}),
         )

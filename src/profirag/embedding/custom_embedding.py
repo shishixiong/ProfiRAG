@@ -1,8 +1,9 @@
 """Custom embedding models for non-OpenAI providers"""
 
-from typing import List, Any, Optional
-from openai import OpenAI, AsyncOpenAI
+from typing import Any
+
 from llama_index.core.base.embeddings.base import BaseEmbedding
+from openai import AsyncOpenAI, OpenAI
 
 
 class CustomOpenAIEmbedding(BaseEmbedding):
@@ -21,20 +22,20 @@ class CustomOpenAIEmbedding(BaseEmbedding):
 
     model: str
     api_key: str
-    api_base: Optional[str] = None
-    dimensions: Optional[int] = None
+    api_base: str | None = None
+    dimensions: int | None = None
     embed_batch_size: int = 10  # DashScope requires batch size <= 10
-    _client: Optional[OpenAI] = None
-    _aclient: Optional[AsyncOpenAI] = None
+    _client: OpenAI | None = None
+    _aclient: AsyncOpenAI | None = None
 
     def __init__(
         self,
         model: str,
         api_key: str,
-        api_base: Optional[str] = None,
-        dimensions: Optional[int] = None,
+        api_base: str | None = None,
+        dimensions: int | None = None,
         embed_batch_size: int = 10,  # DashScope requires batch size <= 10
-        **kwargs: Any
+        **kwargs: Any,
     ):
         super().__init__(
             model=model,
@@ -42,7 +43,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
             api_base=api_base,
             dimensions=dimensions,
             embed_batch_size=embed_batch_size,
-            **kwargs
+            **kwargs,
         )
         self._client = None
         self._aclient = None
@@ -69,7 +70,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     def class_name(cls) -> str:
         return "CustomOpenAIEmbedding"
 
-    def _get_embedding(self, text: str) -> List[float]:
+    def _get_embedding(self, text: str) -> list[float]:
         """Get embedding for a single text."""
         client = self._get_client()
         text = text.replace("\n", " ")
@@ -78,14 +79,10 @@ class CustomOpenAIEmbedding(BaseEmbedding):
         if self.dimensions:
             kwargs["dimensions"] = self.dimensions
 
-        response = client.embeddings.create(
-            input=[text],
-            model=self.model,
-            **kwargs
-        )
+        response = client.embeddings.create(input=[text], model=self.model, **kwargs)
         return response.data[0].embedding
 
-    async def _aget_embedding(self, text: str) -> List[float]:
+    async def _aget_embedding(self, text: str) -> list[float]:
         """Get embedding asynchronously."""
         client = self._get_aclient()
         text = text.replace("\n", " ")
@@ -94,14 +91,10 @@ class CustomOpenAIEmbedding(BaseEmbedding):
         if self.dimensions:
             kwargs["dimensions"] = self.dimensions
 
-        response = await client.embeddings.create(
-            input=[text],
-            model=self.model,
-            **kwargs
-        )
+        response = await client.embeddings.create(input=[text], model=self.model, **kwargs)
         return response.data[0].embedding
 
-    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts."""
         client = self._get_client()
         texts = [text.replace("\n", " ") for text in texts]
@@ -110,14 +103,10 @@ class CustomOpenAIEmbedding(BaseEmbedding):
         if self.dimensions:
             kwargs["dimensions"] = self.dimensions
 
-        response = client.embeddings.create(
-            input=texts,
-            model=self.model,
-            **kwargs
-        )
+        response = client.embeddings.create(input=texts, model=self.model, **kwargs)
         return [d.embedding for d in response.data]
 
-    async def _aget_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def _aget_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings asynchronously for multiple texts."""
         client = self._get_aclient()
         texts = [text.replace("\n", " ") for text in texts]
@@ -126,45 +115,41 @@ class CustomOpenAIEmbedding(BaseEmbedding):
         if self.dimensions:
             kwargs["dimensions"] = self.dimensions
 
-        response = await client.embeddings.create(
-            input=texts,
-            model=self.model,
-            **kwargs
-        )
+        response = await client.embeddings.create(input=texts, model=self.model, **kwargs)
         return [d.embedding for d in response.data]
 
     # Required BaseEmbedding method implementations
-    def _get_query_embedding(self, query: str) -> List[float]:
+    def _get_query_embedding(self, query: str) -> list[float]:
         """Get query embedding."""
         return self._get_embedding(query)
 
-    async def _aget_query_embedding(self, query: str) -> List[float]:
+    async def _aget_query_embedding(self, query: str) -> list[float]:
         """Get query embedding asynchronously."""
         return await self._aget_embedding(query)
 
-    def _get_text_embedding(self, text: str) -> List[float]:
+    def _get_text_embedding(self, text: str) -> list[float]:
         """Get text embedding."""
         return self._get_embedding(text)
 
-    async def _aget_text_embedding(self, text: str) -> List[float]:
+    async def _aget_text_embedding(self, text: str) -> list[float]:
         """Get text embedding asynchronously."""
         return await self._aget_embedding(text)
 
-    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get text embeddings in batch."""
         # Process in batches
         all_embeddings = []
         for i in range(0, len(texts), self.embed_batch_size):
-            batch = texts[i:i + self.embed_batch_size]
+            batch = texts[i : i + self.embed_batch_size]
             embeddings = self._get_embeddings(batch)
             all_embeddings.extend(embeddings)
         return all_embeddings
 
-    async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get text embeddings asynchronously in batch."""
         all_embeddings = []
         for i in range(0, len(texts), self.embed_batch_size):
-            batch = texts[i:i + self.embed_batch_size]
+            batch = texts[i : i + self.embed_batch_size]
             embeddings = await self._aget_embeddings(batch)
             all_embeddings.extend(embeddings)
         return all_embeddings

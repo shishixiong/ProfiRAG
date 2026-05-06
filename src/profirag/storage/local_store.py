@@ -1,14 +1,13 @@
 """Local file vector store implementation using LlamaIndex SimpleVectorStore"""
 
-import os
 import json
-from typing import List, Optional, Dict, Any
 from pathlib import Path
+from typing import Any
+
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from llama_index.core.storage.docstore.types import RefDocInfo
-from llama_index.core.vector_stores.simple import SimpleVectorStore
 from llama_index.core.storage.storage_context import StorageContext
-from llama_index.core import VectorStoreIndex
+from llama_index.core.vector_stores.simple import SimpleVectorStore
 
 from .base import BaseVectorStore
 from .registry import StorageRegistry
@@ -27,7 +26,7 @@ class LocalStore(BaseVectorStore):
         persist_path: str = "./storage",
         collection_name: str = "default",
         dimension: int = 1536,
-        **kwargs
+        **kwargs,
     ):
         """Initialize local file vector store.
 
@@ -62,32 +61,29 @@ class LocalStore(BaseVectorStore):
         """Initialize or load existing storage."""
         if self._vector_store_file.exists():
             # Load existing storage
-            self._vector_store = SimpleVectorStore.from_persist_path(
-                str(self._vector_store_file)
-            )
+            self._vector_store = SimpleVectorStore.from_persist_path(str(self._vector_store_file))
         else:
             # Create new storage
             self._vector_store = SimpleVectorStore()
 
         self._storage_context = StorageContext.from_defaults(
-            vector_store=self._vector_store,
-            persist_dir=str(self._storage_dir)
+            vector_store=self._vector_store, persist_dir=str(self._storage_dir)
         )
 
         # Initialize document storage
-        self._doc_store: Dict[str, Dict] = {}
+        self._doc_store: dict[str, dict] = {}
         if self._doc_store_file.exists():
-            with open(self._doc_store_file, "r") as f:
+            with open(self._doc_store_file) as f:
                 self._doc_store = json.load(f)
 
         # Initialize node storage
-        self._node_store: Dict[str, Dict] = {}
+        self._node_store: dict[str, dict] = {}
         self._node_file = self._storage_dir / "nodes.json"
         if self._node_file.exists():
-            with open(self._node_file, "r") as f:
+            with open(self._node_file) as f:
                 self._node_store = json.load(f)
 
-    def add(self, nodes: List[TextNode], **kwargs) -> List[str]:
+    def add(self, nodes: list[TextNode], **kwargs) -> list[str]:
         """Add nodes to local storage.
 
         Args:
@@ -123,7 +119,9 @@ class LocalStore(BaseVectorStore):
 
         return ids
 
-    def delete(self, ref_doc_id: Optional[str] = None, node_ids: Optional[List[str]] = None, **kwargs) -> bool:
+    def delete(
+        self, ref_doc_id: str | None = None, node_ids: list[str] | None = None, **kwargs
+    ) -> bool:
         """Delete nodes from local storage.
 
         Args:
@@ -162,7 +160,9 @@ class LocalStore(BaseVectorStore):
         self.persist()
         return True
 
-    def query(self, query: QueryBundle, similarity_top_k: int = 10, **kwargs) -> List[NodeWithScore]:
+    def query(
+        self, query: QueryBundle, similarity_top_k: int = 10, **kwargs
+    ) -> list[NodeWithScore]:
         """Query local storage for similar nodes.
 
         Args:
@@ -194,7 +194,7 @@ class LocalStore(BaseVectorStore):
 
         return full_results
 
-    def get_node(self, node_id: str) -> Optional[TextNode]:
+    def get_node(self, node_id: str) -> TextNode | None:
         """Get a specific node by ID from local storage.
 
         Args:
@@ -215,7 +215,7 @@ class LocalStore(BaseVectorStore):
             ref_doc_id=node_info.get("ref_doc_id"),
         )
 
-    def get_ref_doc_info(self, ref_doc_id: str) -> Optional[RefDocInfo]:
+    def get_ref_doc_info(self, ref_doc_id: str) -> RefDocInfo | None:
         """Get reference document info from local storage.
 
         Args:
@@ -230,7 +230,7 @@ class LocalStore(BaseVectorStore):
         node_ids = self._doc_store[ref_doc_id].get("node_ids", [])
         return RefDocInfo(node_ids=node_ids)
 
-    def persist(self, persist_path: Optional[str] = None, **kwargs) -> None:
+    def persist(self, persist_path: str | None = None, **kwargs) -> None:
         """Persist local storage to files.
 
         Args:
@@ -264,13 +264,11 @@ class LocalStore(BaseVectorStore):
         self._node_store.clear()
         self._doc_store.clear()
         self._vector_store = SimpleVectorStore()
-        self._storage_context = StorageContext.from_defaults(
-            vector_store=self._vector_store
-        )
+        self._storage_context = StorageContext.from_defaults(vector_store=self._vector_store)
         self.persist()
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "LocalStore":
+    def from_config(cls, config: dict[str, Any]) -> "LocalStore":
         """Create LocalStore from configuration.
 
         Args:
@@ -286,5 +284,5 @@ class LocalStore(BaseVectorStore):
             persist_path=config.get("persist_path", "./storage"),
             collection_name=config.get("collection_name", "default"),
             dimension=config.get("dimension", 1536),
-            **config.get("store_options", {})
+            **config.get("store_options", {}),
         )

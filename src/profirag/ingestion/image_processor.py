@@ -7,22 +7,23 @@ import logging
 import os
 import urllib.request
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Literal
+from typing import Any, Literal
 
 from llama_index.core.schema import TextNode
-
 
 logger = logging.getLogger(__name__)
 
 
 # Default prompt for image description
-DEFAULT_IMAGE_DESCRIPTION_PROMPT = "描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息"
+DEFAULT_IMAGE_DESCRIPTION_PROMPT = (
+    "描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息"
+)
 
 
 def understand_image_minimax(
     image_path: str,
     prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
     api_host: str = "https://api.minimax.chat",
     timeout: int = 60,
 ) -> str:
@@ -45,7 +46,7 @@ def understand_image_minimax(
     # Get API key from environment if not provided
     key = api_key or os.environ.get("MINIMAX_API_KEY")
     if not key:
-        raise EnvironmentError("MINIMAX_API_KEY environment variable not set")
+        raise OSError("MINIMAX_API_KEY environment variable not set")
 
     # Check image file exists
     if not os.path.exists(image_path):
@@ -61,15 +62,15 @@ def understand_image_minimax(
 
     # Build request
     url = f"{api_host}/v1/coding_plan/vlm"
-    data = json.dumps({
-        "prompt": prompt,
-        "image_url": f"data:{mime_type};base64,{img_data}"
-    }).encode()
+    data = json.dumps(
+        {"prompt": prompt, "image_url": f"data:{mime_type};base64,{img_data}"}
+    ).encode()
 
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    })
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
 
     # Send request and parse response
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -80,8 +81,8 @@ def understand_image_minimax(
 def understand_image_openai(
     image_path: str,
     prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
     model: str = "gpt-4o",
     timeout: int = 60,
 ) -> str:
@@ -108,7 +109,7 @@ def understand_image_openai(
     # Get API key from environment if not provided
     key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
-        raise EnvironmentError("OPENAI_API_KEY environment variable not set")
+        raise OSError("OPENAI_API_KEY environment variable not set")
 
     # Get base URL from environment if not provided
     url_base = base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
@@ -127,32 +128,30 @@ def understand_image_openai(
 
     # Build request for OpenAI chat completions API
     url = f"{url_base}/chat/completions"
-    data = json.dumps({
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": prompt
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{img_data}"
-                        }
-                    }
-                ]
-            }
-        ],
-        "max_tokens": 1000
-    }).encode()
+    data = json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{img_data}"},
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 1000,
+        }
+    ).encode()
 
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    })
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
 
     # Send request and parse response
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -168,8 +167,8 @@ def understand_image(
     image_path: str,
     prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
     provider: Literal["minimax", "openai"] = "minimax",
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
     api_host: str = "https://api.minimax.chat",
     model: str = "gpt-4o",
     timeout: int = 60,
@@ -223,7 +222,7 @@ class ImageProcessor:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         api_host: str = "https://api.minimax.chat",
         description_prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
         storage_path: str = "./images",
@@ -251,8 +250,8 @@ class ImageProcessor:
         self,
         image_directory: str,
         source_document: str,
-        image_map: Optional[Dict[str, Any]] = None,
-    ) -> List[TextNode]:
+        image_map: dict[str, Any] | None = None,
+    ) -> list[TextNode]:
         """Process all images from a directory and create ImageNodes.
 
         Args:
@@ -310,8 +309,8 @@ class ImageProcessor:
         image_path: str,
         description: str,
         source_document: str,
-        page_number: Optional[int] = None,
-        original_context: Optional[str] = None,
+        page_number: int | None = None,
+        original_context: str | None = None,
     ) -> TextNode:
         """Create a searchable TextNode from image description.
 
@@ -364,7 +363,7 @@ class ImageProcessor:
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def get_image_by_path(self, image_path: str) -> Optional[Dict[str, Any]]:
+    def get_image_by_path(self, image_path: str) -> dict[str, Any] | None:
         """Get image info by path for retrieval.
 
         Args:
@@ -392,8 +391,8 @@ class ImageResult:
         image_path: str,
         description: str,
         score: float = 0.0,
-        source_chunk_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        source_chunk_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Initialize image result.
 
@@ -410,7 +409,7 @@ class ImageResult:
         self.source_chunk_id = source_chunk_id
         self.metadata = metadata or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary format.
 
         Returns:
@@ -430,8 +429,8 @@ class RetrievalResult:
 
     def __init__(
         self,
-        text_nodes: List[Any],
-        images: List[ImageResult],
+        text_nodes: list[Any],
+        images: list[ImageResult],
     ):
         """Initialize retrieval result.
 
@@ -442,7 +441,7 @@ class RetrievalResult:
         self.text_nodes = text_nodes
         self.images = images
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary format.
 
         Returns:
@@ -451,9 +450,9 @@ class RetrievalResult:
         return {
             "text_nodes": [
                 {
-                    "node_id": n.node.node_id if hasattr(n, 'node') else n.get('node_id'),
-                    "text": n.node.text[:200] if hasattr(n, 'node') else n.get('text', '')[:200],
-                    "score": n.score if hasattr(n, 'score') else n.get('score', 0),
+                    "node_id": n.node.node_id if hasattr(n, "node") else n.get("node_id"),
+                    "text": n.node.text[:200] if hasattr(n, "node") else n.get("text", "")[:200],
+                    "score": n.score if hasattr(n, "score") else n.get("score", 0),
                 }
                 for n in self.text_nodes
             ],
