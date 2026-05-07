@@ -47,6 +47,7 @@ class EnvSettings(BaseSettings):
     ollama_embedding_model: str = "nomic-embed-text"
     ollama_embedding_dimension: int = 768
     ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_embedding_max_length: int | None = None  # Max text length in chars (None=auto-detect)
     profirag_embedding_model: str = "BAAI/bge-small-en-v1.5"
     profirag_embedding_dimension: int | None = None  # Auto-detected for FastEmbed
     profirag_embedding_cache_dir: str | None = None
@@ -165,7 +166,7 @@ class StorageConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """Embedding configuration supporting OpenAI and FastEmbed providers"""
+    """Embedding configuration supporting OpenAI, FastEmbed, and Ollama providers"""
 
     provider: Literal["openai", "fastembed", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
@@ -173,6 +174,7 @@ class EmbeddingConfig(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     cache_dir: str | None = None  # For FastEmbed model cache
+    max_length: int | None = None  # Max text length for embedding (Ollama)
 
 
 class LLMConfig(BaseModel):
@@ -341,6 +343,7 @@ class RAGConfig(BaseModel):
         storage_config = cls._build_storage_config(env_settings, storage_type)
 
         # Build embedding config based on provider
+        max_length = None
         if env_settings.profirag_embedding_provider == "fastembed":
             model = env_settings.profirag_embedding_model
             dimension = env_settings.profirag_embedding_dimension or FASTEMBED_MODEL_DIMENSIONS.get(
@@ -353,6 +356,7 @@ class RAGConfig(BaseModel):
             dimension = env_settings.ollama_embedding_dimension
             api_key = None  # Ollama doesn't require authentication
             base_url = env_settings.ollama_base_url
+            max_length = env_settings.ollama_embedding_max_length
         else:  # openai
             model = env_settings.openai_embedding_model
             dimension = env_settings.openai_embedding_dimension
@@ -368,6 +372,7 @@ class RAGConfig(BaseModel):
                 api_key=api_key,
                 base_url=base_url,
                 cache_dir=env_settings.profirag_embedding_cache_dir,
+                max_length=max_length,
             ),
             llm=LLMConfig(
                 provider="openai",

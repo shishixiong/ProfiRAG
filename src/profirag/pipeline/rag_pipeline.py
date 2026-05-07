@@ -143,6 +143,7 @@ class RAGPipeline:
                 api_key="",  # Ollama doesn't require authentication
                 api_base=self.config.embedding.base_url,
                 dimensions=self.config.embedding.dimension,
+                max_length=self.config.embedding.max_length,
             )
         else:  # openai
             embed_kwargs = {

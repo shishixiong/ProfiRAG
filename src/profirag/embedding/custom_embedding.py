@@ -1,23 +1,36 @@
 """Custom embedding models for non-OpenAI providers"""
 
+import logging
 from typing import Any
 
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from openai import AsyncOpenAI, OpenAI
+
+logger = logging.getLogger(__name__)
+
+# Model-specific max context lengths (in characters)
+# These are fallback defaults when OLLAMA_EMBEDDING_MAX_LENGTH is not set
+# Users should configure OLLAMA_EMBEDDING_MAX_LENGTH based on their model
+EMBEDDING_MAX_CONTEXT_LENGTHS = {
+    "nomic-embed-text": 2048,  # ~512 tokens, conservative default
+    "mxbai-embed-large": 2048,
+    "all-minilm": 1024,  # ~256 tokens
+}
 
 
 class CustomOpenAIEmbedding(BaseEmbedding):
     """Embedding model for OpenAI-compatible APIs without model validation.
 
     This class bypasses llama_index's model name validation, allowing use
-    of custom embedding providers like DashScope, MiniMax, etc.
+    of custom embedding providers like DashScope, MiniMax, Ollama, etc.
 
     Args:
-        model: Model name (e.g., "text-embedding-v4")
+        model: Model name (e.g., "text-embedding-v4", "nomic-embed-text")
         api_key: API key for the embedding provider
         api_base: Base URL for the API endpoint
         dimensions: Embedding dimensions (optional)
         embed_batch_size: Batch size for embedding requests
+        max_length: Maximum text length in characters (optional, auto-detected for known models)
     """
 
     model: str
@@ -25,6 +38,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     api_base: str | None = None
     dimensions: int | None = None
     embed_batch_size: int = 10  # DashScope requires batch size <= 10
+    max_length: int | None = None  # Max text length in characters
     _client: OpenAI | None = None
     _aclient: AsyncOpenAI | None = None
 
@@ -35,6 +49,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
         api_base: str | None = None,
         dimensions: int | None = None,
         embed_batch_size: int = 10,  # DashScope requires batch size <= 10
+        max_length: int | None = None,
         **kwargs: Any,
     ):
         super().__init__(
@@ -43,10 +58,42 @@ class CustomOpenAIEmbedding(BaseEmbedding):
             api_base=api_base,
             dimensions=dimensions,
             embed_batch_size=embed_batch_size,
+            max_length=max_length,
             **kwargs,
         )
         self._client = None
         self._aclient = None
+
+        # Auto-detect max_length for known models if not specified
+        if self.max_length is None:
+            # Check model name against known limits
+            for known_model, length in EMBEDDING_MAX_CONTEXT_LENGTHS.items():
+                if known_model in self.model:
+                    self.max_length = length
+                    logger.info(
+                        f"Auto-detected max_length={length} for model '{self.model}'"
+                    )
+                    break
+
+    def _truncate_text(self, text: str) -> str:
+        """Truncate text if it exceeds max_length.
+
+        Args:
+            text: Text to potentially truncate
+
+        Returns:
+            Truncated text if needed, otherwise original text
+        """
+        if self.max_length is None:
+            return text
+
+        if len(text) > self.max_length:
+            logger.warning(
+                f"Truncating text from {len(text)} to {self.max_length} chars "
+                f"for model '{self.model}'"
+            )
+            return text[:self.max_length]
+        return text
 
     def _get_client(self) -> OpenAI:
         """Get or create OpenAI client."""
@@ -73,7 +120,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     def _get_embedding(self, text: str) -> list[float]:
         """Get embedding for a single text."""
         client = self._get_client()
-        text = text.replace("\n", " ")
+        text = self._truncate_text(text.replace("\n", " "))
 
         kwargs = {}
         if self.dimensions:
@@ -85,7 +132,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     async def _aget_embedding(self, text: str) -> list[float]:
         """Get embedding asynchronously."""
         client = self._get_aclient()
-        text = text.replace("\n", " ")
+        text = self._truncate_text(text.replace("\n", " "))
 
         kwargs = {}
         if self.dimensions:
@@ -97,7 +144,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts."""
         client = self._get_client()
-        texts = [text.replace("\n", " ") for text in texts]
+        texts = [self._truncate_text(text.replace("\n", " ")) for text in texts]
 
         kwargs = {}
         if self.dimensions:
@@ -109,7 +156,7 @@ class CustomOpenAIEmbedding(BaseEmbedding):
     async def _aget_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings asynchronously for multiple texts."""
         client = self._get_aclient()
-        texts = [text.replace("\n", " ") for text in texts]
+        texts = [self._truncate_text(text.replace("\n", " ")) for text in texts]
 
         kwargs = {}
         if self.dimensions:
