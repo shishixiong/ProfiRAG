@@ -10,7 +10,6 @@ from .loaders import (
     extract_image_map,
 )
 from .splitters import TextSplitter
-from .document_cleaner import DocumentCleaner
 from .cleaner_config import (
     CleanedDocument,
     CleanerConfig,
@@ -39,7 +38,6 @@ __all__ = [
     "extract_image_map",
     "TextSplitter",
     # Document Cleaner
-    "DocumentCleaner",
     "CleanedDocument",
     "CleanerConfig",
     "ProblemElement",

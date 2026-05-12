@@ -378,7 +378,7 @@ class QdrantStore(BaseVectorStore):
                 scroll_filter=Filter(
                     must=[
                         FieldCondition(
-                            key="ref_doc_id",
+                            key="source_doc_id",
                             match=MatchValue(value=ref_doc_id)
                         )
                     ]

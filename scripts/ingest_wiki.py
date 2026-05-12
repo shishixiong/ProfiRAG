@@ -289,7 +289,7 @@ def main():
         "--wiki-url",
         "-u",
         type=str,
-        default="https://wiki.huawei.com/domains/98/wiki/4773/WIKI202502145960569",
+        default="https://wiki.huawei.com/domains/98/wiki/4773/WIKI202508127849624",
         help="Wiki URL to ingest",
     )
     parser.add_argument(
@@ -317,13 +317,13 @@ def main():
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=1024,
+        default=512,
         help="Chunk size (default: from .env or 512)",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=100,
+        default=50,
         help="Chunk overlap (default: from .env or 50)",
     )
     parser.add_argument(

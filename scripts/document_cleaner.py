@@ -10,19 +10,21 @@ from typing import List, Optional, Dict, Any
 from llama_index.core import Document
 from llama_index.core.llms import LLM
 
-from ..config.settings import CustomOpenAILLM
-from .cleaner_config import (
+from profirag.config.settings import CustomOpenAILLM
+from profirag.ingestion.cleaner_config import (
     CleanedDocument,
     CleanerConfig,
     DocumentMetadata,
     QualityCheckResult,
     ImageInfo,
 )
-from .rule_extractor import RuleExtractor
-from .llm_extractor import LLMExtractor
-from .quality_checker import QualityChecker
-from .loaders import DocumentLoader, extract_image_map
-from .image_processor import ImageProcessor, understand_image
+from profirag.ingestion.rule_extractor import RuleExtractor
+from profirag.ingestion.llm_extractor import LLMExtractor
+from profirag.ingestion.quality_checker import QualityChecker
+from profirag.ingestion.loaders import DocumentLoader, extract_image_map
+from profirag.ingestion.image_processor import ImageProcessor, understand_image
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 
 logger = logging.getLogger(__name__)
@@ -81,7 +83,7 @@ class DocumentCleaner:
         """Create default LLM from environment (支持OpenAI兼容API)."""
         # Try to get config from RAGConfig if available
         try:
-            from ..config.settings import RAGConfig
+            from profirag.config.settings import RAGConfig
             rag_config = RAGConfig.from_env()
             llm_kwargs = {
                 "model": rag_config.llm.model,
@@ -437,7 +439,7 @@ class DocumentCleaner:
             DocumentCleaner instance
         """
         try:
-            from ..config.settings import RAGConfig, EnvSettings
+            from profirag.config.settings import RAGConfig, EnvSettings
             config = RAGConfig.from_env(env_file)
             env = EnvSettings()
 
@@ -495,12 +497,14 @@ def main():
     )
     parser.add_argument(
         "--input", "-i",
-        required=True,
+        # required=True,
+        default="../markdown/agent调adaptor失败，但out和err都是空.md",
         help="Input directory or file path"
     )
     parser.add_argument(
         "--output", "-o",
-        required=True,
+        # required=True,
+        default="./docs",
         help="Output directory path"
     )
     parser.add_argument(

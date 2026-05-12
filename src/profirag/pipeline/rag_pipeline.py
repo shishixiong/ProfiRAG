@@ -298,6 +298,81 @@ class RAGPipeline:
 
         return node_ids
 
+    # Threshold for small wiki documents - if doc_size is below this, use full document content
+    SMALL_DOC_THRESHOLD = 5000
+
+    def _merge_small_wiki_nodes(
+        self,
+        query_str: str,
+        nodes: List[NodeWithScore],
+        top_k: int,
+    ) -> List[NodeWithScore]:
+        """Merge nodes from small wiki documents.
+
+        For wiki documents with doc_size < SMALL_DOC_THRESHOLD, retrieve all nodes
+        from the same document and merge them into a single context.
+
+        Args:
+            query_str: Original query string
+            nodes: Reranked nodes to process
+            top_k: Number of top results to return
+
+        Returns:
+            Processed nodes with merged small wiki documents
+        """
+        if not nodes:
+            return nodes
+
+        # Track which source_doc_ids we've already processed
+        processed_doc_ids: set = set()
+        result_nodes: List[NodeWithScore] = []
+
+        for node in nodes:
+            source_doc_id = node.node.metadata.get("source_doc_id")
+            loader = node.node.metadata.get("loader", "")
+            doc_size = node.node.metadata.get("doc_size", float('inf'))
+
+            # Skip if we've already processed this document
+            if source_doc_id and source_doc_id in processed_doc_ids:
+                continue
+
+            # Check if this is a small wiki document
+            if loader == "wiki" and doc_size < self.SMALL_DOC_THRESHOLD and source_doc_id:
+                # Get all nodes from this document
+                ref_doc_info = self._vector_store.get_ref_doc_info(source_doc_id)
+                if ref_doc_info and hasattr(ref_doc_info, 'node_ids'):
+                    # Retrieve all nodes from the document
+                    all_doc_nodes = []
+                    for node_id in ref_doc_info.node_ids:
+                        retrieved_node = self._vector_store.get_node(node_id)
+                        if retrieved_node:
+                            all_doc_nodes.append(NodeWithScore(node=retrieved_node))
+
+                    if all_doc_nodes:
+                        # Merge all nodes into one
+                        merged_text = "\n\n".join(n.node.text for n in all_doc_nodes)
+                        # Use the first node as base but with merged text
+                        base_node = all_doc_nodes[0].node
+                        merged_node = TextNode(
+                            text=merged_text,
+                            metadata=base_node.metadata.copy(),
+                        )
+                        # Update doc_size to reflect merged content
+                        merged_node.metadata["doc_size"] = len(merged_text)
+                        merged_node.metadata["merged_from_nodes"] = len(all_doc_nodes)
+                        result_nodes.append(NodeWithScore(node=merged_node, score=node.score))
+                        processed_doc_ids.add(source_doc_id)
+                        continue
+
+            # Normal case - keep node as is
+            result_nodes.append(node)
+            if source_doc_id:
+                processed_doc_ids.add(source_doc_id)
+
+        # Sort by score and limit to top_k
+        result_nodes.sort(key=lambda x: x.score, reverse=True)
+        return result_nodes[:top_k]
+
     def query(
         self,
         query_str: str,
@@ -321,11 +396,13 @@ class RAGPipeline:
         all_nodes, all_images = self._retrieve(query_bundles, top_k, include_images=False)
         unique_nodes = self._deduplicate_nodes(all_nodes)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-        response = self._synthesizer.synthesize_custom(query_str, reranked_nodes[:top_k])
+        # Merge small wiki documents
+        processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
+        response = self._synthesizer.synthesize_custom(query_str, processed_nodes[:top_k])
 
         return {
             "response": response,
-            "source_nodes": reranked_nodes[:top_k],
+            "source_nodes": processed_nodes[:top_k],
             "metadata": {
                 "query_variants": [qb.query_str for qb in query_bundles],
                 "total_nodes_retrieved": len(all_nodes),
@@ -360,11 +437,13 @@ class RAGPipeline:
         unique_nodes = self._deduplicate_nodes(all_nodes)
         unique_images = self._deduplicate_images(all_images)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
-        response = self._synthesizer.synthesize_custom(query_str, reranked_nodes[:top_k])
+        # Merge small wiki documents
+        processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
+        response = self._synthesizer.synthesize_custom(query_str, processed_nodes[:top_k])
 
         return ResponseFormatter.format_with_sources_and_images(
             response,
-            reranked_nodes[:top_k],
+            processed_nodes[:top_k],
             unique_images,
         )
 
@@ -442,9 +521,11 @@ class RAGPipeline:
         all_nodes, _ = self._retrieve(query_bundles, top_k, include_images=False)
         unique_nodes = self._deduplicate_nodes(all_nodes)
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
+        # Merge small wiki documents
+        processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
 
         # Stream response
-        for chunk in self._synthesizer.synthesize_streaming(query_str, reranked_nodes[:top_k]):
+        for chunk in self._synthesizer.synthesize_streaming(query_str, processed_nodes[:top_k]):
             yield chunk
 
     def query_with_agent(

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default prompt for image description
-DEFAULT_IMAGE_DESCRIPTION_PROMPT = "描述这张图片的内容，包括图片中的文字、图形、图表、错误信息等关键信息"
+DEFAULT_IMAGE_DESCRIPTION_PROMPT = "描述这张图片的内容，提取图片关系信息，总结成一句话描述"
 
 
 def understand_image_minimax(
@@ -83,7 +83,7 @@ def understand_image_openai(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: str = "gpt-4o",
-    timeout: int = 60,
+    timeout: int = 600,
 ) -> str:
     """Understand image using OpenAI-compatible Vision API.
 
@@ -129,6 +129,9 @@ def understand_image_openai(
     url = f"{url_base}/chat/completions"
     data = json.dumps({
         "model": model,
+        # "prompt": prompt,
+        # "images": [img_data],
+        # "stream": False
         "messages": [
             {
                 "role": "user",
@@ -146,7 +149,7 @@ def understand_image_openai(
                 ]
             }
         ],
-        "max_tokens": 1000
+        # "max_tokens": 1000
     }).encode()
 
     req = urllib.request.Request(url, data=data, headers={
@@ -172,7 +175,7 @@ def understand_image(
     base_url: Optional[str] = None,
     api_host: str = "https://api.minimax.chat",
     model: str = "gpt-4o",
-    timeout: int = 60,
+    timeout: int = 600,
 ) -> str:
     """Understand image using specified VLM provider.
 
@@ -228,7 +231,7 @@ class ImageProcessor:
         description_prompt: str = DEFAULT_IMAGE_DESCRIPTION_PROMPT,
         storage_path: str = "./images",
         generate_descriptions: bool = True,
-        timeout: int = 60,
+        timeout: int = 600,
     ):
         """Initialize image processor.
 
@@ -240,6 +243,8 @@ class ImageProcessor:
             generate_descriptions: Whether to generate descriptions (can be disabled for testing)
             timeout: Request timeout in seconds
         """
+        from ..config.settings import EnvSettings
+        env = EnvSettings()
         self.api_key = api_key
         self.api_host = api_host
         self.description_prompt = description_prompt
@@ -282,12 +287,24 @@ class ImageProcessor:
             description = ""
             if self.generate_descriptions:
                 try:
-                    description = understand_image_minimax(
+                    description = understand_image(
                         str(image_file),
                         prompt=self.description_prompt,
                         api_key=self.api_key,
                         api_host=self.api_host,
                         timeout=self.timeout,
+                    )
+                    description = understand_image(
+                        image_path=str(image_file),
+                        prompt=self.description_prompt,
+                        provider=self.pro,
+                        # MiniMax params
+                        api_key=self.config.minimax_api_key if self.config.image_provider == "minimax" else self.config.image_openai_api_key,
+                        api_host=self.config.minimax_api_host,
+                        # OpenAI params
+                        base_url=self.config.image_openai_base_url,
+                        model=self.config.image_openai_model,
+                        timeout=self.config.image_timeout,
                     )
                 except Exception as e:
                     print(f"Warning: Failed to generate description for {image_file}: {e}")

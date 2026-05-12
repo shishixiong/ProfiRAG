@@ -215,7 +215,7 @@ def chunk_sections(
     sections: List[Section],
     chunk_size: int = 512,
     chunk_overlap: int = 50,
-    max_chars: int = 3500,
+    max_chars: int = 4000,
 ) -> List[TextNode]:
     """Assemble chunks from sections with chunk_size constraints.
 
@@ -543,6 +543,7 @@ class TextSplitter:
 
         # Create a temporary document with placeholders for splitting
         temp_doc = Document(text=text_with_placeholders, metadata=reduced_metadata)
+        doc_size = len(temp_doc.text)
 
         # Split the document with reduced metadata
         nodes = self._splitter.get_nodes_from_documents([temp_doc])
@@ -554,6 +555,11 @@ class TextSplitter:
         # Add image-related and heading metadata to each node
         for node in nodes:
             node.metadata.update(reduced_metadata)
+            # Add title to metadata if it exists in document
+            if "title" in document.metadata:
+                node.metadata["title"] = document.metadata["title"]
+                title = document.metadata["title"]
+                node.text = f"[文档 {title}]\n\n{node.text}"
             # Store document ID in metadata
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
@@ -574,6 +580,7 @@ class TextSplitter:
             # Find images in this chunk
             chunk_images = find_images_in_chunk(node.text, image_map)
             node.metadata["chunk_images"] = chunk_images
+            node.metadata["doc_size"] = doc_size
             node.metadata["has_images"] = len(chunk_images) > 0
             # Store image paths directly for easy access
             if chunk_images:
@@ -632,7 +639,7 @@ class MarkdownSplitter:
 
     # Default max chars safely under embedding API limit (8192)
 # Account for metadata added to embed content
-    DEFAULT_MAX_CHARS = 3500
+    DEFAULT_MAX_CHARS = 4000
 
     def __init__(
         self,
@@ -687,6 +694,7 @@ class MarkdownSplitter:
             node.metadata.update(reduced_metadata)
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
+
 
         return nodes
 
@@ -908,6 +916,10 @@ class ChineseTextSplitter:
         # Update metadata with image propagation and heading context
         for node in nodes:
             node.metadata.update(base_metadata)
+            if "title" in document.metadata:
+                node.metadata["title"] = document.metadata["title"]
+                title = document.metadata["title"]
+                node.text = f"[文档 {title}]\n\n{node.text}"
             # Store document ID in metadata instead
             if document.doc_id:
                 node.metadata["source_doc_id"] = document.doc_id
@@ -931,6 +943,7 @@ class ChineseTextSplitter:
             # Find images in this chunk
             chunk_images = find_images_in_chunk(node.text, image_map)
             node.metadata["chunk_images"] = chunk_images
+            node.metadata["doc_size"] = len(document.text)
             node.metadata["has_images"] = len(chunk_images) > 0
             # Store image paths directly for easy access
             if chunk_images:
