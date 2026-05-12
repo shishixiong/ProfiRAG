@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 300000,  // 5 minutes for import operations
+  timeout: 600000,  // 5 minutes for import operations
 })
 
 // PDF endpoints
