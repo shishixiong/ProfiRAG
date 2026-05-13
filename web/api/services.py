@@ -679,6 +679,7 @@ class SearchService:
         top_k: int = 20,
         rerank: bool = True,
         use_pre_retrieval: bool = False,
+        retrieve_mode: str = "hybrid",
         env_file: str = ".env",
     ) -> Dict[str, Any]:
         """Execute retrieval-only query.
@@ -688,6 +689,7 @@ class SearchService:
             top_k: Number of results to return
             rerank: Enable reranking
             use_pre_retrieval: Enable query transformation (HyDE, rewrite)
+            retrieve_mode: Search mode - "keyword", "vector", or "hybrid" (default: "hybrid")
             env_file: Config file path
 
         Returns:
@@ -711,10 +713,10 @@ class SearchService:
         else:
             query_bundles = [QueryBundle(query_str=query_str)]
 
-        # Retrieve from all query variants
+        # Retrieve from all query variants with specified retrieve_mode
         all_nodes = []
         for qb in query_bundles:
-            nodes = pipeline._hybrid_retriever.retrieve(qb.query_str, top_k=top_k * 2)
+            nodes = pipeline._hybrid_retriever.retrieve(qb.query_str, top_k=top_k * 2, retrieve_mode=retrieve_mode)
             all_nodes.extend(nodes)
 
         # Deduplicate

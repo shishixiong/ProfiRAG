@@ -210,12 +210,20 @@ class ChatResponse(BaseModel):
 
 
 # Search Models
+class RetrieveMode(str, Enum):
+    """Retrieve mode for search."""
+    KEYWORD = "keyword"
+    VECTOR = "vector"
+    HYBRID = "hybrid"
+
+
 class SearchRequest(BaseModel):
     """Request for pure retrieval search."""
     query: str = Field(..., description="Natural language query")
     top_k: int = Field(20, ge=1, le=100, description="Number of results")
     rerank: bool = Field(True, description="Enable reranking")
-    use_pre_retrieval: bool = Field(False, description="Enable query transformation")
+    use_pre_retrieval: bool = Field(True, description="Enable query transformation")
+    retrieve_mode: RetrieveMode = Field(RetrieveMode.HYBRID, description="Search mode: keyword, vector, or hybrid")
     env_file: str = Field(".env", description="Config file path")
 
 

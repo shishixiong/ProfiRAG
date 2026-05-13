@@ -27,6 +27,7 @@ async def query(request: schemas.SearchRequest):
             top_k=request.top_k,
             rerank=request.rerank,
             use_pre_retrieval=request.use_pre_retrieval,
+            retrieve_mode=request.retrieve_mode.value,
             env_file=request.env_file,
         )
         return schemas.SearchResponse(**result)

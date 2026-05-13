@@ -34,7 +34,7 @@ class HybridRetriever:
             vector_store: Optional BaseVectorStore reference.
                          If it has native BM25 (use_bm25=True), retrieval
                          is delegated to vector_store.query().
-            retrieve_mode: Retrieval mode - "hybrid" (dense+BM25), "sparse" (BM25 only),
+            retrieve_mode: Retrieval mode - "hybrid" (dense+BM25), "keyword" (BM25 only),
                           or "vector" (dense only). Default is "hybrid".
             **kwargs: Additional arguments passed to as_retriever
         """
@@ -53,14 +53,14 @@ class HybridRetriever:
         """Map retrieve_mode string to VectorStoreQueryMode enum.
 
         Args:
-            mode: Retrieve mode string ("hybrid", "sparse", "vector")
+            mode: Retrieve mode string ("hybrid", "keyword", "vector")
 
         Returns:
             VectorStoreQueryMode enum value
         """
         mode_map = {
             "hybrid": VectorStoreQueryMode.HYBRID,
-            "sparse": VectorStoreQueryMode.SPARSE,
+            "keyword": VectorStoreQueryMode.SPARSE,
             "vector": VectorStoreQueryMode.DEFAULT,
         }
         return mode_map.get(mode, VectorStoreQueryMode.HYBRID)

@@ -215,7 +215,7 @@ def chunk_sections(
     sections: List[Section],
     chunk_size: int = 512,
     chunk_overlap: int = 50,
-    max_chars: int = 4000,
+    max_chars: int = 5000,
 ) -> List[TextNode]:
     """Assemble chunks from sections with chunk_size constraints.
 
@@ -639,7 +639,7 @@ class MarkdownSplitter:
 
     # Default max chars safely under embedding API limit (8192)
 # Account for metadata added to embed content
-    DEFAULT_MAX_CHARS = 4000
+    DEFAULT_MAX_CHARS = 5000
 
     def __init__(
         self,

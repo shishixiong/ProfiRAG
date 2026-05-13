@@ -1,6 +1,7 @@
 """Main RAG pipeline integrating all components"""
 
 import re
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from llama_index.core import VectorStoreIndex, Document, QueryBundle
 from llama_index.core.base.embeddings.base import BaseEmbedding
@@ -19,6 +20,13 @@ from ..generation.synthesizer import ResponseSynthesizer, ResponseFormatter
 from ..ingestion.splitters import TextSplitter, ChineseTextSplitter
 from ..ingestion.image_processor import ImageProcessor, ImageResult, RetrievalResult
 from ..agent import RAGReActAgent, RAGTools, AgentFactory, ConversationManager
+
+
+# Table index link pattern (same as in tools.py)
+# Matches format: 表 X-X 标题 → [查看表格](tables/xxx.md)
+TABLE_INDEX_PATTERN = re.compile(
+    r'表\s*(\d+[-\.\d]*)\s*(.*?)\s*→\s*\[查看表格\]\((tables/[^)]+\.md)\)'
+)
 
 
 class RAGPipeline:
@@ -102,6 +110,11 @@ class RAGPipeline:
         self._agent: Optional[RAGReActAgent] = None
         self._plan_agent: Optional[Any] = None  # RAGPlanAgent
         self._agent_config = config.agent
+
+        # Table lookup configuration
+        self._markdown_base_path: Optional[Path] = None
+        if hasattr(config, 'agent') and config.agent.markdown_base_path:
+            self._markdown_base_path = Path(config.agent.markdown_base_path)
 
     def _create_splitter(self):
         """Create text splitter based on configuration."""
@@ -398,6 +411,8 @@ class RAGPipeline:
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
         # Merge small wiki documents
         processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
+        # Expand table references with actual table content
+        processed_nodes = self._expand_tables_in_nodes(processed_nodes)
         response = self._synthesizer.synthesize_custom(query_str, processed_nodes[:top_k])
 
         return {
@@ -439,6 +454,8 @@ class RAGPipeline:
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
         # Merge small wiki documents
         processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
+        # Expand table references with actual table content
+        processed_nodes = self._expand_tables_in_nodes(processed_nodes)
         response = self._synthesizer.synthesize_custom(query_str, processed_nodes[:top_k])
 
         return ResponseFormatter.format_with_sources_and_images(
@@ -501,6 +518,93 @@ class RAGPipeline:
 
         return list(path_to_image.values())
 
+    def _lookup_table_content(self, table_reference: str) -> Optional[str]:
+        """Look up and retrieve table content from markdown file.
+
+        Args:
+            table_reference: Table reference in format "表 X-X 标题 → [查看表格](tables/xxx.md)"
+                           or direct path "tables/xxx.md"
+
+        Returns:
+            Table content as string, or None if lookup fails
+        """
+        if not self._markdown_base_path:
+            return None
+
+        # Extract table path from reference
+        match = TABLE_INDEX_PATTERN.search(table_reference)
+        if match:
+            table_path = match.group(3)  # tables/xxx.md
+        else:
+            # Direct path format
+            table_path = table_reference
+
+        # Build full path and read file
+        full_path = self._markdown_base_path / table_path
+        if not full_path.exists():
+            return None
+
+        try:
+            content = full_path.read_text(encoding="utf-8")
+            return content
+        except Exception:
+            return None
+
+    def _expand_tables_in_nodes(self, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
+        """Expand table references in nodes with actual table content.
+
+        For each node containing table index links, replace the link with
+        the actual table content from the referenced markdown file.
+
+        Args:
+            nodes: List of retrieved nodes
+
+        Returns:
+            Nodes with expanded table content
+        """
+        if not self._markdown_base_path:
+            return nodes
+
+        expanded_nodes = []
+        for node_with_score in nodes:
+            text = node_with_score.node.text
+
+            # Check if text contains table references
+            if TABLE_INDEX_PATTERN.search(text):
+                # Find all table references
+                matches = list(TABLE_INDEX_PATTERN.finditer(text))
+
+                if matches:
+                    # Replace table references with actual content
+                    modified_text = text
+                    # Process in reverse order to maintain correct positions
+                    for match in reversed(matches):
+                        table_path = match.group(3)
+                        table_num = match.group(1)
+                        table_title = match.group(2)
+                        original_ref = match.group(0)
+
+                        # Look up table content
+                        table_content = self._lookup_table_content(table_path)
+
+                        if table_content:
+                            # Replace reference with table content
+                            replacement = f"\n\n**表 {table_num}: {table_title}**\n\n{table_content}\n\n"
+                            modified_text = modified_text.replace(original_ref, replacement)
+
+                    # Create new node with expanded content
+                    new_node = TextNode(
+                        text=modified_text,
+                        metadata=node_with_score.node.metadata.copy(),
+                    )
+                    expanded_nodes.append(NodeWithScore(node=new_node, score=node_with_score.score))
+                else:
+                    expanded_nodes.append(node_with_score)
+            else:
+                expanded_nodes.append(node_with_score)
+
+        return expanded_nodes
+
     def query_stream(
         self,
         query_str: str,
@@ -523,6 +627,8 @@ class RAGPipeline:
         reranked_nodes = self._reranker.rerank(query_str, unique_nodes)
         # Merge small wiki documents
         processed_nodes = self._merge_small_wiki_nodes(query_str, reranked_nodes, top_k)
+        # Expand table references with actual table content
+        processed_nodes = self._expand_tables_in_nodes(processed_nodes)
 
         # Stream response
         for chunk in self._synthesizer.synthesize_streaming(query_str, processed_nodes[:top_k]):
@@ -533,6 +639,7 @@ class RAGPipeline:
         query_str: str,
         mode: Optional[str] = None,
         auto_approve: bool = False,
+        timeout: Optional[float] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Execute query using Agent or Pipeline mode.
@@ -542,6 +649,7 @@ class RAGPipeline:
             mode: Query mode ("agent", "react", "plan", "pipeline")
                   If None, uses config.agent.enabled setting
             auto_approve: Auto approve plan for PlanAgent (bypass approval prompt)
+            timeout: Timeout in seconds for agent execution (optional)
             **kwargs: Additional arguments
 
         Returns:
@@ -560,7 +668,7 @@ class RAGPipeline:
             # Use ReAct Agent
             if self._agent is None:
                 self._init_agent()
-            return self._agent.query(query_str)
+            return self._agent.query(query_str, timeout=timeout)
 
         else:
             # Use Pipeline mode

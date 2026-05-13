@@ -1,7 +1,9 @@
 """Plan-based RAG Agent for intelligent query execution"""
 
+import asyncio
 import json
 import re
+import signal
 import time
 from enum import Enum
 from typing import List, Dict, Any, Optional, Callable
@@ -425,12 +427,13 @@ class RAGPlanAgent:
             self._log
         )
 
-    def query(self, question: str, auto_approve: bool = False) -> Dict[str, Any]:
+    def query(self, question: str, auto_approve: bool = False, timeout: Optional[float] = None) -> Dict[str, Any]:
         """Execute query with planning.
 
         Args:
             question: User question
             auto_approve: Auto approve plan (skip approval prompt)
+            timeout: Optional timeout in seconds
 
         Returns:
             Result dictionary with response, plan, execution results
@@ -439,6 +442,85 @@ class RAGPlanAgent:
         self._log(f"🤖 PlanAgent 处理问题: {question}")
         self._log(f"{'=' * 50}\n")
 
+        try:
+            return self._execute_with_timeout(question, auto_approve, timeout)
+        except KeyboardInterrupt:
+            self._log("\n⚠️  PlanAgent 被用户中断 (Ctrl-C)")
+            return {
+                "response": "操作被用户中断",
+                "plan": None,
+                "execution_result": None,
+                "mode": "plan",
+                "interrupted": True,
+            }
+
+    def _execute_with_timeout(self, question: str, auto_approve: bool = False, timeout: Optional[float] = None) -> Dict[str, Any]:
+        """Execute query with optional timeout and signal handling."""
+        if timeout is None:
+            # No timeout - execute normally
+            return self._do_execute(question, auto_approve)
+
+        # Set up timeout with signal handler
+        import sys
+
+        old_handler = None
+        try:
+            # Install signal handler for SIGINT
+            old_handler = signal.signal(signal.SIGINT, self._signal_handler)
+
+            # Execute with timeout using asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                result = loop.run_until_complete(
+                    self._async_execute_with_timeout(question, auto_approve, timeout)
+                )
+                return result
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+
+        finally:
+            # Restore old signal handler
+            if old_handler is not None:
+                signal.signal(signal.SIGINT, old_handler)
+
+    @staticmethod
+    def _signal_handler(signum, frame):
+        """Handle SIGINT signal (Ctrl-C)."""
+        raise KeyboardInterrupt("Interrupted by user during PlanAgent execution")
+
+    async def _async_execute_with_timeout(self, question: str, auto_approve: bool, timeout: float):
+        """Async wrapper for execute with timeout."""
+        import concurrent.futures
+        import threading
+
+        result = [None]
+        exception = [None]
+        done = threading.Event()
+
+        def _run():
+            try:
+                result[0] = self._do_execute(question, auto_approve)
+            except Exception as e:
+                exception[0] = e
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        # Wait with timeout
+        if not done.wait(timeout=timeout):
+            raise TimeoutError(f"PlanAgent execution timed out after {timeout} seconds")
+
+        if exception[0]:
+            raise exception[0]
+        return result[0]
+
+    def _do_execute(self, question: str, auto_approve: bool = False) -> Dict[str, Any]:
+        """Actual execution logic without timeout/interrupt handling."""
         # Phase 1: Generate Plan
         plan = self._plan_generator.generate_plan(
             question,
@@ -481,12 +563,16 @@ class RAGPlanAgent:
         # Phase 4: Generate Final Answer
         final_answer = self._finalize_answer(question, execution_result)
 
+        # Extract sources from execution results
+        sources = self._extract_sources_from_execution(execution_result)
+
         return {
             "response": final_answer,
             "plan": plan,
             "execution_result": execution_result,
             "step_results": execution_result.step_results,
             "replan_count": execution_result.replan_count,
+            "sources": sources,
             "mode": "plan",
         }
 
@@ -561,6 +647,52 @@ class RAGPlanAgent:
 
         response = self.llm.complete(prompt)
         return response.text
+
+    def _extract_sources_from_execution(self, execution_result: Any) -> List[Dict[str, Any]]:
+        """Extract sources from execution results.
+
+        Args:
+            execution_result: PlanExecutionResult object
+
+        Returns:
+            List of source dictionaries with text, score, source_file, header_path, node_id
+        """
+        sources = []
+
+        if not execution_result or not hasattr(execution_result, 'step_results'):
+            return sources
+
+        for step_result in execution_result.step_results:
+            # Check if step output contains source information
+            # This happens when tools like vector_search store results in _last_retrieved_nodes
+            if step_result.success and step_result.tool_name in (
+                "vector_search", "keyword_search", "multi_query_search",
+                "hyde_search", "rewrite_query", "rerank_results", "filter_results"
+            ):
+                # Try to get sources from tools._last_retrieved_nodes
+                if hasattr(self.tools, '_last_retrieved_nodes') and self.tools._last_retrieved_nodes:
+                    for n in self.tools._last_retrieved_nodes:
+                        metadata = n.node.metadata if hasattr(n, 'node') else {}
+                        sources.append({
+                            "text": n.node.text[:300] if hasattr(n, 'node') else "",
+                            "score": n.score if hasattr(n, 'score') else 0,
+                            "source_file": metadata.get('source_file', metadata.get('source_path', '')),
+                            "header_path": metadata.get('header_path', ''),
+                            "node_id": n.node.node_id if hasattr(n, 'node') else "",
+                        })
+                    # Only use the first retrieval result to avoid duplicates
+                    break
+
+        # Deduplicate by node_id
+        seen_ids = set()
+        unique_sources = []
+        for src in sources:
+            nid = src.get("node_id")
+            if nid and nid not in seen_ids:
+                seen_ids.add(nid)
+                unique_sources.append(src)
+
+        return unique_sources
 
     def _log(self, message: str) -> None:
         """Log message if verbose"""

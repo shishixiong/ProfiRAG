@@ -117,7 +117,7 @@ class RAGTools:
 
             # 对每个变体进行检索
             for v in variants:
-                nodes = self.retriever.retrieve(v, top_k=3)
+                nodes = self.retriever.retrieve(v, top_k=5)
                 all_nodes.extend(nodes)
 
             # 去重并格式化
@@ -579,17 +579,26 @@ class RAGTools:
             nodes: 检索结果列表
 
         Returns:
-            简洁的来源摘要字符串
+            简洁的来源摘要字符串，格式为：[序号] 文件名#章节路径
         """
         sources = []
         for i, n in enumerate(nodes[:5]):
             metadata = n.node.metadata if hasattr(n, 'node') else {}
             # 优先使用 source (wiki URL)，然后是 source_file/source_path
             source_file = metadata.get('source', metadata.get('source_file', metadata.get('source_path', '未知')))
-            # 简化来源名称
+            header_path = metadata.get('header_path', '')
+
+            # 简化来源名称 - 只保留文件名
             if '/' in source_file:
                 source_file = source_file.split('/')[-1]
-            sources.append(f"[{i+1}] {source_file}")
+
+            # 组合来源和章节路径
+            if header_path and header_path != '/':
+                # 清理 header_path，去除首尾的 /
+                clean_path = header_path.strip('/').replace('/', ' > ')
+                sources.append(f"[{i+1}] {source_file}#{clean_path}")
+            else:
+                sources.append(f"[{i+1}] {source_file}")
 
         return ", ".join(sources)
 

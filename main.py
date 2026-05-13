@@ -84,8 +84,8 @@ class InteractiveSession:
                 result = self.pipeline.query_with_agent(query, mode="plan", auto_approve=True)
                 self._display_plan_agent_result(result)
             elif self.query_mode == "agent":
-                # ReAct Agent 模式
-                result = self.pipeline.query_with_agent(query, mode="agent")
+                # ReAct Agent 模式 - 支持超时（默认120秒）
+                result = self.pipeline.query_with_agent(query, mode="agent", timeout=120)
                 self._display_agent_result(result)
             elif self.show_images:
                 result = self.pipeline.query_with_images(query, top_k=5)
@@ -94,12 +94,39 @@ class InteractiveSession:
                 result = self.pipeline.query(query, top_k=5)
                 self._display_result(result)
 
+        except KeyboardInterrupt:
+            print("\n⚠️  操作被用户中断 (Ctrl-C)")
+            print("提示: 如需退出程序，请在主提示符处输入 /quit")
         except Exception as e:
             print(f"处理问题时出错: {e}")
             import traceback
             traceback.print_exc()
 
         print("-" * 60)
+
+    def _format_source_display(self, source: dict) -> str:
+        """Format source for display with source_file and header_path.
+
+        Args:
+            source: Source dictionary with source_file and optional header_path
+
+        Returns:
+            Formatted source string like "filename.md#chapter/path" or just "filename.md"
+        """
+        source_file = source.get("source_file", "未知")
+        header_path = source.get("header_path", "")
+
+        # Clean up source_file - use just the filename if it's a path
+        if '/' in source_file:
+            source_file = source_file.split('/')[-1]
+
+        # Add header_path if present
+        if header_path and header_path != '/':
+            # Clean header_path: remove leading/trailing slashes, replace / with >
+            clean_path = header_path.strip('/').replace('/', ' > ')
+            return f"{source_file}#{clean_path}"
+        else:
+            return source_file
 
     def _display_result(self, result: dict) -> None:
         """Display query result without images.
@@ -119,9 +146,10 @@ class InteractiveSession:
             for i, source in enumerate(sources[:3], 1):
                 score = source.get("score", 0)
                 text = source.get("text", "")[:200]
-                source_file = source.get("source_file", "未知")
-                print(f"  {i}. [{score:.2f}] {source_file}")
-                print(f"     {text}...")
+                source_display = self._format_source_display(source)
+                print(f"  {i}. [{score:.2f}] {source_display}")
+                if text:
+                    print(f"     {text}...")
             print()
 
     def _display_result_with_images(self, result: dict) -> None:
@@ -142,8 +170,8 @@ class InteractiveSession:
             for i, source in enumerate(sources[:3], 1):
                 score = source.get("score", 0)
                 text = source.get("text", "")[:150]
-                source_file = source.get("source_file", "未知")
-                print(f"  {i}. [{score:.2f}] {source_file}")
+                source_display = self._format_source_display(source)
+                print(f"  {i}. [{score:.2f}] {source_display}")
                 if text:
                     print(f"     {text}...")
             print()
@@ -175,7 +203,8 @@ class InteractiveSession:
         """
         print()
         print("【回答】")
-        print(result.get("response", "无回答"))
+        response = result.get("response", "无回答")
+        print(response)
         print()
 
         # Show mode and iterations
@@ -184,18 +213,22 @@ class InteractiveSession:
         print(f"【Agent信息】 模式: {mode}, 迭代次数: {iterations}")
         print()
 
-        # Show sources
+        # Show sources only if not already included in response
+        # (generate_answer/retrieve_and_answer tools already include sources in the response)
         sources = result.get("sources", [])
         if sources:
-            print("【参考来源】")
-            for i, source in enumerate(sources[:3], 1):
-                score = source.get("score", 0)
-                text = source.get("text", "")[:150]
-                source_file = source.get("source_file", "未知")
-                print(f"  {i}. [{score:.2f}] {source_file}")
-                if text:
-                    print(f"     {text}...")
-            print()
+            # Check if response already contains source info from tools
+            has_sources_in_response = "**参考来源**" in str(response) or "参考来源:" in str(response)
+            if not has_sources_in_response:
+                print("【参考来源】")
+                for i, source in enumerate(sources[:3], 1):
+                    score = source.get("score", 0)
+                    text = source.get("text", "")[:150]
+                    source_display = self._format_source_display(source)
+                    print(f"  {i}. [{score:.2f}] {source_display}")
+                    if text:
+                        print(f"     {text}...")
+                print()
 
         # Show tool calls if available
         tool_calls = result.get("tool_calls", [])
@@ -214,7 +247,8 @@ class InteractiveSession:
         """
         print()
         print("【回答】")
-        print(result.get("response", "无回答"))
+        response = result.get("response", "无回答")
+        print(response)
         print()
 
         # Show plan info
@@ -240,6 +274,27 @@ class InteractiveSession:
                 duration = sr.duration_ms or 0
                 print(f"  {i+1}. {status} {sr.tool_name} ({duration}ms)")
             print()
+
+        # Show sources only if not already included in response
+        # (generate_answer/retrieve_and_answer tools already include sources in the response)
+        sources = result.get("sources", [])
+        if sources:
+            # Check if response already contains source info (from tools)
+            last_step = step_results[-1] if step_results else None
+            if last_step and last_step.tool_name in ("generate_answer", "retrieve_and_answer"):
+                # Answer already includes sources, skip duplicate display
+                pass
+            else:
+                # Show sources separately
+                print("【参考来源】")
+                for i, source in enumerate(sources[:3], 1):
+                    score = source.get("score", 0)
+                    text = source.get("text", "")[:150]
+                    source_display = self._format_source_display(source)
+                    print(f"  {i}. [{score:.2f}] {source_display}")
+                    if text:
+                        print(f"     {text}...")
+                print()
 
     def handle_command(self, command: str) -> bool:
         """Handle special commands.

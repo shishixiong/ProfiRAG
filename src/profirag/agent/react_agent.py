@@ -8,21 +8,87 @@ from llama_index.core.tools import BaseTool
 from .tools import RAGTools
 
 
-def run_async(coro):
-    """Run async coroutine in sync context."""
+def run_async(coro, timeout: Optional[float] = None):
+    """Run async coroutine in sync context with interrupt support.
+
+    Args:
+        coro: Async coroutine to run
+        timeout: Optional timeout in seconds
+
+    Returns:
+        Result of the coroutine
+
+    Raises:
+        KeyboardInterrupt: If Ctrl-C is pressed during execution
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
     if loop is None:
-        return asyncio.run(coro)
+        # No running loop - create a new one with signal handling
+        import signal
+        import sys
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Set up signal handler for graceful interruption
+        def signal_handler(signum, frame):
+            raise KeyboardInterrupt("Interrupted by user")
+
+        old_handler = signal.signal(signal.SIGINT, signal_handler)
+
+        try:
+            if timeout:
+                result = loop.run_until_complete(
+                    asyncio.wait_for(coro, timeout=timeout)
+                )
+            else:
+                result = loop.run_until_complete(coro)
+            return result
+        except KeyboardInterrupt:
+            # Cancel all tasks and close loop
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True))
+            raise
+        finally:
+            signal.signal(signal.SIGINT, old_handler)
+            loop.close()
+            asyncio.set_event_loop(None)
     else:
-        # Already in async context, create new thread
+        # Already in async context, run in thread to allow interruption
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
+        import threading
+
+        result = [None]
+        exception = [None]
+        done = threading.Event()
+
+        def _run():
+            try:
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                result[0] = new_loop.run_until_complete(coro)
+                new_loop.close()
+            except Exception as e:
+                exception[0] = e
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        # Wait with interrupt support
+        while not done.is_set():
+            if done.wait(timeout=0.1):
+                break
+
+        if exception[0]:
+            raise exception[0]
+        return result[0]
 
 
 class RAGReActAgent:
@@ -176,11 +242,12 @@ class RAGReActAgent:
 - 禁止过度迭代（超过5轮仍未终止）
 - 禁止在未检索的情况下使用 rerank_results 或 filter_results"""
 
-    def query(self, question: str) -> Dict[str, Any]:
+    def query(self, question: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         """执行Agent问答
 
         Args:
             question: 用户问题
+            timeout: 可选的超时时间（秒）
 
         Returns:
             包含回答、来源、工具调用记录的结果字典
@@ -193,7 +260,7 @@ class RAGReActAgent:
             async def _run():
                 return await self._agent.run(question)
 
-            response = run_async(_run())
+            response = run_async(_run(), timeout=timeout)
 
             # 提取结果 - response可能是AgentOutput类型
             response_text = str(response) if response else "无回答"
@@ -245,7 +312,12 @@ class RAGReActAgent:
             response: Agent响应对象
 
         Returns:
-            来源信息列表
+            来源信息列表，每个包含：
+            - text: 文本内容
+            - score: 相关度分数
+            - source_file: 来源文件名
+            - header_path: 文档层级路径
+            - node_id: 节点ID
         """
         sources = []
 
@@ -253,20 +325,24 @@ class RAGReActAgent:
         if hasattr(response, 'sources'):
             for src in response.sources:
                 if hasattr(src, 'node'):
+                    metadata = src.node.metadata
                     sources.append({
                         "text": src.node.text[:300],
                         "score": src.score if hasattr(src, 'score') else 0,
-                        "source_file": src.node.metadata.get('source_file', ''),
+                        "source_file": metadata.get('source_file', metadata.get('source_path', '')),
+                        "header_path": metadata.get('header_path', ''),
                         "node_id": src.node.node_id,
                     })
 
         # 也可以从保存的检索结果中提取
         if not sources and self.tools._last_retrieved_nodes:
             for n in self.tools._last_retrieved_nodes:
+                metadata = n.node.metadata
                 sources.append({
                     "text": n.node.text[:300],
                     "score": n.score,
-                    "source_file": n.node.metadata.get('source_file', ''),
+                    "source_file": metadata.get('source_file', metadata.get('source_path', '')),
+                    "header_path": metadata.get('header_path', ''),
                     "node_id": n.node.node_id,
                 })
 
