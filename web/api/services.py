@@ -728,6 +728,7 @@ class SearchService:
             # Deduplicate again after rerank (safety check)
             unique_nodes = pipeline._deduplicate_nodes(unique_nodes)
 
+        unique_nodes = pipeline._expand_tables_in_nodes(unique_nodes)
         # Format results with final slice
         return SearchService._format_results(query_str, unique_nodes[:top_k], rerank)
 
