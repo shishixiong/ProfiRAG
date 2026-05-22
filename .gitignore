@@ -76,7 +76,9 @@ logs/
 Thumbs.db
 
 # Documents (optional)
-!documents/
+documents/
+docs/
+done/
 
 # Output directories (build artifacts)
 chunks/
