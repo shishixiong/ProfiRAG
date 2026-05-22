@@ -415,3 +415,102 @@ Returns a list of all users.
             # Should have header chain from parent headers
             if node.metadata.get("header_path"):
                 assert "API Documentation" in node.metadata["header_path"] or "User Module" in node.metadata["header_path"]
+
+
+class TestMarkdownSplitterBugFixes:
+    """Tests for specific bug fixes reported by users."""
+
+    def test_long_paragraph_split_by_chunk_size(self):
+        """Long paragraphs should be split when accumulated content exceeds chunk_size."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=100)  # Small chunk_size for testing
+
+        # Create a section with multiple long paragraphs that accumulate
+        para1 = "This is paragraph one with enough words to exceed the chunk size limit when combined. " * 5
+        para2 = "This is paragraph two with additional content that pushes the total over the limit. " * 5
+        text = f"# Title\n\n{para1}\n\n{para2}"
+        nodes = splitter.split_text(text)
+
+        # Should produce multiple chunks, not one huge chunk
+        assert len(nodes) >= 2
+        # Each chunk should be within reasonable size based on char limit (chunk_size * 2.5 = 250 chars)
+        # Allow some tolerance for header chain overhead
+        for node in nodes:
+            assert len(node.text) < 400, f"Chunk too large: {len(node.text)} chars"
+
+    def test_consecutive_headers_without_content(self):
+        """Consecutive headers without content between them should create proper sections."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=512)
+
+        # Simulate the issue: "# 4 API ## 4.1 平台用户管理" being in one chunk
+        text = """# 4 API
+
+## 4.1 平台用户管理
+
+Some content about user management here.
+
+## 4.2 创建用户
+
+Content about creating users.
+"""
+        nodes = splitter.split_text(text)
+
+        # Should have separate sections for each header level
+        assert len(nodes) >= 2
+
+        # Check that header paths are correct
+        header_paths = [n.metadata.get("header_path", "") for n in nodes]
+
+        # Should have /4 API/4.1 平台用户管理/ path
+        api_user_path = [p for p in header_paths if "4 API" in p and "4.1" in p]
+        assert len(api_user_path) >= 1
+
+    def test_no_empty_header_chunks(self):
+        """Empty sections between headers should not produce chunks with only header chain."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=512)
+
+        # Document where consecutive headers create empty sections
+        text = """# 4 API
+
+## 4.1 平台用户管理
+
+这里是平台用户管理的具体内容。
+
+## 4.2 其他内容
+
+更多内容在这里。
+"""
+        nodes = splitter.split_text(text)
+
+        # Should NOT have a chunk with only "# 4 API\n"
+        # Only chunks with actual content should be produced
+        for node in nodes:
+            # Each chunk should have more than just the header chain
+            header_path = node.metadata.get("header_path", "")
+            text_without_header = node.text.replace("# 4 API\n", "").strip()
+            text_without_header = text_without_header.replace("## 4.1 平台用户管理\n", "").strip()
+            text_without_header = text_without_header.replace("## 4.2 其他内容\n", "").strip()
+            # After removing headers, there should still be content
+            assert len(text_without_header) > 0, f"Chunk has only header chain: {node.text}"
+
+    def test_header_level_detection_accuracy(self):
+        """Header levels should be detected accurately even with similar heading texts."""
+        from profirag.ingestion.splitters import MarkdownSplitter
+        splitter = MarkdownSplitter(chunk_size=512)
+
+        text = """# API
+
+## API Reference
+
+### API Endpoints
+
+Content here.
+"""
+        nodes = splitter.split_text(text)
+
+        # Check that different header levels are preserved correctly
+        heading_levels = [n.metadata.get("heading_level", 0) for n in nodes]
+        # Should have level 3 (API Endpoints) as the deepest
+        assert max(heading_levels) == 3

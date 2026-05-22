@@ -66,20 +66,33 @@ def extract_markdown_elements(text: str) -> List[Element]:
     parser = MarkdownElementNodeParser()
     elements = parser.extract_elements(text)
 
+    # Pre-build a map of heading text to (level, line_index) for accurate matching
+    lines = text.split("\n")
+    heading_map: Dict[int, tuple] = {}  # line_index -> (level, heading_text)
+    used_lines: set = set()
+
+    for idx, line in enumerate(lines):
+        match = HEADING_PATTERN.match(line)
+        if match:
+            level = len(match.group(1))
+            heading_text = match.group(2).strip()
+            heading_map[idx] = (level, heading_text)
+
     # Post-process: set title_level for title elements
     for element in elements:
         if element.type == "title" and element.element:
             # Find the heading in the original text to determine level
             # Element text has leading space, e.g., " Title 1"
             element_text = element.element.lstrip()
-            lines = text.split("\n")
-            for line in lines:
-                match = HEADING_PATTERN.match(line)
-                if match:
-                    heading_text = match.group(2).strip()
-                    if heading_text == element_text:
-                        element.title_level = len(match.group(1))
-                        break
+
+            # Try to find an unused heading that matches
+            best_match_idx = None
+            for line_idx, (level, heading_text) in heading_map.items():
+                if line_idx not in used_lines and heading_text == element_text:
+                    best_match_idx = line_idx
+                    element.title_level = level
+                    used_lines.add(line_idx)
+                    break
 
     return elements
 
@@ -231,7 +244,13 @@ def chunk_sections(
     chunks = []
 
     for section in sections:
-        if not section.has_content():
+        # Skip sections that only have empty or whitespace-only text elements
+        has_real_content = False
+        for elem in section.elements:
+            if elem.element and elem.element.strip():
+                has_real_content = True
+                break
+        if not has_real_content:
             continue
 
         header_chain = build_header_chain(section.heading_stack)
@@ -241,6 +260,10 @@ def chunk_sections(
         current_tokens = header_tokens if header_chain else 0
 
         for element in section.elements:
+            # Skip empty elements
+            if not element.element or not element.element.strip():
+                continue
+
             element_text = element.element
             element_tokens = estimate_tokens(element_text)
 
@@ -263,8 +286,10 @@ def chunk_sections(
                 current_tokens = header_tokens if header_chain else 0
                 continue
 
-            # Check if element itself exceeds max_chars - needs secondary splitting
-            if len(element_text) > max_chars:
+            # Check if element itself exceeds chunk_size - needs splitting
+            # Use a conservative char-to-token ratio (2.5 for mixed Chinese/English)
+            element_char_limit = int(chunk_size * 2.5)
+            if len(element_text) > element_char_limit:
                 # Flush current chunk first
                 if current_text.strip() and current_text != header_chain:
                     chunks.append(create_chunk_node(current_text, section))
@@ -274,7 +299,7 @@ def chunk_sections(
                 # Split oversized text element by characters
                 # Reserve space for header chain (+1 for newline)
                 header_len = len(header_chain) + 1 if header_chain else 0
-                effective_max_chars = max_chars - header_len
+                effective_max_chars = min(max_chars, element_char_limit) - header_len
                 if effective_max_chars > 0:
                     sub_chunks = split_text_by_chars(element_text, effective_max_chars, chunk_overlap)
                     for sub_chunk in sub_chunks:
@@ -283,7 +308,7 @@ def chunk_sections(
                         chunks.append(create_chunk_node(chunk_text, section))
                 continue
 
-            # Regular text elements: check chunk_size
+            # Regular text elements: check if adding this element would exceed chunk_size
             if current_tokens + element_tokens + 1 > chunk_size:
                 # Flush current chunk if it has content beyond header
                 if current_text.strip() and current_text != header_chain:
@@ -297,6 +322,14 @@ def chunk_sections(
             else:
                 current_text = element_text
             current_tokens += element_tokens
+
+            # After adding element, check if current chunk now exceeds chunk_size
+            # Use both token-based and char-based checks for accuracy
+            element_char_limit = int(chunk_size * 2.5)
+            if (current_tokens > chunk_size or len(current_text) > element_char_limit) and current_text.strip() and current_text != header_chain:
+                chunks.append(create_chunk_node(current_text, section))
+                current_text = header_chain
+                current_tokens = header_tokens if header_chain else 0
 
         # Flush remaining chunk (only if has content beyond header)
         if current_text.strip() and current_text != header_chain:
