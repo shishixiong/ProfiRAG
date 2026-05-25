@@ -67,6 +67,10 @@ export const importApi = {
     return api.post('/import/start', { file_ids: fileIds, config })
   },
 
+  importWiki: async (config) => {
+    return api.post('/import/wiki', config)
+  },
+
   progress: async (jobId) => {
     return api.get(`/import/progress/${jobId}`)
   },

@@ -33,6 +33,8 @@ from llama_index.core import QueryBundle
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from profirag.agent.react_agent import AgentFactory
+from profirag.wiki.fetch_wiki_content import fetch_wiki_content
+from profirag.ingestion.loaders import DocumentLoader as WikiDocumentLoader
 
 # Temp directory for uploaded files
 TEMP_DIR = PROJECT_ROOT / "web" / "api" / "temp"
@@ -449,6 +451,119 @@ class ImportService:
                 "elapsed_seconds": job.get("elapsed_seconds", 0),
             }
         return None
+
+    @staticmethod
+    def start_wiki_import(
+        wiki_url: str,
+        splitter_type: str = "markdown",
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+        index_mode: str = "hybrid",
+        env_file: str = ".env",
+        metadata: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
+        """Start wiki import process asynchronously."""
+        job_id = generate_file_id()
+
+        # Initialize job status
+        ImportService.active_jobs[job_id] = {
+            "status": "pending",
+            "documents_processed": 0,
+            "documents_total": 1,
+            "chunks_created": 0,
+            "elapsed_seconds": 0,
+            "start_time": time.time(),
+            "error": None,
+        }
+
+        # Start import in background thread
+        thread = threading.Thread(
+            target=ImportService._run_wiki_import,
+            args=(job_id, wiki_url, splitter_type, chunk_size, chunk_overlap, index_mode, env_file, metadata or {}),
+        )
+        thread.daemon = True
+        thread.start()
+
+        # Return immediately with job_id
+        result = ImportService.active_jobs[job_id].copy()
+        result["job_id"] = job_id
+        return result
+
+    @staticmethod
+    def _run_wiki_import(
+        job_id: str,
+        wiki_url: str,
+        splitter_type: str,
+        chunk_size: int,
+        chunk_overlap: int,
+        index_mode: str,
+        env_file: str,
+        metadata: Dict[str, Any],
+    ):
+        """Run wiki import in background thread."""
+        try:
+            # Load environment variables from .env file before fetching wiki content
+            config_path = PROJECT_ROOT / env_file
+            load_dotenv(str(config_path), override=True)
+
+            # Fetch wiki content
+            ImportService.active_jobs[job_id]["status"] = "fetching"
+            wiki_data = fetch_wiki_content(wiki_url)
+
+            if wiki_data is None:
+                ImportService.active_jobs[job_id]["status"] = "failed"
+                ImportService.active_jobs[job_id]["error"] = f"Failed to fetch wiki content from {wiki_url}"
+                return
+
+            # Load configuration
+            config_path = PROJECT_ROOT / env_file
+            config = load_config(str(config_path))
+
+            # Apply settings
+            config.storage.config["index_mode"] = index_mode
+            config.chunking.splitter_type = splitter_type
+            config.chunking.chunk_size = chunk_size
+            config.chunking.chunk_overlap = chunk_overlap
+
+            # Initialize pipeline
+            ImportService.active_jobs[job_id]["status"] = "loading"
+            pipeline = RAGPipeline(config)
+
+            # Create document from wiki content
+            loader = WikiDocumentLoader()
+            base_metadata = {
+                "source": wiki_url,
+                "title": wiki_data.get("title", ""),
+                "document_type": wiki_data.get("document_type", ""),
+                "author": wiki_data.get("author", ""),
+                "view_count": wiki_data.get("viewCount", 0),
+                "last_update_time": wiki_data.get("lastUpdateTime", ""),
+                "loader": "wiki"
+            }
+            # Merge custom metadata
+            base_metadata.update(metadata)
+
+            document = loader.load_text(wiki_data.get("content", ""), metadata=base_metadata)
+
+            ImportService.active_jobs[job_id]["status"] = "running"
+
+            # Ingest document
+            start_time = time.time()
+            result = pipeline.ingest_documents([document])
+            elapsed = time.time() - start_time
+
+            stats = pipeline.get_stats()
+
+            ImportService.active_jobs[job_id]["status"] = "completed"
+            ImportService.active_jobs[job_id]["documents_processed"] = 1
+            ImportService.active_jobs[job_id]["chunks_created"] = len(result.get("text_node_ids", []))
+            ImportService.active_jobs[job_id]["image_nodes_created"] = len(result.get("image_node_ids", []))
+            ImportService.active_jobs[job_id]["elapsed_seconds"] = elapsed
+            ImportService.active_jobs[job_id]["vector_store_count"] = stats["vector_store"]["count"]
+
+        except Exception as e:
+            ImportService.active_jobs[job_id]["status"] = "failed"
+            ImportService.active_jobs[job_id]["error"] = str(e)
 
 
 class ChatService:

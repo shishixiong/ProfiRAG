@@ -142,6 +142,17 @@ class ImportStartRequest(BaseModel):
     config: ImportConfig
 
 
+class WikiImportRequest(BaseModel):
+    """Request to import wiki content."""
+    wiki_url: str = Field(..., description="Wiki URL to import")
+    splitter_type: SplitterType = SplitterType.MARKDOWN
+    chunk_size: int = Field(512, ge=50, le=4000)
+    chunk_overlap: int = Field(50, ge=0, le=500)
+    index_mode: IndexMode = IndexMode.HYBRID
+    env_file: str = Field(".env", description="Path to .env config file")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for imported documents")
+
+
 class ImportProgress(BaseModel):
     """Import progress status."""
     job_id: str

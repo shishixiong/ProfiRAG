@@ -85,6 +85,30 @@ async def get_stats(job_id: str):
     return schemas.ImportStats(**result)
 
 
+@router.post("/wiki", response_model=schemas.ImportProgress, summary="Start wiki import process")
+async def start_wiki_import(request: schemas.WikiImportRequest):
+    """Start importing wiki content into vector store."""
+    result = services.ImportService.start_wiki_import(
+        wiki_url=request.wiki_url,
+        splitter_type=request.splitter_type.value,
+        chunk_size=request.chunk_size,
+        chunk_overlap=request.chunk_overlap,
+        index_mode=request.index_mode.value,
+        env_file=request.env_file,
+        metadata=request.metadata,
+    )
+
+    return schemas.ImportProgress(
+        job_id=result.get("job_id", ""),
+        status=result.get("status", "pending"),
+        documents_processed=result.get("documents_processed", 0),
+        documents_total=result.get("documents_total", 0),
+        chunks_created=result.get("chunks_created", 0),
+        elapsed_seconds=result.get("elapsed_seconds", 0),
+        error=result.get("error"),
+    )
+
+
 @router.delete("/files/{file_id}", summary="Delete uploaded file")
 async def delete_file(file_id: str):
     """Delete an uploaded file."""

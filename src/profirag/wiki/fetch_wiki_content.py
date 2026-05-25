@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from pathlib import Path
 
 import asyncio
 import json
@@ -6,7 +7,9 @@ from ..wiki.services.wiki_api import WikiService, process_paragraphs
 from ..wiki.utils.url_parser import URLParser
 from ..wiki.utils.wiki_identifier import WikiIdentifierExtractor
 
-load_dotenv()
+# Load .env from project root
+project_root = Path(__file__).parent.parent.parent.parent
+load_dotenv(project_root / ".env", override=True)
 
 
 def fetch_wiki_content(wiki_url):
