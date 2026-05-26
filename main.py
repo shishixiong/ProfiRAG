@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 
 class InteractiveSession:
