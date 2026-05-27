@@ -461,6 +461,7 @@ class ImportService:
         index_mode: str = "hybrid",
         env_file: str = ".env",
         metadata: Dict[str, Any] = None,
+        cookie: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Start wiki import process asynchronously."""
         job_id = generate_file_id()
@@ -479,7 +480,7 @@ class ImportService:
         # Start import in background thread
         thread = threading.Thread(
             target=ImportService._run_wiki_import,
-            args=(job_id, wiki_url, splitter_type, chunk_size, chunk_overlap, index_mode, env_file, metadata or {}),
+            args=(job_id, wiki_url, splitter_type, chunk_size, chunk_overlap, index_mode, env_file, metadata or {}, cookie),
         )
         thread.daemon = True
         thread.start()
@@ -499,6 +500,7 @@ class ImportService:
         index_mode: str,
         env_file: str,
         metadata: Dict[str, Any],
+        cookie: Optional[str] = None,
     ):
         """Run wiki import in background thread."""
         try:
@@ -508,7 +510,7 @@ class ImportService:
 
             # Fetch wiki content
             ImportService.active_jobs[job_id]["status"] = "fetching"
-            wiki_data = fetch_wiki_content(wiki_url)
+            wiki_data = fetch_wiki_content(wiki_url, cookie=cookie)
 
             if wiki_data is None:
                 ImportService.active_jobs[job_id]["status"] = "failed"

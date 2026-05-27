@@ -12,8 +12,8 @@ project_root = Path(__file__).parent.parent.parent.parent
 load_dotenv(project_root / ".env", override=True)
 
 
-def fetch_wiki_content(wiki_url):
-    wiki_service = WikiService()
+def fetch_wiki_content(wiki_url, cookie=None):
+    wiki_service = WikiService(cookie=cookie)
 
     try:
         # 步骤1: 解析URL获取域名关键字

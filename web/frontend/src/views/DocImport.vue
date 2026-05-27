@@ -137,8 +137,17 @@
               style="width: 100%; resize: vertical; font-family: monospace; font-size: 13px;"
             />
           </div>
+          <div class="form-group" style="margin-top: 12px;">
+            <label>Cookie（可选）</label>
+            <textarea
+              v-model="wikiCookie"
+              placeholder="name=value; name2=value2&#10;留空则使用自动刷新 cookie"
+              rows="3"
+              style="width: 100%; resize: vertical; font-family: monospace; font-size: 12px;"
+            />
+          </div>
           <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-            每行输入一个 Wiki URL，将按顺序逐个导入
+            每行输入一个 Wiki URL，将按顺序逐个导入。可配置 Cookie 用于认证，留空则使用默认认证方式。
           </p>
 
           <!-- URL List with Status -->
@@ -306,6 +315,7 @@ const jobId = ref(null)
 const importResult = ref(null)
 const importMode = ref('file')
 const wikiUrlsText = ref('')
+const wikiCookie = ref('')
 
 // Batch import tracking for wiki mode
 const batchImportStatus = ref({
@@ -503,10 +513,17 @@ async function batchImportWikis() {
       const metadata = buildMetadata()
       const configPayload = { ...config.value, metadata }
 
-      const res = await importApi.importWiki({
+      const wikiConfig = {
         wiki_url: urlItem.url,
         ...configPayload,
-      })
+      }
+
+      // Add cookie if configured
+      if (wikiCookie.value.trim()) {
+        wikiConfig.cookie = wikiCookie.value.trim()
+      }
+
+      const res = await importApi.importWiki(wikiConfig)
 
       jobId.value = res.data.job_id
       progress.value = res.data

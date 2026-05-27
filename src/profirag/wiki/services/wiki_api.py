@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 from ..utils.decoder import html_to_markdown, decode_html_entities
 from ..utils.exceptions import WikiBusinessError
@@ -22,9 +23,9 @@ def process_paragraphs(paragraphs: list) -> str:
 
 
 class WikiService:
-    def __init__(self):
+    def __init__(self, cookie: Optional[str] = None):
         # 基础配置 - 基于环境变量和常量
-        self.http_client = HttpClientUtil()
+        self.http_client = HttpClientUtil(cookie=cookie)
 
     async def get_wiki_content(self, domain_id: int, kanban_id: int, wiki_sn: str, domain_key: str):
         payload = {

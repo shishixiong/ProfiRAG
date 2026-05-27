@@ -96,6 +96,7 @@ async def start_wiki_import(request: schemas.WikiImportRequest):
         index_mode=request.index_mode.value,
         env_file=request.env_file,
         metadata=request.metadata,
+        cookie=request.cookie,
     )
 
     return schemas.ImportProgress(

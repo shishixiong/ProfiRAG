@@ -151,6 +151,7 @@ class WikiImportRequest(BaseModel):
     index_mode: IndexMode = IndexMode.HYBRID
     env_file: str = Field(".env", description="Path to .env config file")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for imported documents")
+    cookie: Optional[str] = Field(None, description="Optional cookie for wiki authentication")
 
 
 class ImportProgress(BaseModel):

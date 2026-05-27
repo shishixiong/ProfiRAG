@@ -1,4 +1,6 @@
+import json
 from logging import exception
+from typing import Optional
 
 import httpx
 import os
@@ -45,13 +47,15 @@ class HttpClientUtil:
     _cached_cookie = None
     _cookie_lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self, cookie: Optional[str] = None):
         """初始化HTTP客户端
 
         Args:
+            cookie: 可选的cookie字符串，如果提供则使用该cookie而不是自动刷新
             is_remote: 是否为远程模式，默认从环境变量读取
         """
         self.base_url = "https://wiki.huawei.com"
+        self._configured_cookie = cookie
 
     def get_url_prefix(self, domain_key: str) -> str:
         return self.base_url
@@ -89,8 +93,12 @@ class HttpClientUtil:
         return headers
 
     def get_cookie(self) -> str:
+        # If a cookie was configured at init time, use it instead of fetching
+        if self._configured_cookie is not None:
+            return self._configured_cookie
         if self._cached_cookie is None:
             self._cached_cookie = _fetch_new_cookie()
+            print(self._cached_cookie)
         return self._cached_cookie
 
     def _refresh_cookie(self) -> None:
