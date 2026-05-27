@@ -580,7 +580,7 @@ function cancelImport() {
 
 async function pollProgress() {
   while (importing.value && jobId.value && !isPaused.value) {
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise(resolve => setTimeout(resolve, 2000))
 
     try {
       const res = await importApi.progress(jobId.value)

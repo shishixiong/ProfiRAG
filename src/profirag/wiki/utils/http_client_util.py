@@ -24,7 +24,7 @@ def _fetch_new_cookie() -> str:
         "uid": os.getenv("w3Account")
     }
     try:
-        with httpx.Client(timeout=15.0, verify=False, trust_env=False) as client:
+        with httpx.Client(timeout=60.0, verify=False, trust_env=True) as client:
             resp = client.post(login_url, json=payload, headers=headers)
             resp.raise_for_status()
 
@@ -129,7 +129,7 @@ class HttpClientUtil:
 
         while retry_count < max_retries:
             try:
-                async with httpx.AsyncClient(timeout=15.0, verify=False, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=60.0, verify=False, trust_env=True) as client:
                     resp = await client.get(self.get_url_prefix(domain_key) + url,
                                             headers=self.get_common_headers(domain_key), params=params)
                     return self._check_response(resp)
@@ -151,7 +151,7 @@ class HttpClientUtil:
 
         while retry_count < max_retries:
             try:
-                async with httpx.AsyncClient(timeout=15.0, verify=False, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=60.0, verify=False, trust_env=True) as client:
                     resp = await client.post(self.get_url_prefix(domain_key) + url,
                                              headers=self.get_common_headers(domain_key), json=json_data,
                                              params=params)
@@ -174,7 +174,7 @@ class HttpClientUtil:
 
         while retry_count < max_retries:
             try:
-                async with httpx.AsyncClient(timeout=15.0, verify=False, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=60.0, verify=False, trust_env=True) as client:
                     resp = await client.put(self.get_url_prefix(domain_key) + url,
                                             headers=self.get_common_headers(domain_key), json=json_data,
                                             params=params)
