@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from profirag.config import KeyringCredentialStore
 from profirag.web.api.routes import pdf_router, split_router, import_router, chat_router, search_router
 
 STATIC_DIR = Path.cwd() / "web" / "frontend" / "dist"
@@ -20,6 +21,7 @@ STATIC_DIR = Path.cwd() / "web" / "frontend" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("ProfiRAG Web Service starting...")
+    KeyringCredentialStore.load("auth_password")
     yield
     print("ProfiRAG Web Service shutting down...")
 

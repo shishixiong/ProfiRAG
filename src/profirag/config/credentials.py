@@ -27,6 +27,8 @@ class KeyringCredentialStore:
         KeyringCredentialStore.delete("auth_password")
     """
 
+    _cache: dict[str, Optional[str]] = {}
+
     @staticmethod
     def _get_keyring():
         try:
@@ -52,6 +54,7 @@ class KeyringCredentialStore:
             return False
         try:
             kr.set_password(KEYRING_SERVICE, key, value)
+            KeyringCredentialStore._cache[key] = value
             logger.info(f"Credential '{key}' saved to keyring")
             return True
         except Exception as e:
@@ -68,6 +71,8 @@ class KeyringCredentialStore:
         Returns:
             The credential value, or None if not found
         """
+        if key in KeyringCredentialStore._cache:
+            return KeyringCredentialStore._cache[key]
         kr = KeyringCredentialStore._get_keyring()
         if kr is None:
             return None
@@ -75,6 +80,7 @@ class KeyringCredentialStore:
             value = kr.get_password(KEYRING_SERVICE, key)
             if value is None:
                 logger.debug(f"Credential '{key}' not found in keyring")
+            KeyringCredentialStore._cache[key] = value
             return value
         except Exception as e:
             logger.error(f"Failed to load credential '{key}' from keyring: {e}")
@@ -95,6 +101,7 @@ class KeyringCredentialStore:
             return False
         try:
             kr.delete_password(KEYRING_SERVICE, key)
+            KeyringCredentialStore._cache.pop(key, None)
             logger.info(f"Credential '{key}' deleted from keyring")
             return True
         except Exception as e:
