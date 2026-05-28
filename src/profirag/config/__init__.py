@@ -12,7 +12,9 @@ from .settings import (
     load_config,
     EnvSettings,
     CustomOpenAILLM,
+    CustomAPILLM,
 )
+from .credentials import KeyringCredentialStore
 
 __all__ = [
     "RAGConfig",
@@ -26,4 +28,6 @@ __all__ = [
     "load_config",
     "EnvSettings",
     "CustomOpenAILLM",
+    "CustomAPILLM",
+    "KeyringCredentialStore",
 ]

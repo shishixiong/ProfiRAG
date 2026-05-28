@@ -9,7 +9,7 @@ from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.llms.openai import OpenAI
 
-from ..config.settings import RAGConfig, CustomOpenAILLM
+from ..config.settings import RAGConfig, CustomOpenAILLM, CustomAPILLM
 from ..embedding import CustomOpenAIEmbedding, FastEmbedEmbedding
 from ..storage.registry import StorageRegistry
 from ..storage.base import BaseVectorStore
@@ -166,11 +166,32 @@ class RAGPipeline:
 
     def _create_llm(self) -> CustomOpenAILLM:
         """Create LLM instance using custom OpenAI-compatible wrapper."""
+        if self.config.llm.provider == "custom_api":
+            llm_kwargs = {
+                "model": self.config.llm.model,
+                "temperature": self.config.llm.temperature,
+                "context_window": 128000,
+                "is_chat_model": True,
+                "verify_ssl": self.config.llm.verify_ssl,
+            }
+            if self.config.llm.max_tokens:
+                llm_kwargs["max_tokens"] = self.config.llm.max_tokens
+            if self.config.llm.base_url:
+                llm_kwargs["api_base"] = self.config.llm.base_url
+            if self.config.llm.auth_token:
+                llm_kwargs["auth_token"] = self.config.llm.auth_token
+            if self.config.llm.auth_user:
+                llm_kwargs["auth_user"] = self.config.llm.auth_user
+            if self.config.llm.auth_password:
+                llm_kwargs["auth_password"] = self.config.llm.auth_password
+            if self.config.llm.auth_token_ttl:
+                llm_kwargs["auth_token_ttl"] = self.config.llm.auth_token_ttl
+            return CustomAPILLM(**llm_kwargs)
+
         llm_kwargs = {
             "model": self.config.llm.model,
             "api_key": self.config.llm.api_key,
             "temperature": self.config.llm.temperature,
-            # Set context window for custom models (MiniMax has ~128k context)
             "context_window": 128000,
             "is_chat_model": True,
         }

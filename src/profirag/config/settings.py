@@ -1,13 +1,18 @@
 """Configuration management using Pydantic with .env support"""
 
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from llama_index.llms.openai import OpenAI
 from llama_index.core.llms import LLMMetadata
+
+from .credentials import KeyringCredentialStore
+
+logger = logging.getLogger(__name__)
 
 
 # FastEmbed model dimension mapping for auto-detection
@@ -32,6 +37,13 @@ class EnvSettings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None  # Custom API endpoint for LLM
+    openai_auth_token: Optional[str] = None  # X-Auth-Token for custom API LLM
+    openai_auth_user: Optional[str] = None  # Username for auto-refresh token
+    openai_auth_password: Optional[str] = None  # Password for auto-refresh token (prefer keyring)
+    openai_auth_credential_store: Literal["env", "keyring"] = "keyring"  # Where to read password from
+    openai_auth_token_ttl: int = 7200  # Token TTL in seconds before auto-refresh
+    openai_llm_provider: Literal["openai", "custom_api"] = "openai"
+    openai_llm_verify_ssl: bool = False  # Verify SSL for custom API LLM
     openai_embedding_api_key: Optional[str] = None  # Fallback to openai_api_key if not set
     openai_embedding_base_url: Optional[str] = None  # Custom API endpoint for Embedding, fallback to openai_base_url
     openai_embedding_model: str = "text-embedding-3-small"
@@ -140,9 +152,180 @@ class CustomOpenAILLM(OpenAI):
         model_dict = self.model_dump()
 
         return LLMMetadata(
-            context_window=128000,  # Fixed context window for custom models
+            context_window=128000,
             num_output=model_dict.get('max_tokens') or -1,
-            is_chat_model=True,  # All modern APIs use chat mode
+            is_chat_model=True,
+            is_function_calling_model=True,
+            model_name=model_dict.get('model', 'unknown'),
+        )
+
+
+class TokenRefresher:
+    """Auto-refresh X-Auth-Token via secureLogin API when expired."""
+
+    LOGIN_URL = "http://rnd-idea-api.huawei.com/ideaclientservice/login/v4/secureLogin"
+
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        token: Optional[str] = None,
+        token_ttl_seconds: int = 7200,
+    ):
+        self.user = user
+        self.password = password
+        self._token = token
+        self._token_time: Optional[float] = None
+        self._token_ttl = token_ttl_seconds
+        if token:
+            self._token_time = __import__("time").time()
+
+    @property
+    def token(self) -> Optional[str]:
+        if self._is_expired():
+            self._refresh()
+        return self._token
+
+    def _is_expired(self) -> bool:
+        if self._token is None or self._token_time is None:
+            return True
+        import time
+        return (time.time() - self._token_time) >= self._token_ttl
+
+    def _refresh(self) -> None:
+        import httpx
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            resp = httpx.post(
+                self.LOGIN_URL,
+                json={"user": self.user, "password": self.password, "ideName": "IntelliJ IDE"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            dragon = data.get("cloudDragonTokens", {})
+            new_token = dragon.get("authToken")
+            if new_token and dragon.get("valid"):
+                self._token = new_token
+                import time
+                self._token_time = time.time()
+                logger.info("X-Auth-Token refreshed successfully")
+            else:
+                logger.warning(f"Token refresh failed: cloudDragonTokens invalid or missing authToken")
+        except Exception as e:
+            logger.error(f"Token refresh failed: {e}")
+
+    def force_refresh(self) -> Optional[str]:
+        self._refresh()
+        return self._token
+
+
+class CustomAPILLM(OpenAI):
+    """Custom LLM for APIs that use X-Auth-Token authentication.
+
+    Supports OpenAI-compatible chat/completions endpoints that authenticate
+    via X-Auth-Token header instead of Bearer token.
+    Supports automatic token refresh when expired.
+    """
+
+    auth_token: Optional[str] = Field(
+        default=None, description="X-Auth-Token for API authentication."
+    )
+    auth_user: Optional[str] = Field(
+        default=None, description="Username for auto-refresh token."
+    )
+    auth_password: Optional[str] = Field(
+        default=None, description="Password for auto-refresh token."
+    )
+    auth_token_ttl: int = Field(
+        default=7200, description="Token TTL in seconds before auto-refresh."
+    )
+    verify_ssl: bool = Field(
+        default=False, description="Whether to verify SSL certificates."
+    )
+    _token_refresher: Optional[TokenRefresher] = PrivateAttr(default=None)
+
+    def __init__(
+        self,
+        auth_token: Optional[str] = None,
+        auth_user: Optional[str] = None,
+        auth_password: Optional[str] = None,
+        auth_token_ttl: int = 7200,
+        verify_ssl: bool = False,
+        **kwargs: Any,
+    ):
+        import httpx
+
+        refresher = None
+        if auth_user and auth_password:
+            refresher = TokenRefresher(
+                user=auth_user,
+                password=auth_password,
+                token=auth_token,
+                token_ttl_seconds=auth_token_ttl,
+            )
+            if not auth_token:
+                auth_token = refresher.token
+
+        if auth_token:
+            default_headers = kwargs.pop("default_headers", None) or {}
+            default_headers["X-Auth-Token"] = auth_token
+            kwargs["default_headers"] = default_headers
+
+        kwargs.setdefault("api_key", "not-needed")
+
+        ssl_http_client = httpx.Client(verify=verify_ssl)
+        ssl_async_http_client = httpx.AsyncClient(verify=verify_ssl)
+        kwargs["http_client"] = ssl_http_client
+        kwargs["async_http_client"] = ssl_async_http_client
+
+        super().__init__(**kwargs)
+        self.auth_token = auth_token
+        self.auth_user = auth_user
+        self.auth_password = auth_password
+        self.auth_token_ttl = auth_token_ttl
+        self.verify_ssl = verify_ssl
+        self._token_refresher = refresher
+
+    def _get_current_token(self) -> Optional[str]:
+        if self._token_refresher:
+            return self._token_refresher.token
+        return self.auth_token
+
+    def _get_client(self):
+        token = self._get_current_token()
+        if token and token != self.auth_token:
+            self.auth_token = token
+            self.default_headers = {**(self.default_headers or {}), "X-Auth-Token": token}
+            self._client = None
+        return super()._get_client()
+
+    def _get_aclient(self):
+        token = self._get_current_token()
+        if token and token != self.auth_token:
+            self.auth_token = token
+            self.default_headers = {**(self.default_headers or {}), "X-Auth-Token": token}
+            self._aclient = None
+        return super()._get_aclient()
+
+    def _get_credential_kwargs(self, is_async: bool = False) -> Dict[str, Any]:
+        kwargs = super()._get_credential_kwargs(is_async=is_async)
+        token = self._get_current_token()
+        if token:
+            headers = kwargs.get("default_headers") or {}
+            headers["X-Auth-Token"] = token
+            kwargs["default_headers"] = headers
+        return kwargs
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        model_dict = self.model_dump()
+        return LLMMetadata(
+            context_window=128000,
+            num_output=model_dict.get('max_tokens') or -1,
+            is_chat_model=True,
             is_function_calling_model=True,
             model_name=model_dict.get('model', 'unknown'),
         )
@@ -166,10 +349,15 @@ class EmbeddingConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     """OpenAI LLM configuration"""
-    provider: Literal["openai"] = "openai"
+    provider: Literal["openai", "custom_api"] = "openai"
     model: str = "gpt-4-turbo"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    auth_token: Optional[str] = None
+    auth_user: Optional[str] = None
+    auth_password: Optional[str] = None
+    auth_token_ttl: int = 7200
+    verify_ssl: bool = False
     temperature: float = 0.0
     max_tokens: Optional[int] = None
 
@@ -325,6 +513,15 @@ class RAGConfig(BaseModel):
             model = env_settings.openai_embedding_model
             dimension = env_settings.openai_embedding_dimension
 
+        auth_password = env_settings.openai_auth_password
+        if not auth_password and env_settings.openai_auth_credential_store == "keyring":
+            auth_password = KeyringCredentialStore.load("auth_password")
+            if auth_password:
+                logger.info("Loaded auth_password from OS keyring")
+            else:
+                logger.warning("Keyring credential store enabled but 'auth_password' not found in keyring. "
+                               "Run: python -m profirag.config.credentials set auth_password")
+
         return cls(
             storage=StorageConfig(type=storage_type, config=storage_config),
             embedding=EmbeddingConfig(
@@ -336,10 +533,15 @@ class RAGConfig(BaseModel):
                 cache_dir=env_settings.profirag_embedding_cache_dir,
             ),
             llm=LLMConfig(
-                provider="openai",
+                provider=env_settings.openai_llm_provider,
                 model=env_settings.openai_llm_model,
                 api_key=env_settings.openai_api_key,
                 base_url=env_settings.openai_base_url,
+                auth_token=env_settings.openai_auth_token,
+                auth_user=env_settings.openai_auth_user,
+                auth_password=auth_password,
+                auth_token_ttl=env_settings.openai_auth_token_ttl,
+                verify_ssl=env_settings.openai_llm_verify_ssl,
                 temperature=env_settings.openai_llm_temperature,
                 max_tokens=env_settings.openai_llm_max_tokens,
             ),
