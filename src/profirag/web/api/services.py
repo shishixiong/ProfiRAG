@@ -1,20 +1,16 @@
 """Business logic services wrapping existing ProfiRAG scripts."""
 
 import os
-import sys
 import uuid
 import json
 import shutil
 import time
 import threading
+import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
-
-# Add src to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from profirag.ingestion.loaders import DocumentLoader
 from profirag.ingestion.splitters import (
@@ -29,21 +25,25 @@ from profirag.ingestion.ast_splitter import ASTSplitter
 from llama_index.core.schema import TextNode, Document, NodeWithScore
 from llama_index.core import QueryBundle
 
-# Import ingest function
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from profirag.agent.react_agent import AgentFactory
 from profirag.wiki.fetch_wiki_content import fetch_wiki_content
 from profirag.ingestion.loaders import DocumentLoader as WikiDocumentLoader
 
-# Temp directory for uploaded files
-TEMP_DIR = PROJECT_ROOT / "web" / "api" / "temp"
+TEMP_DIR = Path(tempfile.gettempdir()) / "profirag_uploads"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def generate_file_id() -> str:
-    """Generate unique file ID."""
     return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+
+def _resolve_env_path(env_file: str) -> Path:
+    env_path = Path(env_file)
+    if not env_path.is_absolute():
+        env_path = Path.cwd() / env_path
+    return env_path
 
 
 class FileService:
@@ -51,15 +51,12 @@ class FileService:
 
     @staticmethod
     def save_uploaded_file(file_content: bytes, filename: str) -> Dict[str, Any]:
-        """Save uploaded file to temp directory."""
         file_id = generate_file_id()
         file_type = Path(filename).suffix.lower()
 
-        # Create subdirectory for this file
         file_dir = TEMP_DIR / file_id
         file_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save file
         temp_path = file_dir / filename
         with open(temp_path, "wb") as f:
             f.write(file_content)
@@ -74,11 +71,9 @@ class FileService:
 
     @staticmethod
     def get_file_path(file_id: str) -> Optional[Path]:
-        """Get file path by ID (returns the original uploaded file, not output files)."""
         file_dir = TEMP_DIR / file_id
         if not file_dir.exists():
             return None
-        # Find the actual file in the directory (exclude subdirectories like 'output')
         files = [f for f in file_dir.iterdir() if f.is_file()]
         if files:
             return files[0]
@@ -86,7 +81,6 @@ class FileService:
 
     @staticmethod
     def cleanup_file(file_id: str) -> bool:
-        """Remove file and its directory."""
         file_dir = TEMP_DIR / file_id
         if file_dir.exists():
             shutil.rmtree(file_dir)
@@ -106,17 +100,14 @@ class PdfService:
         header_footer_min_occurrences: int = 3,
         extract_tables: bool = False,
     ) -> Dict[str, Any]:
-        """Convert PDF to Markdown using DocumentLoader."""
         file_path = Path(file_path)
         output_dir = file_path.parent / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Parse pages if provided
         pdf_pages = None
         if pages:
             pdf_pages = PdfService._parse_pages(pages)
 
-        # Initialize loader
         loader = DocumentLoader(
             use_pymupdf4llm=True,
             pdf_write_images=write_images,
@@ -127,7 +118,6 @@ class PdfService:
             header_footer_min_occurrences=header_footer_min_occurrences,
         )
 
-        # Convert
         output_md_path = output_dir / (file_path.stem + ".md")
         saved_path, table_paths = loader.pdf_to_markdown_file(
             pdf_path=str(file_path),
@@ -135,7 +125,6 @@ class PdfService:
             extract_tables=extract_tables,
         )
 
-        # Read markdown content
         with open(saved_path, "r", encoding="utf-8") as f:
             markdown_content = f.read()
 
@@ -144,12 +133,11 @@ class PdfService:
             "markdown_content": markdown_content,
             "markdown_path": str(saved_path),
             "table_files": [str(p) for p in table_paths] if table_paths else [],
-            "image_files": [],  # TODO: collect image paths
+            "image_files": [],
         }
 
     @staticmethod
     def _parse_pages(page_spec: str) -> list[int]:
-        """Parse page specification like '1-5,10,15-20' to list of page numbers."""
         pages = []
         for part in page_spec.split(","):
             part = part.strip()
@@ -158,12 +146,10 @@ class PdfService:
                 pages.extend(range(int(start), int(end) + 1))
             else:
                 pages.append(int(part))
-        # Convert to 0-indexed
         return [p - 1 for p in pages]
 
     @staticmethod
     def get_preview(file_id: str) -> Optional[Dict[str, Any]]:
-        """Get conversion preview."""
         file_dir = TEMP_DIR / file_id
         if not file_dir.exists():
             return None
@@ -195,26 +181,21 @@ class SplitService:
         chunk_overlap: int = 50,
         ast_language: str = "python",
     ) -> Dict[str, Any]:
-        """Preview document split result."""
         file_path = Path(file_path)
 
-        # Load document
         loader = DocumentLoader(encoding="utf-8")
         documents = loader.load_file(str(file_path))
 
         if not documents:
             return {"error": "Could not load document"}
 
-        # Create splitter
         splitter = SplitService._create_splitter(
             splitter_type, chunk_size, chunk_overlap, ast_language
         )
 
-        # Split documents
         all_chunks: List[TextNode] = []
         for doc in documents:
             chunks = splitter.split_document(doc)
-            # Add metadata
             source_file = doc.metadata.get("file_path", doc.metadata.get("file_name", file_path.name))
             for j, chunk in enumerate(chunks):
                 chunk.metadata["source_file"] = source_file
@@ -222,9 +203,8 @@ class SplitService:
                 chunk.metadata["total_chunks_in_doc"] = len(chunks)
             all_chunks.extend(chunks)
 
-        # Build preview response
         chunks_preview = []
-        for chunk in all_chunks[:20]:  # Limit to first 20 for preview
+        for chunk in all_chunks[:20]:
             chunks_preview.append({
                 "chunk_index": chunk.metadata.get("chunk_index", 0),
                 "text_preview": chunk.text[:500] if len(chunk.text) > 500 else chunk.text,
@@ -260,7 +240,6 @@ class SplitService:
         chunk_overlap: int,
         ast_language: str,
     ):
-        """Create appropriate splitter instance."""
         if splitter_type == "ast":
             return ASTSplitter(
                 chunk_size=chunk_size,
@@ -289,8 +268,6 @@ class SplitService:
         file_id: str,
         output_format: str = "json",
     ) -> Optional[str]:
-        """Download full chunk results."""
-        # Read cached split result
         cache_file = TEMP_DIR / file_id / "split_result.json"
         if not cache_file.exists():
             return None
@@ -298,7 +275,6 @@ class SplitService:
         with open(cache_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Generate output file
         output_dir = TEMP_DIR / file_id / "download"
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -311,7 +287,7 @@ class SplitService:
             with open(output_file, "w", encoding="utf-8") as f:
                 for chunk in data.get("chunks", []):
                     f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
-        else:  # txt
+        else:
             output_file = output_dir / "chunks.txt"
             with open(output_file, "w", encoding="utf-8") as f:
                 for i, chunk in enumerate(data.get("chunks", [])):
@@ -325,7 +301,6 @@ class SplitService:
 class ImportService:
     """Handle document import to vector store."""
 
-    # Store active import jobs
     active_jobs: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
@@ -337,12 +312,10 @@ class ImportService:
         ast_language: str = "python",
         index_mode: str = "hybrid",
         env_file: str = ".env",
-        metadata: Dict[str, Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Start import process asynchronously."""
         job_id = generate_file_id()
 
-        # Initialize job status
         ImportService.active_jobs[job_id] = {
             "status": "pending",
             "documents_processed": 0,
@@ -353,7 +326,6 @@ class ImportService:
             "error": None,
         }
 
-        # Start import in background thread
         thread = threading.Thread(
             target=ImportService._run_import,
             args=(job_id, file_paths, splitter_type, chunk_size, chunk_overlap, ast_language, index_mode, env_file, metadata or {}),
@@ -361,7 +333,6 @@ class ImportService:
         thread.daemon = True
         thread.start()
 
-        # Return immediately with job_id
         result = ImportService.active_jobs[job_id].copy()
         result["job_id"] = job_id
         return result
@@ -378,13 +349,10 @@ class ImportService:
         env_file: str,
         metadata: Dict[str, Any],
     ):
-        """Run import in background thread."""
         try:
-            # Load configuration
-            config_path = PROJECT_ROOT / env_file
+            config_path = _resolve_env_path(env_file)
             config = load_config(str(config_path))
 
-            # Apply settings
             config.storage.config["index_mode"] = index_mode
             config.chunking.splitter_type = splitter_type
             config.chunking.chunk_size = chunk_size
@@ -392,16 +360,13 @@ class ImportService:
             if ast_language:
                 config.chunking.ast_language = ast_language
 
-            # Initialize pipeline
             ImportService.active_jobs[job_id]["status"] = "loading"
             pipeline = RAGPipeline(config)
 
-            # Load documents
             loader = DocumentLoader(encoding="utf-8")
             all_documents = []
             for fp in file_paths:
                 docs = loader.load_file(fp)
-                # Apply custom metadata to each document
                 for doc in docs:
                     doc.metadata.update(metadata)
                 all_documents.extend(docs)
@@ -409,7 +374,6 @@ class ImportService:
 
             ImportService.active_jobs[job_id]["status"] = "running"
 
-            # Ingest documents
             start_time = time.time()
             result = pipeline.ingest_documents(all_documents)
             elapsed = time.time() - start_time
@@ -429,7 +393,6 @@ class ImportService:
 
     @staticmethod
     def get_progress(job_id: str) -> Optional[Dict[str, Any]]:
-        """Get import job progress."""
         job = ImportService.active_jobs.get(job_id)
         if job:
             result = job.copy()
@@ -439,7 +402,6 @@ class ImportService:
 
     @staticmethod
     def get_stats(job_id: str) -> Optional[Dict[str, Any]]:
-        """Get final import statistics."""
         job = ImportService.active_jobs.get(job_id)
         if job and job.get("status") == "completed":
             return {
@@ -460,13 +422,11 @@ class ImportService:
         chunk_overlap: int = 50,
         index_mode: str = "hybrid",
         env_file: str = ".env",
-        metadata: Dict[str, Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         cookie: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Start wiki import process asynchronously."""
         job_id = generate_file_id()
 
-        # Initialize job status
         ImportService.active_jobs[job_id] = {
             "status": "pending",
             "documents_processed": 0,
@@ -477,7 +437,6 @@ class ImportService:
             "error": None,
         }
 
-        # Start import in background thread
         thread = threading.Thread(
             target=ImportService._run_wiki_import,
             args=(job_id, wiki_url, splitter_type, chunk_size, chunk_overlap, index_mode, env_file, metadata or {}, cookie),
@@ -485,7 +444,6 @@ class ImportService:
         thread.daemon = True
         thread.start()
 
-        # Return immediately with job_id
         result = ImportService.active_jobs[job_id].copy()
         result["job_id"] = job_id
         return result
@@ -502,13 +460,10 @@ class ImportService:
         metadata: Dict[str, Any],
         cookie: Optional[str] = None,
     ):
-        """Run wiki import in background thread."""
         try:
-            # Load environment variables from .env file before fetching wiki content
-            config_path = PROJECT_ROOT / env_file
+            config_path = _resolve_env_path(env_file)
             load_dotenv(str(config_path), override=True)
 
-            # Fetch wiki content
             ImportService.active_jobs[job_id]["status"] = "fetching"
             wiki_data = fetch_wiki_content(wiki_url, cookie=cookie)
 
@@ -517,21 +472,17 @@ class ImportService:
                 ImportService.active_jobs[job_id]["error"] = f"Failed to fetch wiki content from {wiki_url}"
                 return
 
-            # Load configuration
-            config_path = PROJECT_ROOT / env_file
+            config_path = _resolve_env_path(env_file)
             config = load_config(str(config_path))
 
-            # Apply settings
             config.storage.config["index_mode"] = index_mode
             config.chunking.splitter_type = splitter_type
             config.chunking.chunk_size = chunk_size
             config.chunking.chunk_overlap = chunk_overlap
 
-            # Initialize pipeline
             ImportService.active_jobs[job_id]["status"] = "loading"
             pipeline = RAGPipeline(config)
 
-            # Create document from wiki content
             loader = WikiDocumentLoader()
             base_metadata = {
                 "source": wiki_url,
@@ -542,14 +493,12 @@ class ImportService:
                 "last_update_time": wiki_data.get("lastUpdateTime", ""),
                 "loader": "wiki"
             }
-            # Merge custom metadata
             base_metadata.update(metadata)
 
             document = loader.load_text(wiki_data.get("content", ""), metadata=base_metadata)
 
             ImportService.active_jobs[job_id]["status"] = "running"
 
-            # Ingest document
             start_time = time.time()
             result = pipeline.ingest_documents([document])
             elapsed = time.time() - start_time
@@ -571,12 +520,10 @@ class ImportService:
 class ChatService:
     """Handle RAG chat queries."""
 
-    # Session storage (in-memory for now)
     active_sessions: Dict[str, Any] = {}
 
     @staticmethod
     def _create_session_id() -> str:
-        """Generate new session ID."""
         import uuid
         return str(uuid.uuid4())[:8]
 
@@ -588,19 +535,6 @@ class ChatService:
         env_file: str = ".env",
         conversation: Optional[Dict] = None,
     ) -> Dict[str, Any]:
-        """Execute RAG query and return response with images.
-
-        Args:
-            query_str: User query string
-            top_k: Number of results to retrieve
-            mode: Query mode (pipeline, agent, plan)
-            env_file: Path to environment config file
-            conversation: Optional conversation context dict
-
-        Returns:
-            Dictionary with response, sources, and images
-        """
-        # Handle conversation mode
         if conversation and mode in ("agent", "plan", "react"):
             return ChatService.query_with_conversation(
                 query_str=query_str,
@@ -610,17 +544,13 @@ class ChatService:
                 env_file=env_file,
             )
 
-        # Load environment variables from .env file
-        config_path = PROJECT_ROOT / env_file
+        config_path = _resolve_env_path(env_file)
         load_dotenv(str(config_path), override=True)
 
-        # Load configuration (now reads from environment variables)
         config = load_config()
 
-        # Initialize pipeline
         pipeline = RAGPipeline(config)
 
-        # Route based on mode
         if mode == "plan":
             result = pipeline.query_with_agent(query_str, mode="plan", auto_approve=True)
             return ChatService._format_agent_response(result)
@@ -628,9 +558,7 @@ class ChatService:
             result = pipeline.query_with_agent(query_str, mode="agent")
             return ChatService._format_agent_response(result)
         else:
-            # Pipeline mode - default behavior
             result = pipeline.query_with_images(query_str, top_k=top_k, include_images=True)
-            # Add query field to match ChatResponse schema
             result["query"] = query_str
             return result
 
@@ -642,27 +570,12 @@ class ChatService:
         top_k: int,
         env_file: str,
     ) -> Dict[str, Any]:
-        """Execute query with conversation context.
-
-        Args:
-            query_str: User query
-            session_id: Existing session ID (None for new session)
-            mode: Agent mode (react/plan)
-            top_k: Retrieval count
-            env_file: Config file path
-
-        Returns:
-            Response with conversation info
-        """
-        # Load environment variables from .env file
-        config_path = PROJECT_ROOT / env_file
+        config_path = _resolve_env_path(env_file)
         load_dotenv(str(config_path), override=True)
 
-        # Load configuration
         config = load_config()
         pipeline = RAGPipeline(config)
 
-        # Get or create conversation manager
         if session_id and session_id in ChatService.active_sessions:
             conv_manager = ChatService.active_sessions[session_id]
         else:
@@ -681,10 +594,8 @@ class ChatService:
             )
             ChatService.active_sessions[conv_manager.state.session_id] = conv_manager
 
-        # Execute query
         result = conv_manager.query(query_str)
 
-        # Format response
         response = {
             "query": result.get("original_query", query_str),
             "response": result.get("response", ""),
@@ -702,7 +613,6 @@ class ChatService:
 
     @staticmethod
     def _extract_sources(result: Dict) -> List[Dict]:
-        """Extract sources from result."""
         sources = []
         for src in result.get("sources", result.get("source_nodes", [])):
             if hasattr(src, "node"):
@@ -723,7 +633,6 @@ class ChatService:
 
     @staticmethod
     def clear_session(session_id: str) -> bool:
-        """Clear conversation session."""
         if session_id in ChatService.active_sessions:
             del ChatService.active_sessions[session_id]
             return True
@@ -731,7 +640,6 @@ class ChatService:
 
     @staticmethod
     def get_session(session_id: str) -> Optional[Dict]:
-        """Get session info."""
         if session_id in ChatService.active_sessions:
             conv_manager = ChatService.active_sessions[session_id]
             return {
@@ -744,18 +652,8 @@ class ChatService:
 
     @staticmethod
     def _format_agent_response(result: Dict) -> Dict:
-        """Normalize agent response to ChatResponse format.
-
-        Args:
-            result: Agent query result dictionary
-
-        Returns:
-            Normalized dictionary with response, source_nodes, images, metadata
-        """
-        # Extract response text
         response = result.get("response", "")
 
-        # Extract sources from agent result
         sources = []
         if "sources" in result:
             for src in result["sources"]:
@@ -767,7 +665,6 @@ class ChatService:
                     "header_path": src.get("header_path"),
                 })
 
-        # Also check source_nodes key (alternative format)
         if "source_nodes" in result and not sources:
             for src in result["source_nodes"]:
                 sources.append({
@@ -782,7 +679,7 @@ class ChatService:
             "query": result.get("question", result.get("query", "")),
             "response": response,
             "source_nodes": sources,
-            "images": [],  # Agent mode doesn't return images currently
+            "images": [],
             "metadata": {"mode": result.get("mode", "agent")},
         }
 
@@ -799,54 +696,32 @@ class SearchService:
         retrieve_mode: str = "hybrid",
         env_file: str = ".env",
     ) -> Dict[str, Any]:
-        """Execute retrieval-only query.
-
-        Args:
-            query_str: Natural language query
-            top_k: Number of results to return
-            rerank: Enable reranking
-            use_pre_retrieval: Enable query transformation (HyDE, rewrite)
-            retrieve_mode: Search mode - "keyword", "vector", or "hybrid" (default: "hybrid")
-            env_file: Config file path
-
-        Returns:
-            Dictionary with query, total_results, files, chunks, metadata
-        """
-        # Load config
-        config_path = PROJECT_ROOT / env_file
+        config_path = _resolve_env_path(env_file)
         load_dotenv(str(config_path), override=True)
         config = load_config()
 
-        # Initialize pipeline (get retrieval components)
         pipeline = RAGPipeline(config)
 
-        # Set reranker top_n to match requested top_k
         if rerank and pipeline._reranker.enabled:
             pipeline._reranker.set_top_n(top_k)
 
-        # Pre-retrieval transformation (optional)
         if use_pre_retrieval:
             query_bundles = pipeline._pre_retrieval.transform(query_str)
         else:
             query_bundles = [QueryBundle(query_str=query_str)]
 
-        # Retrieve from all query variants with specified retrieve_mode
         all_nodes = []
         for qb in query_bundles:
             nodes = pipeline._hybrid_retriever.retrieve(qb.query_str, top_k=top_k * 2, retrieve_mode=retrieve_mode)
             all_nodes.extend(nodes)
 
-        # Deduplicate
         unique_nodes = pipeline._deduplicate_nodes(all_nodes)
 
-        # Rerank (optional)
         if rerank:
             unique_nodes = pipeline._reranker.rerank(query_str, unique_nodes)
-            # Deduplicate again after rerank (safety check)
             unique_nodes = pipeline._deduplicate_nodes(unique_nodes)
 
         unique_nodes = pipeline._expand_tables_in_nodes(unique_nodes)
-        # Format results with final slice
         return SearchService._format_results(query_str, unique_nodes[:top_k], rerank)
 
     @staticmethod
@@ -855,17 +730,6 @@ class SearchService:
         nodes: List[NodeWithScore],
         reranked: bool
     ) -> Dict[str, Any]:
-        """Format nodes into SearchResponse structure.
-
-        Args:
-            query_str: Original query string
-            nodes: List of NodeWithScore objects
-            reranked: Whether reranking was applied
-
-        Returns:
-            Dictionary matching SearchResponse schema
-        """
-        # Group by file
         file_counts: Dict[str, int] = {}
         chunks: List[Dict[str, Any]] = []
 

@@ -2,25 +2,13 @@
 
 from fastapi import APIRouter, HTTPException
 
-import schemas
-import services
+from profirag.web.api import schemas, services
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
 
 @router.post("/query", response_model=schemas.SearchResponse, summary="Execute search query")
 async def query(request: schemas.SearchRequest):
-    """Execute pure retrieval search and return raw chunks.
-
-    Unlike Chat, this endpoint returns only retrieved chunks without
-    LLM-generated answers. Useful for browsing and exploring documents.
-
-    Args:
-        request: SearchRequest with query, top_k, rerank options
-
-    Returns:
-        SearchResponse with files summary and chunk details
-    """
     try:
         result = services.SearchService.query(
             query_str=request.query,

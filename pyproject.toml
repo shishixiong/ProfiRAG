@@ -54,7 +54,9 @@ yaml = [
 ]
 
 [project.scripts]
-profirag-ingest = "scripts.ingest_documents:main"
+profirag = "profirag.cli:main"
+profirag-web = "profirag.web.api.main:run_server"
+profirag-ingest = "profirag.ingest:main"
 
 [build-system]
 requires = ["hatchling"]

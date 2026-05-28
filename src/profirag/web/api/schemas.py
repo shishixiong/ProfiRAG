@@ -33,29 +33,24 @@ class OutputFormat(str, Enum):
 
 
 class ChatMode(str, Enum):
-    """Query mode for RAG chat."""
     PIPELINE = "pipeline"
     AGENT = "agent"
     PLAN = "plan"
 
 
 class ConversationRequest(BaseModel):
-    """Conversation context in request."""
     session_id: Optional[str] = Field(None, description="Session ID to continue")
     continue_session: bool = Field(False, description="Continue existing conversation")
 
 
 class ConversationInfo(BaseModel):
-    """Conversation info in response."""
     session_id: str
     turn_count: int
     injected_context: bool = False
     reference_detected: bool = False
 
 
-# PDF Conversion Models
 class PdfConvertRequest(BaseModel):
-    """Request for PDF to Markdown conversion."""
     pages: Optional[str] = Field(None, description="Page range e.g. '1-5,10,15-20'")
     write_images: bool = Field(False, description="Extract images from PDF")
     exclude_header_footer: bool = Field(False, description="Filter header/footer content")
@@ -64,7 +59,6 @@ class PdfConvertRequest(BaseModel):
 
 
 class PdfConvertResponse(BaseModel):
-    """Response for PDF conversion."""
     file_id: str
     markdown_content: str
     table_files: List[str] = Field(default_factory=list)
@@ -72,26 +66,22 @@ class PdfConvertResponse(BaseModel):
 
 
 class PdfPreviewResponse(BaseModel):
-    """Response for PDF preview."""
     file_id: str
     original_pages: int
-    markdown_preview: str  # First 2000 chars
+    markdown_preview: str
     tables_count: int
 
 
-# Splitter Models
 class SplitPreviewRequest(BaseModel):
-    """Request for document split preview."""
     file_id: str = Field(..., description="ID of uploaded file")
     splitter_type: SplitterType = SplitterType.SENTENCE
     chunk_size: int = Field(512, ge=50, le=4000)
     chunk_overlap: int = Field(50, ge=0, le=500)
-    language: ASTLanguage = ASTLanguage.PYTHON  # For AST splitter
+    language: ASTLanguage = ASTLanguage.PYTHON
     output_format: OutputFormat = OutputFormat.JSON
 
 
 class ChunkMetadata(BaseModel):
-    """Metadata for a single chunk."""
     chunk_index: int
     source_file: str
     total_chunks_in_doc: int
@@ -104,14 +94,12 @@ class ChunkMetadata(BaseModel):
 
 
 class ChunkPreview(BaseModel):
-    """Preview of a single chunk."""
     chunk_index: int
-    text_preview: str  # First 500 chars
+    text_preview: str
     metadata: ChunkMetadata
 
 
 class SplitPreviewResponse(BaseModel):
-    """Response for split preview."""
     file_id: str
     total_chunks: int
     chunks: List[ChunkPreview]
@@ -119,14 +107,11 @@ class SplitPreviewResponse(BaseModel):
 
 
 class SplitDownloadRequest(BaseModel):
-    """Request for downloading split results."""
     file_id: str
     output_format: OutputFormat = OutputFormat.JSON
 
 
-# Import Models
 class ImportConfig(BaseModel):
-    """Configuration for document import."""
     splitter_type: SplitterType = SplitterType.MARKDOWN
     chunk_size: int = Field(1024, ge=50, le=4000)
     chunk_overlap: int = Field(100, ge=0, le=500)
@@ -137,13 +122,11 @@ class ImportConfig(BaseModel):
 
 
 class ImportStartRequest(BaseModel):
-    """Request to start import process."""
     file_ids: List[str]
     config: ImportConfig
 
 
 class WikiImportRequest(BaseModel):
-    """Request to import wiki content."""
     wiki_url: str = Field(..., description="Wiki URL to import")
     splitter_type: SplitterType = SplitterType.MARKDOWN
     chunk_size: int = Field(512, ge=50, le=4000)
@@ -155,9 +138,8 @@ class WikiImportRequest(BaseModel):
 
 
 class ImportProgress(BaseModel):
-    """Import progress status."""
     job_id: str
-    status: str  # "pending", "running", "completed", "failed"
+    status: str
     documents_processed: int
     documents_total: int
     chunks_created: int
@@ -166,7 +148,6 @@ class ImportProgress(BaseModel):
 
 
 class ImportStats(BaseModel):
-    """Final import statistics."""
     job_id: str
     documents_loaded: int
     documents_ingested: int
@@ -175,9 +156,7 @@ class ImportStats(BaseModel):
     elapsed_seconds: float
 
 
-# File Upload Models
 class FileInfo(BaseModel):
-    """Information about uploaded file."""
     file_id: str
     filename: str
     file_type: str
@@ -185,9 +164,7 @@ class FileInfo(BaseModel):
     temp_path: str
 
 
-# Chat Models
 class ChatRequest(BaseModel):
-    """Request for RAG chat query."""
     query: str = Field(..., description="User question")
     top_k: int = Field(10, ge=1, le=50, description="Number of results to retrieve")
     mode: ChatMode = Field(ChatMode.PIPELINE, description="Query mode")
@@ -196,7 +173,6 @@ class ChatRequest(BaseModel):
 
 
 class SourceNode(BaseModel):
-    """Source node from RAG retrieval."""
     node_id: str
     text: str
     score: float
@@ -205,32 +181,27 @@ class SourceNode(BaseModel):
 
 
 class ImageInfo(BaseModel):
-    """Image information from RAG retrieval."""
     path: str
     description: str
     node_id: str
 
 
 class ChatResponse(BaseModel):
-    """Response for RAG chat query."""
     query: str
     response: str
     source_nodes: List[SourceNode] = Field(default_factory=list)
     images: List[ImageInfo] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    conversation: Optional[ConversationInfo] = Field(None, description="Conversation info")
+    conversation: Optional[ConversationInfo] = None
 
 
-# Search Models
 class RetrieveMode(str, Enum):
-    """Retrieve mode for search."""
     KEYWORD = "keyword"
     VECTOR = "vector"
     HYBRID = "hybrid"
 
 
 class SearchRequest(BaseModel):
-    """Request for pure retrieval search."""
     query: str = Field(..., description="Natural language query")
     top_k: int = Field(20, ge=1, le=100, description="Number of results")
     rerank: bool = Field(True, description="Enable reranking")
@@ -240,13 +211,11 @@ class SearchRequest(BaseModel):
 
 
 class SearchResultFile(BaseModel):
-    """File summary in search results."""
     filename: str
     chunk_count: int
 
 
 class SearchResultChunk(BaseModel):
-    """Single retrieved chunk."""
     chunk_id: str
     heading: Optional[str] = Field(None, description="Section heading")
     score: float
@@ -257,7 +226,6 @@ class SearchResultChunk(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Response for search query."""
     query: str
     total_results: int
     files: List[SearchResultFile]

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""
-ProfiRAG Interactive Q&A System
+"""ProfiRAG Interactive Q&A System - CLI entry point.
 
 An interactive command-line interface for querying the RAG system.
 Supports text responses with source citations and associated images.
 
 Usage:
-    python main.py                    # Start interactive session
-    python main.py --query "问题"     # Single query mode
-    python main.py --help             # Show help
+    profirag                    # Start interactive session
+    profirag --query "问题"     # Single query mode
+    profirag --help             # Show help
 
 Commands in interactive mode:
     /help        - Show available commands
@@ -23,26 +22,15 @@ import sys
 import argparse
 from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 from profirag.config.settings import load_config
 from profirag.pipeline.rag_pipeline import RAGPipeline
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
 
 
 class InteractiveSession:
     """Interactive Q&A session manager."""
 
     def __init__(self, config, show_images: bool = True, query_mode: str = "pipeline"):
-        """Initialize interactive session.
-
-        Args:
-            config: RAGConfig instance
-            show_images: Whether to show images in responses
-            query_mode: Query mode ("pipeline", "react", or "plan")
-        """
         print("=" * 60)
         print("  ProfiRAG Interactive Q&A System")
         print("=" * 60)
@@ -55,9 +43,8 @@ class InteractiveSession:
 
         self.show_images = show_images
         self.query_count = 0
-        self.query_mode = query_mode  # "pipeline" or "agent"
+        self.query_mode = query_mode
 
-        # Show system stats
         stats = self.pipeline.get_stats()
         print()
         print("系统状态:")
@@ -70,11 +57,6 @@ class InteractiveSession:
         print("-" * 60)
 
     def process_query(self, query: str) -> None:
-        """Process a single query and display results.
-
-        Args:
-            query: User's query string
-        """
         self.query_count += 1
         print()
         print(f"[问题 #{self.query_count}] {query}")
@@ -82,11 +64,9 @@ class InteractiveSession:
 
         try:
             if self.query_mode == "plan":
-                # Plan Agent 模式
                 result = self.pipeline.query_with_agent(query, mode="plan", auto_approve=True)
                 self._display_plan_agent_result(result)
             elif self.query_mode == "agent":
-                # ReAct Agent 模式 - 支持超时（默认120秒）
                 result = self.pipeline.query_with_agent(query, mode="agent", timeout=120)
                 self._display_agent_result(result)
             elif self.show_images:
@@ -107,41 +87,24 @@ class InteractiveSession:
         print("-" * 60)
 
     def _format_source_display(self, source: dict) -> str:
-        """Format source for display with source_file and header_path.
-
-        Args:
-            source: Source dictionary with source_file and optional header_path
-
-        Returns:
-            Formatted source string like "filename.md#chapter/path" or just "filename.md"
-        """
         source_file = source.get("source_file", "未知")
         header_path = source.get("header_path", "")
 
-        # Clean up source_file - use just the filename if it's a path
         if '/' in source_file:
             source_file = source_file.split('/')[-1]
 
-        # Add header_path if present
         if header_path and header_path != '/':
-            # Clean header_path: remove leading/trailing slashes, replace / with >
             clean_path = header_path.strip('/').replace('/', ' > ')
             return f"{source_file}#{clean_path}"
         else:
             return source_file
 
     def _display_result(self, result: dict) -> None:
-        """Display query result without images.
-
-        Args:
-            result: Query result dictionary
-        """
         print()
         print("【回答】")
         print(result.get("response", "无回答"))
         print()
 
-        # Show sources
         sources = result.get("sources", [])
         if sources:
             print("【参考来源】")
@@ -155,17 +118,11 @@ class InteractiveSession:
             print()
 
     def _display_result_with_images(self, result: dict) -> None:
-        """Display query result with images.
-
-        Args:
-            result: Query result dictionary
-        """
         print()
         print("【回答】")
         print(result.get("response", "无回答"))
         print()
 
-        # Show sources
         sources = result.get("sources", [])
         if sources:
             print("【参考来源】")
@@ -178,7 +135,6 @@ class InteractiveSession:
                     print(f"     {text}...")
             print()
 
-        # Show images
         images = result.get("images", [])
         if images:
             print("【相关图片】")
@@ -186,7 +142,6 @@ class InteractiveSession:
                 path = img.get("path", "")
                 desc = img.get("description", "")
                 score = img.get("score", 0)
-                # Check if file exists
                 exists = Path(path).exists() if path else False
                 status = "✓" if exists else "✗"
                 print(f"  {i}. [{score:.2f}] {status} {path}")
@@ -198,28 +153,19 @@ class InteractiveSession:
             print()
 
     def _display_agent_result(self, result: dict) -> None:
-        """Display Agent query result.
-
-        Args:
-            result: Agent query result dictionary
-        """
         print()
         print("【回答】")
         response = result.get("response", "无回答")
         print(response)
         print()
 
-        # Show mode and iterations
         mode = result.get("mode", "unknown")
         iterations = result.get("iterations", 0)
         print(f"【Agent信息】 模式: {mode}, 迭代次数: {iterations}")
         print()
 
-        # Show sources only if not already included in response
-        # (generate_answer/retrieve_and_answer tools already include sources in the response)
         sources = result.get("sources", [])
         if sources:
-            # Check if response already contains source info from tools
             has_sources_in_response = "**参考来源**" in str(response) or "参考来源:" in str(response)
             if not has_sources_in_response:
                 print("【参考来源】")
@@ -232,7 +178,6 @@ class InteractiveSession:
                         print(f"     {text}...")
                 print()
 
-        # Show tool calls if available
         tool_calls = result.get("tool_calls", [])
         if tool_calls:
             print("【工具调用】")
@@ -242,18 +187,12 @@ class InteractiveSession:
             print()
 
     def _display_plan_agent_result(self, result: dict) -> None:
-        """Display PlanAgent query result.
-
-        Args:
-            result: PlanAgent query result dictionary
-        """
         print()
         print("【回答】")
         response = result.get("response", "无回答")
         print(response)
         print()
 
-        # Show plan info
         plan = result.get("plan")
         if plan:
             complexity = plan.complexity if hasattr(plan, 'complexity') else "unknown"
@@ -267,7 +206,6 @@ class InteractiveSession:
                 print(f"  计划原因: {reasoning[:100]}...")
             print()
 
-        # Show step results
         step_results = result.get("step_results", [])
         if step_results:
             print("【执行步骤】")
@@ -277,17 +215,12 @@ class InteractiveSession:
                 print(f"  {i+1}. {status} {sr.tool_name} ({duration}ms)")
             print()
 
-        # Show sources only if not already included in response
-        # (generate_answer/retrieve_and_answer tools already include sources in the response)
         sources = result.get("sources", [])
         if sources:
-            # Check if response already contains source info (from tools)
             last_step = step_results[-1] if step_results else None
             if last_step and last_step.tool_name in ("generate_answer", "retrieve_and_answer"):
-                # Answer already includes sources, skip duplicate display
                 pass
             else:
-                # Show sources separately
                 print("【参考来源】")
                 for i, source in enumerate(sources[:3], 1):
                     score = source.get("score", 0)
@@ -299,14 +232,6 @@ class InteractiveSession:
                 print()
 
     def handle_command(self, command: str) -> bool:
-        """Handle special commands.
-
-        Args:
-            command: Command string (starts with /)
-
-        Returns:
-            True to continue, False to quit
-        """
         cmd = command.lower().strip()
 
         if cmd in ("/quit", "/exit", "/q"):
@@ -369,7 +294,7 @@ class InteractiveSession:
                 print(f"当前图片检索状态: {'启用' if self.show_images else '禁用'}")
 
         elif cmd == "/clear":
-            print("\033[2J\033[H")  # ANSI clear screen
+            print("\033[2J\033[H")
 
         else:
             print(f"未知命令: {command}")
@@ -378,22 +303,18 @@ class InteractiveSession:
         return True
 
     def run(self) -> None:
-        """Run interactive session loop."""
         while True:
             try:
-                # Get user input
                 user_input = input("\n请输入问题: ").strip()
 
                 if not user_input:
                     continue
 
-                # Handle commands
                 if user_input.startswith("/"):
                     if not self.handle_command(user_input):
                         break
                     continue
 
-                # Process query
                 self.process_query(user_input)
 
             except KeyboardInterrupt:
@@ -405,19 +326,10 @@ class InteractiveSession:
 
 
 def single_query(query: str, config, show_images: bool = True, query_mode: str = "pipeline") -> None:
-    """Execute a single query and exit.
-
-    Args:
-        query: Query string
-        config: RAGConfig instance
-        show_images: Whether to include images
-        query_mode: Query mode ("pipeline", "agent", or "plan")
-    """
     pipeline = RAGPipeline(config)
 
     if query_mode == "plan":
         result = pipeline.query_with_agent(query, mode="plan", auto_approve=True)
-        # Convert Pydantic models to dict for JSON serialization
         if "plan" in result and hasattr(result["plan"], "model_dump"):
             result["plan"] = result["plan"].model_dump()
         if "execution_result" in result and hasattr(result["execution_result"], "model_dump"):
@@ -434,13 +346,11 @@ def single_query(query: str, config, show_images: bool = True, query_mode: str =
     else:
         result = pipeline.query(query, top_k=5)
 
-    # Output as JSON for easy parsing
     import json
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def main():
-    """Main entry point."""
     parser = argparse.ArgumentParser(
         description="ProfiRAG Interactive Q&A System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -482,17 +392,18 @@ def main():
     show_images = not args.no_images
     query_mode = args.mode or "pipeline"
 
-    # Load config
-    config = load_config(args.env)
-    # Override markdown_base_path if provided via CLI
+    env_path = Path(args.env)
+    if not env_path.is_absolute():
+        env_path = Path.cwd() / env_path
+    load_dotenv(env_path)
+
+    config = load_config(str(env_path))
     if args.markdown_base_path:
         config.agent.markdown_base_path = args.markdown_base_path
 
     if args.query:
-        # Single query mode
         single_query(args.query, config, show_images, query_mode)
     else:
-        # Interactive mode
         session = InteractiveSession(config, show_images, query_mode)
         session.run()
 

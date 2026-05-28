@@ -3,15 +3,13 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from typing import List
 
-import schemas
-import services
+from profirag.web.api import schemas, services
 
 router = APIRouter(prefix="/import", tags=["Document Import"])
 
 
 @router.post("/upload", response_model=List[schemas.FileInfo], summary="Upload documents for import")
 async def upload_documents(files: List[UploadFile] = File(...)):
-    """Upload multiple documents for import."""
     results = []
     for file in files:
         content = await file.read()
@@ -23,8 +21,6 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 
 @router.post("/start", response_model=schemas.ImportProgress, summary="Start import process")
 async def start_import(request: schemas.ImportStartRequest):
-    """Start importing documents into vector store."""
-    # Get file paths
     file_paths = []
     for file_id in request.file_ids:
         path = services.FileService.get_file_path(file_id)
@@ -34,7 +30,6 @@ async def start_import(request: schemas.ImportStartRequest):
     if not file_paths:
         raise HTTPException(status_code=400, detail="No valid files to import")
 
-    # Start import
     result = services.ImportService.start_import(
         file_paths=file_paths,
         splitter_type=request.config.splitter_type.value,
@@ -59,7 +54,6 @@ async def start_import(request: schemas.ImportStartRequest):
 
 @router.get("/progress/{job_id}", response_model=schemas.ImportProgress, summary="Get import progress")
 async def get_progress(job_id: str):
-    """Get current import job progress."""
     result = services.ImportService.get_progress(job_id)
     if not result:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -77,7 +71,6 @@ async def get_progress(job_id: str):
 
 @router.get("/stats/{job_id}", response_model=schemas.ImportStats, summary="Get import statistics")
 async def get_stats(job_id: str):
-    """Get final import statistics."""
     result = services.ImportService.get_stats(job_id)
     if not result:
         raise HTTPException(status_code=404, detail="Job not found or not completed")
@@ -87,7 +80,6 @@ async def get_stats(job_id: str):
 
 @router.post("/wiki", response_model=schemas.ImportProgress, summary="Start wiki import process")
 async def start_wiki_import(request: schemas.WikiImportRequest):
-    """Start importing wiki content into vector store."""
     result = services.ImportService.start_wiki_import(
         wiki_url=request.wiki_url,
         splitter_type=request.splitter_type.value,
@@ -112,7 +104,6 @@ async def start_wiki_import(request: schemas.WikiImportRequest):
 
 @router.delete("/files/{file_id}", summary="Delete uploaded file")
 async def delete_file(file_id: str):
-    """Delete an uploaded file."""
     if services.FileService.cleanup_file(file_id):
         return {"message": "File deleted"}
     raise HTTPException(status_code=404, detail="File not found")

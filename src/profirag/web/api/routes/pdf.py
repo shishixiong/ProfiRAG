@@ -4,15 +4,13 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from typing import Optional
 
-import schemas
-import services
+from profirag.web.api import schemas, services
 
 router = APIRouter(prefix="/pdf", tags=["PDF Conversion"])
 
 
 @router.post("/upload", summary="Upload PDF file")
 async def upload_pdf(file: UploadFile = File(...)):
-    """Upload a PDF file for conversion."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
@@ -24,7 +22,6 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @router.post("/convert/{file_id}", response_model=schemas.PdfConvertResponse, summary="Convert PDF to Markdown")
 async def convert_pdf(file_id: str, request: schemas.PdfConvertRequest):
-    """Convert uploaded PDF to Markdown."""
     file_path = services.FileService.get_file_path(file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
@@ -43,14 +40,13 @@ async def convert_pdf(file_id: str, request: schemas.PdfConvertRequest):
 
 @router.get("/preview/{file_id}", response_model=schemas.PdfPreviewResponse, summary="Get conversion preview")
 async def get_preview(file_id: str):
-    """Get preview of converted Markdown."""
     result = services.PdfService.get_preview(file_id)
     if not result:
         raise HTTPException(status_code=404, detail="Conversion not found")
 
     return schemas.PdfPreviewResponse(
         file_id=file_id,
-        original_pages=0,  # TODO: get from PDF
+        original_pages=0,
         markdown_preview=result["markdown_preview"],
         tables_count=result["tables_count"],
     )
@@ -58,12 +54,10 @@ async def get_preview(file_id: str):
 
 @router.get("/download/{file_id}", summary="Download Markdown file")
 async def download_markdown(file_id: str):
-    """Download the converted Markdown file."""
     file_dir = services.FileService.get_file_path(file_id)
     if not file_dir:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Find the output markdown file
     output_dir = file_dir.parent / "output"
     md_files = list(output_dir.glob("*.md"))
     if not md_files:
@@ -78,7 +72,6 @@ async def download_markdown(file_id: str):
 
 @router.delete("/{file_id}", summary="Delete uploaded file")
 async def delete_file(file_id: str):
-    """Delete uploaded file and its outputs."""
     if services.FileService.cleanup_file(file_id):
         return {"message": "File deleted"}
     raise HTTPException(status_code=404, detail="File not found")

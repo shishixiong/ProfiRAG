@@ -4,15 +4,13 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 import json
 
-import schemas
-import services
+from profirag.web.api import schemas, services
 
 router = APIRouter(prefix="/split", tags=["Document Splitter"])
 
 
 @router.post("/upload", summary="Upload document for splitting")
 async def upload_document(file: UploadFile = File(...)):
-    """Upload a document (PDF, MD, TXT, etc.) for splitting."""
     allowed_extensions = {".pdf", ".md", ".txt", ".py", ".java", ".cpp", ".go"}
     file_ext = file.filename.lower()
     if not any(file_ext.endswith(ext) for ext in allowed_extensions):
@@ -29,7 +27,6 @@ async def upload_document(file: UploadFile = File(...)):
 
 @router.post("/preview", response_model=schemas.SplitPreviewResponse, summary="Preview split result")
 async def preview_split(request: schemas.SplitPreviewRequest):
-    """Preview document split with metadata."""
     file_path = services.FileService.get_file_path(request.file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
@@ -45,7 +42,6 @@ async def preview_split(request: schemas.SplitPreviewRequest):
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
 
-    # Convert to response format
     chunks = []
     for c in result["chunks"]:
         chunks.append(schemas.ChunkPreview(
@@ -64,8 +60,6 @@ async def preview_split(request: schemas.SplitPreviewRequest):
 
 @router.get("/chunks/{file_id}/{chunk_index}", summary="Get specific chunk content")
 async def get_chunk(file_id: str, chunk_index: int, full: bool = False):
-    """Get content of a specific chunk."""
-    # For now, re-run preview to get chunk
     file_path = services.FileService.get_file_path(file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
@@ -75,12 +69,11 @@ async def get_chunk(file_id: str, chunk_index: int, full: bool = False):
     if chunk_index >= result["total_chunks"]:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
 
-    # Find the chunk
     for c in result["chunks"]:
         if c["chunk_index"] == chunk_index:
             return {
                 "chunk_index": chunk_index,
-                "text": c["text_preview"] if not full else c["text_preview"],  # TODO: store full text
+                "text": c["text_preview"] if not full else c["text_preview"],
                 "metadata": c["metadata"],
             }
 
@@ -89,7 +82,6 @@ async def get_chunk(file_id: str, chunk_index: int, full: bool = False):
 
 @router.post("/download", summary="Download split results")
 async def download_chunks(request: schemas.SplitDownloadRequest):
-    """Download full split results."""
     output_file = services.SplitService.download_chunks(
         request.file_id,
         output_format=request.output_format.value,
@@ -106,7 +98,6 @@ async def download_chunks(request: schemas.SplitDownloadRequest):
 
 @router.delete("/{file_id}", summary="Delete uploaded file")
 async def delete_file(file_id: str):
-    """Delete uploaded file and cached results."""
     if services.FileService.cleanup_file(file_id):
         return {"message": "File deleted"}
     raise HTTPException(status_code=404, detail="File not found")

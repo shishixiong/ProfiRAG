@@ -1,0 +1,1 @@
+"""ProfiRAG Web package."""

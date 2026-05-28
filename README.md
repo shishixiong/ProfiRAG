@@ -114,16 +114,16 @@ PROFIRAG_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 
 ```bash
 # Pipeline mode (default)
-python main.py
+profirag
 
 # ReAct Agent mode
-python main.py --mode agent
+profirag --mode agent
 
 # Plan Agent mode
-python main.py --mode plan
+profirag --mode plan
 
 # Single query
-python main.py --query "What is GaussDB?" --mode agent
+profirag --query "What is GaussDB?" --mode agent
 ```
 
 ### Programmatic Usage
@@ -149,10 +149,10 @@ result = pipeline.query_with_agent("Complex question", mode="plan", auto_approve
 
 ```bash
 # Ingest from directory
-uv run python scripts/ingest_documents.py --documents ./documents
+profirag-ingest --documents ./documents
 
 # Ingest single file
-uv run python scripts/ingest_documents.py --file ./documents/example.pdf
+profirag-ingest --file ./documents/example.pdf
 ```
 
 ### Web Service
@@ -160,8 +160,8 @@ uv run python scripts/ingest_documents.py --file ./documents/example.pdf
 Start the web interface for interactive document processing and chat:
 
 ```bash
-# Start backend (from project root)
-uvicorn web.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Start backend
+prof-web --host 0.0.0.0 --port 8000 --reload
 
 # Start frontend dev server
 cd web/frontend && npm install && npm run dev
@@ -180,8 +180,9 @@ Access at http://localhost:5173. Features:
 
 ```
 ProfiRAG/
-├── main.py                     # Interactive CLI entry point
 ├── src/profirag/
+│   ├── cli.py                    # Interactive CLI entry point (profirag command)
+│   ├── ingest.py                 # Document ingestion CLI (profirag-ingest command)
 │   ├── config/settings.py      # Pydantic config (env vars, model configs)
 │   ├── agent/                   # Agent system
 │   │   ├── tools.py             # RAGTools — 10 agent tools
@@ -194,19 +195,18 @@ ProfiRAG/
 │   ├── generation/              # ResponseSynthesizer, PromptTemplates
 │   ├── embedding/               # Custom OpenAI embedding wrapper
 │   ├── storage/                 # Storage abstraction (Qdrant, PG, Local)
+│   ├── web/                     # Web service
+│   │   └── api/                 # FastAPI backend (profirag-web command)
+│   │       ├── main.py          # API entry point + run_server()
+│   │       ├── routes/          # PDF, split, import, chat endpoints
+│   │       ├── services.py      # Business logic wrappers
+│   │       └── schemas.py       # Pydantic request/response models
 │   └── evaluation/              # Retrieval, response, chunking, dataset eval
-├── web/                         # Web service
-│   ├── api/                     # FastAPI backend
-│   │   ├── main.py              # API entry point
-│   │   ├── routes/              # PDF, split, import, chat endpoints
-│   │   ├── services.py          # Business logic wrappers
-│   │   └── schemas.py           # Pydantic request/response models
-│   └── frontend/                # Vue 3 frontend
-│   │   ├── src/views/           # PdfConvert, DocSplitter, DocImport, Chat
-│   │   ├── src/components/      # ModeSelector, shared components
-│   │   └── src/api/             # Axios API client
-│   │   └── src/App.vue          # Main layout with tab navigation
-└── scripts/                     # Utility scripts (PDF conversion, ingestion)
+├── web/frontend/                # Vue 3 frontend
+│   ├── src/views/               # PdfConvert, DocSplitter, DocImport, Chat
+│   ├── src/components/          # ModeSelector, shared components
+│   └── src/api/                 # Axios API client
+└── scripts/                     # Utility scripts (PDF conversion, etc.)
 ```
 
 ## Key Architecture Decisions
