@@ -161,7 +161,7 @@ Start the web interface for interactive document processing and chat:
 
 ```bash
 # Start backend
-prof-web --host 0.0.0.0 --port 8000 --reload
+profirag-web --host 0.0.0.0 --port 8000 --reload
 
 # Start frontend dev server
 cd web/frontend && npm install && npm run dev

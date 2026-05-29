@@ -226,7 +226,7 @@ class QdrantStore(BaseVectorStore):
                 prefer_grpc=prefer_grpc,
                 aclient=aclient,
                 enable_hybrid=True,
-                fastembed_sparse_model="Qdrant/bm25",
+                fastembed_sparse_model="Qdrant/bm42-all-minilm-l6-v2-attentions",
                 **kwargs
             )
         else:
