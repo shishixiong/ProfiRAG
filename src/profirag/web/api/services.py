@@ -620,14 +620,14 @@ class ChatService:
                     "node_id": src.node.node_id,
                     "text": src.node.text[:300],
                     "score": src.score,
-                    "source_file": src.node.metadata.get("source_file"),
+                    "source_file": src.node.metadata.get("source_file") or src.node.metadata.get("source") or src.node.metadata.get("source_path") or "",
                 })
             else:
                 sources.append({
                     "node_id": src.get("node_id", ""),
                     "text": src.get("text", "")[:300],
                     "score": src.get("score", 0.0),
-                    "source_file": src.get("source_file"),
+                    "source_file": src.get("source_file") or src.get("source") or src.get("source_path") or "",
                 })
         return sources
 
@@ -657,21 +657,23 @@ class ChatService:
         sources = []
         if "sources" in result:
             for src in result["sources"]:
+                source_file = src.get("source_file") or src.get("source") or src.get("source_path") or ""
                 sources.append({
                     "node_id": src.get("node_id", ""),
                     "text": src.get("text", "")[:300] if len(src.get("text", "")) > 300 else src.get("text", ""),
                     "score": src.get("score", 0.0),
-                    "source_file": src.get("source_file"),
+                    "source_file": source_file,
                     "header_path": src.get("header_path"),
                 })
 
         if "source_nodes" in result and not sources:
             for src in result["source_nodes"]:
+                source_file = src.get("source_file") or src.get("source") or src.get("source_path") or ""
                 sources.append({
                     "node_id": src.get("node_id", ""),
                     "text": src.get("text", "")[:300] if len(src.get("text", "")) > 300 else src.get("text", ""),
                     "score": src.get("score", 0.0),
-                    "source_file": src.get("source_file"),
+                    "source_file": source_file,
                     "header_path": src.get("header_path"),
                 })
 

@@ -329,7 +329,7 @@ class RAGReActAgent:
                     sources.append({
                         "text": src.node.text[:300],
                         "score": src.score if hasattr(src, 'score') else 0,
-                        "source_file": metadata.get('source_file', metadata.get('source_path', '')),
+                        "source_file": metadata.get('source_file', metadata.get('source', metadata.get('source_path', ''))),
                         "header_path": metadata.get('header_path', ''),
                         "node_id": src.node.node_id,
                     })
@@ -341,7 +341,7 @@ class RAGReActAgent:
                 sources.append({
                     "text": n.node.text[:300],
                     "score": n.score,
-                    "source_file": metadata.get('source_file', metadata.get('source_path', '')),
+                    "source_file": metadata.get('source_file', metadata.get('source', metadata.get('source_path', ''))),
                     "header_path": metadata.get('header_path', ''),
                     "node_id": n.node.node_id,
                 })
